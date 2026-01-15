@@ -46,6 +46,22 @@
         "purchase_price": 20.0,
         "market_value": 25.0
       }
+    },
+    {
+      "id": "c4",
+      "name": "Dark Magician",
+      "quantity": 1,
+      "image_url": "https://images.ygoprodeck.com/images/cards/46986414.jpg",
+      "metadata": {
+        "set_code": "SDY-DE006",
+        "rarity": "Super Rare",
+        "language": "DE",
+        "condition": "Near Mint",
+        "first_edition": true,
+        "storage_location": "Binder 1, Page 2",
+        "purchase_price": 10.0,
+        "market_value": 20.0
+      }
     }
   ]
 }
