@@ -73,13 +73,21 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[str, List
                     try: price = float(cset.set_price)
                     except: pass
 
+                # Determine specific image
+                row_img_url = img_url
+                if cset.image_id:
+                     for img in card.card_images:
+                         if img.id == cset.image_id:
+                             row_img_url = img.image_url_small
+                             break
+
                 rows.append(CollectorRow(
                     api_card=card,
                     set_code=cset.set_code,
                     set_name=cset.set_name,
                     rarity=cset.set_rarity,
                     price=price,
-                    image_url=img_url,
+                    image_url=row_img_url,
                     owned_count=qty,
                     is_owned=qty > 0,
                     language=lang_upper
@@ -507,7 +515,7 @@ class CollectionPage:
         except Exception as e:
             ui.notify(f"Error saving: {e}", type='negative')
 
-    def open_single_view(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None, owned_languages: Set[str] = None, rarity: str = None, set_name: str = None, language: str = None):
+    def open_single_view(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None, owned_languages: Set[str] = None, rarity: str = None, set_name: str = None, language: str = None, image_url: str = None):
         if self.state['view_scope'] == 'consolidated':
             # Derive ownership data from current collection
             owned_breakdown = {}
@@ -523,7 +531,7 @@ class CollectionPage:
             return
 
         if self.state['view_scope'] == 'collectors':
-             self.render_collectors_single_view(card, quantity, initial_set, rarity, set_name, language)
+             self.render_collectors_single_view(card, quantity, initial_set, rarity, set_name, language, image_url)
              return
 
         self.open_single_view_legacy(card, is_owned, quantity, initial_set, owned_languages)
@@ -591,18 +599,20 @@ class CollectionPage:
 
             d.open()
 
-    def render_collectors_single_view(self, card: ApiCard, owned_count: int, set_code: str, rarity: str, set_name: str, language: str):
+    def render_collectors_single_view(self, card: ApiCard, owned_count: int, set_code: str, rarity: str, set_name: str, language: str, image_url: str = None):
          with ui.dialog().props('maximized') as d, ui.card().classes('w-full h-full p-0 flex flex-row overflow-hidden'):
             ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
 
             # Left: Image
             with ui.column().classes('w-1/3 h-full bg-black items-center justify-center p-8'):
-                img_url = card.card_images[0].image_url if card.card_images else None
-                if image_manager.image_exists(card.id):
-                     img_url = f"/images/{card.id}.jpg"
+                final_img_url = image_url
+                if not final_img_url:
+                    final_img_url = card.card_images[0].image_url if card.card_images else None
+                    if image_manager.image_exists(card.id):
+                         final_img_url = f"/images/{card.id}.jpg"
 
-                if img_url:
-                    ui.image(img_url).classes('max-h-full max-w-full object-contain shadow-2xl')
+                if final_img_url:
+                    ui.image(final_img_url).classes('max-h-full max-w-full object-contain shadow-2xl')
 
             # Right: Info
             with ui.column().classes('w-2/3 h-full bg-gray-900 text-white p-8 scroll-y-auto'):
@@ -818,7 +828,7 @@ class CollectionPage:
             for item in items:
                 bg = 'bg-gray-900' if not item.is_owned else 'bg-gray-800 border border-accent'
                 with ui.grid(columns=cols).classes(f'w-full {bg} p-1 items-center rounded hover:bg-gray-700 transition cursor-pointer') \
-                        .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language)):
+                        .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language, image_url=c.image_url)):
                     ui.image(item.image_url).classes('h-12 w-8 object-cover')
                     ui.label(item.api_card.name).classes('truncate text-sm font-bold')
                     with ui.column().classes('gap-0'):
@@ -839,7 +849,7 @@ class CollectionPage:
                 border = "border-accent" if item.is_owned else "border-gray-700"
 
                 with ui.card().classes(f'collection-card w-full p-0 cursor-pointer {opacity} border {border} hover:scale-105 transition-transform') \
-                        .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language)):
+                        .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language, image_url=c.image_url)):
 
                     with ui.element('div').classes('relative w-full aspect-[2/3] bg-black'):
                         if item.image_url: ui.image(item.image_url).classes('w-full h-full object-cover')
