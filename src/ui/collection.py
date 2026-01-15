@@ -112,16 +112,32 @@ class CollectionPage:
             'current_collection': None,
             'selected_file': None,
             'available_sets': [],
+            'available_monster_races': [],
+            'available_st_races': [],
+            'available_card_types': [],
+            'max_owned_quantity': 100, # dynamic
 
             # Filters
             'search_text': '',
             'filter_set': '',
             'filter_rarity': '',
             'filter_attr': '',
-            'filter_type': '',
+            'filter_card_type': '', # Renamed from filter_type
+            'filter_monster_race': '',
+            'filter_st_race': '',
+            'filter_monster_category': '',
             'filter_level': None,
-            'filter_quantity': 1,
-            'filter_price_max': None,
+            'filter_atk_min': 0,
+            'filter_atk_max': 5000,
+            'filter_def_min': 0,
+            'filter_def_max': 5000,
+
+            # Ranges
+            'filter_ownership_min': 0,
+            'filter_ownership_max': 100,
+            'filter_price_min': 0.0,
+            'filter_price_max': 1000.0,
+
             'filter_owned_lang': '',
             'only_owned': False,
             'language': config_manager.get_language(),
@@ -143,18 +159,40 @@ class CollectionPage:
         print("Loading data...")
 
         try:
-            api_cards = await ygo_service.load_card_database(self.state['language'])
+            # Ensure we load lowercase language to avoid API errors
+            lang_code = self.state['language'].lower() if self.state['language'] else 'en'
+            api_cards = await ygo_service.load_card_database(lang_code)
         except Exception as e:
             ui.notify(f"Error loading database: {e}", type='negative')
             return
 
-        # Extract Sets
+        # Extract Meta Data for Filters
         sets = set()
+        m_races = set()
+        st_races = set()
+        c_types = set()
+
         for c in api_cards:
+            # Sets: Name | Prefix
             if c.card_sets:
                 for s in c.card_sets:
-                    sets.add(f"{s.set_name} | {s.set_code}")
+                    # Extract prefix from Code (e.g. LOB-EN001 -> LOB)
+                    # If split fails, just use code
+                    parts = s.set_code.split('-')
+                    prefix = parts[0] if len(parts) > 0 else s.set_code
+                    sets.add(f"{s.set_name} | {prefix}")
+
+            c_types.add(c.type)
+
+            if "Monster" in c.type:
+                m_races.add(c.race)
+            elif "Spell" in c.type or "Trap" in c.type:
+                if c.race: st_races.add(c.race)
+
         self.state['available_sets'] = sorted(list(sets))
+        self.state['available_monster_races'] = sorted(list(m_races))
+        self.state['available_st_races'] = sorted(list(st_races))
+        self.state['available_card_types'] = sorted(list(c_types))
 
         # Load Collection
         collection = None
@@ -168,11 +206,18 @@ class CollectionPage:
 
         # Build Maps
         owned_details = {}
+        max_qty = 0
         if collection:
             for c in collection.cards:
                 key = c.name.lower()
                 if key not in owned_details: owned_details[key] = []
                 owned_details[key].append(c)
+                max_qty = max(max_qty, c.quantity)
+
+        # Update max owned for slider
+        self.state['max_owned_quantity'] = max(100, max_qty) # at least 100
+        # If current max filter is default or higher than new max, cap it?
+        # Actually user wants dynamic. We'll set the slider max.
 
         self.state['cards_consolidated'] = await run.io_bound(build_consolidated_vms, api_cards, owned_details)
 
@@ -182,14 +227,30 @@ class CollectionPage:
              self.state['cards_collectors'] = await run.io_bound(build_collector_rows, api_cards, owned_details, self.state['language'])
 
         self.apply_filters()
-
-        # Update set selector options if rendered
-        if hasattr(self, 'set_selector'):
-            self.set_selector.options = self.state['available_sets']
-            self.set_selector.update()
+        self.update_filter_ui()
 
         # ui.notify('Data loaded.', type='positive')
         print(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
+
+    def update_filter_ui(self):
+        # Update dropdown options if they exist
+        if hasattr(self, 'set_selector'):
+            self.set_selector.options = self.state['available_sets']
+            self.set_selector.update()
+        if hasattr(self, 'm_race_selector'):
+            self.m_race_selector.options = self.state['available_monster_races']
+            self.m_race_selector.update()
+        if hasattr(self, 'st_race_selector'):
+            self.st_race_selector.options = self.state['available_st_races']
+            self.st_race_selector.update()
+        if hasattr(self, 'ctype_selector'):
+            self.ctype_selector.options = self.state['available_card_types']
+            self.ctype_selector.update()
+
+        # Update sliders max
+        if hasattr(self, 'ownership_slider'):
+             self.ownership_slider.max = self.state['max_owned_quantity']
+             self.ownership_slider.update()
 
     def apply_filters(self, e=None):
         if self.state['view_scope'] == 'consolidated':
@@ -199,7 +260,7 @@ class CollectionPage:
 
         if not source:
             self.state['filtered_items'] = []
-            self.content_area.refresh()
+            if hasattr(self, 'content_area'): self.content_area.refresh()
             return
 
         res = list(source)
@@ -211,68 +272,112 @@ class CollectionPage:
                    txt in c.api_card.type.lower() or
                    txt in c.api_card.desc.lower()]
 
-        # Owned Filter
+        # Owned Filter (Switch)
         if self.state['only_owned']:
-            min_q = int(self.state['filter_quantity'] or 1)
-            res = [c for c in res if c.is_owned and
-                   (getattr(c, 'owned_quantity', 0) if hasattr(c, 'owned_quantity') else getattr(c, 'owned_count', 0)) >= min_q]
+            res = [c for c in res if c.is_owned]
+
+        # Ownership Range
+        # Consolidated: owned_quantity
+        # Collectors: owned_count
+        min_q = self.state['filter_ownership_min']
+        max_q = self.state['filter_ownership_max']
+
+        # If range is full (0-100+), maybe skip? No, explicit filter.
+        # But if max_q is the slider max, we treat it as "unbounded" or just inclusive?
+        # User said "min/max slider input".
+
+        def get_qty(item):
+            if hasattr(item, 'owned_quantity'): return item.owned_quantity
+            return getattr(item, 'owned_count', 0)
+
+        res = [c for c in res if min_q <= get_qty(c) <= max_q]
+
+        # Price Range
+        p_min = self.state['filter_price_min']
+        p_max = self.state['filter_price_max']
+
+        def get_price(item):
+             if hasattr(item, 'lowest_price'): return item.lowest_price
+             return getattr(item, 'price', 0.0)
+
+        res = [c for c in res if p_min <= get_price(c) <= p_max]
 
         # Owned Language Filter
         if self.state['filter_owned_lang']:
             target_lang = self.state['filter_owned_lang']
             if self.state['view_scope'] == 'consolidated':
                 res = [c for c in res if target_lang in c.owned_languages]
-            # For collectors view, it's tricky as rows are strictly current DB language.
-            # We skip it or implement complex logic. For now, skip or maybe strict match if the row language matches?
-            # User requirement implies filtering what I own.
-            # If I filter 'DE', and I am in 'EN' view, Collectors view (EN rows) won't have 'DE' cards.
-            # So this filter effectively returns 0 in Collectors view unless we are in DE view.
+            # Collectors view logic: rows are language specific.
+            # If I filter 'DE', but view is 'EN', row has lang 'EN'.
+            # So likely we only show rows that MATCH the filter lang?
+            # Or if row is owned, check if we own that card in that lang?
+            # Simpler: If "Owned Language" filter is set, only show items where that language is owned.
+            # In collectors view (row based), the row represents a specific lang.
+            # So we check if row.language == target_lang.
+            else:
+                 res = [c for c in res if c.language == target_lang]
 
         # Common Filters
         if self.state['filter_attr']:
             res = [c for c in res if c.api_card.attribute == self.state['filter_attr']]
-        if self.state['filter_type']:
-             res = [c for c in res if self.state['filter_type'] in c.api_card.type]
+
+        if self.state['filter_card_type']:
+             res = [c for c in res if self.state['filter_card_type'] == c.api_card.type]
+
+        if self.state['filter_monster_race']:
+             # Only applies to monsters
+             res = [c for c in res if "Monster" in c.api_card.type and c.api_card.race == self.state['filter_monster_race']]
+
+        if self.state['filter_st_race']:
+             # Only Spells/Traps
+             res = [c for c in res if ("Spell" in c.api_card.type or "Trap" in c.api_card.type) and c.api_card.race == self.state['filter_st_race']]
+
+        if self.state['filter_monster_category']:
+             cat = self.state['filter_monster_category']
+             # Check if category string is in type string
+             # e.g. "Tuner" in "Tuner Monster"
+             res = [c for c in res if cat in c.api_card.type]
+
         if self.state['filter_level']:
              res = [c for c in res if c.api_card.level == int(self.state['filter_level'])]
-        if self.state['filter_price_max']:
-             try:
-                 p_max = float(self.state['filter_price_max'])
-                 if self.state['view_scope'] == 'consolidated':
-                     res = [c for c in res if c.lowest_price <= p_max]
-                 else:
-                     res = [c for c in res if c.price <= p_max]
-             except: pass
+
+        # ATK Filter
+        atk_min, atk_max = self.state['filter_atk_min'], self.state['filter_atk_max']
+        if atk_min > 0 or atk_max < 5000:
+             res = [c for c in res if c.api_card.atk is not None and atk_min <= int(c.api_card.atk) <= atk_max]
+
+        # DEF Filter
+        def_min, def_max = self.state['filter_def_min'], self.state['filter_def_max']
+        if def_min > 0 or def_max < 5000:
+             # Use def_ field if available (aliased in pydantic usually) or getattr
+             res = [c for c in res if getattr(c.api_card, 'def_', None) is not None and def_min <= getattr(c.api_card, 'def_', -1) <= def_max]
 
         # Set Filter (Enhanced)
         if self.state['filter_set']:
             s_val = self.state['filter_set']
-            # Format is "Name | Code" or just Code
-            # We match strictly or loosely?
-            # Extract code if possible
-            code_search = s_val.split('|')[-1].strip().lower()
+            # Format: "Name | Prefix"
+            prefix_search = s_val.split('|')[-1].strip().lower()
             name_search = s_val.split('|')[0].strip().lower()
 
             if self.state['view_scope'] == 'consolidated':
-                # Check api_card.card_sets
                 def match_set(c):
                     if not c.api_card.card_sets: return False
                     for cs in c.api_card.card_sets:
-                        if code_search in cs.set_code.lower() or name_search in cs.set_name.lower():
+                        # Match prefix in set_code or name
+                        if prefix_search in cs.set_code.lower() or name_search in cs.set_name.lower():
                             return True
                     return False
                 res = [c for c in res if match_set(c)]
             else:
-                res = [c for c in res if code_search in c.set_code.lower() or name_search in c.set_name.lower()]
+                res = [c for c in res if prefix_search in c.set_code.lower() or name_search in c.set_name.lower()]
 
         # Rarity Filter
         if self.state['filter_rarity']:
             r = self.state['filter_rarity'].lower()
             if self.state['view_scope'] == 'consolidated':
-                 # Check sets
-                 res = [c for c in res if c.api_card.card_sets and any(r in cs.set_rarity.lower() for cs in c.api_card.card_sets)]
+                 res = [c for c in res if c.api_card.card_sets and any(r == cs.set_rarity.lower() for cs in c.api_card.card_sets)]
             else:
-                 res = [c for c in res if r in c.rarity.lower()]
+                 res = [c for c in res if r == c.rarity.lower()]
 
         # Sorting
         key = self.state['sort_by']
@@ -287,15 +392,12 @@ class CollectionPage:
         elif key == 'Newest':
             res.sort(key=lambda x: x.api_card.id, reverse=True)
         elif key == 'Price':
-            if self.state['view_scope'] == 'consolidated':
-                 res.sort(key=lambda x: x.lowest_price)
-            else:
-                 res.sort(key=lambda x: x.price)
+             res.sort(key=lambda x: get_price(x))
 
         self.state['filtered_items'] = res
         self.state['page'] = 1
         self.update_pagination()
-        self.content_area.refresh()
+        if hasattr(self, 'content_area'): self.content_area.refresh()
 
     def update_pagination(self):
         count = len(self.state['filtered_items'])
@@ -304,11 +406,6 @@ class CollectionPage:
     async def switch_scope(self, scope):
         self.state['view_scope'] = scope
         if scope == 'collectors' and not self.state['cards_collectors']:
-             # Need to fetch api_cards again? No, we need stored api_cards.
-             # Ideally we cache api_cards in state, but it might be heavy?
-             # Current implementation calls load_data() which re-fetches.
-             # Optimization: Store api_cards in self.state?
-             # For now, just call load_data() as in original.
              await self.load_data()
         else:
             self.apply_filters()
@@ -352,20 +449,15 @@ class CollectionPage:
         except Exception as e:
             ui.notify(f"Error saving: {e}", type='negative')
 
-    def open_details(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None):
+    def open_details(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None, owned_languages: Set[str] = None):
         set_opts = [s.set_code for s in card.card_sets] if card.card_sets else ["N/A"]
 
         edit_state = {
             'set': initial_set if initial_set and initial_set in set_opts else (set_opts[0] if set_opts else "N/A"),
             'rarity': card.card_sets[0].set_rarity if card.card_sets else "Common",
-            'language': self.state['language'].upper(), # Default to current view lang
+            'language': self.state['language'].upper(),
             'quantity': quantity
         }
-
-        # If editing existing owned card logic?
-        # The logic in original was: initial_set passed from clicked row.
-        # But if we open from Consolidated, we don't know which one.
-        # If we open from Collectors, we know.
 
         if initial_set and card.card_sets:
             for s in card.card_sets:
@@ -389,6 +481,13 @@ class CollectionPage:
                     if is_owned:
                         ui.badge(f"Owned: {quantity}", color='accent').classes('text-lg')
 
+                # Owned Languages Display (Only if owned)
+                if is_owned and owned_languages:
+                     with ui.row().classes('w-full gap-2 q-mb-sm'):
+                         ui.label('Owned Languages:').classes('font-bold text-gray-400')
+                         for lang in sorted(list(owned_languages)):
+                             ui.badge(lang, color='positive').props('outline')
+
                 with ui.card().classes('w-full bg-gray-800 p-4 q-my-md border border-gray-700'):
                     ui.label('Manage Collection').classes('text-h6 q-mb-sm')
                     with ui.grid(columns=4).classes('w-full gap-4 items-end'):
@@ -406,12 +505,19 @@ class CollectionPage:
                         with ui.column():
                             ui.label(label).classes('text-grey text-sm uppercase')
                             ui.label(str(value)).classes('font-bold')
-                    stat('Type', card.type)
-                    stat('Race', card.race)
+                    stat('Card Type', card.type)
+
+                    race_label = 'Monster Type'
+                    if 'Spell' in card.type or 'Trap' in card.type:
+                        race_label = 'Property'
+
+                    stat(race_label, card.race)
                     stat('Attribute', card.attribute)
                     stat('Level', card.level)
                     stat('ATK', card.atk)
                     stat('DEF', getattr(card, 'def_', '-'))
+                    # Added details
+                    stat('Category', next((p for p in ['Tuner', 'Spirit', 'Gemini', 'Toon', 'Union'] if p in card.type), '-'))
 
                 ui.separator().classes('q-my-md')
                 ui.label('Description').classes('text-h6 q-mb-sm')
@@ -435,7 +541,7 @@ class CollectionPage:
                 border = "border-accent" if vm.is_owned else "border-gray-700"
 
                 with ui.card().classes(f'collection-card w-full p-0 cursor-pointer {opacity} border {border} hover:scale-105 transition-transform') \
-                        .on('click', lambda c=vm: self.open_details(c.api_card, c.is_owned, c.owned_quantity)):
+                        .on('click', lambda c=vm: self.open_details(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
 
                     img_src = card.card_images[0].image_url_small if card.card_images else None
                     if image_manager.image_exists(card.id):
@@ -446,13 +552,19 @@ class CollectionPage:
                         if vm.owned_quantity > 0:
                             ui.label(f"{vm.owned_quantity}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs')
 
+                        # Level/Rank Indicator
+                        if card.level:
+                             # Use Star icon? or just 'Lvl 4'
+                             ui.label(f"Lv {card.level}").classes('absolute bottom-1 right-1 bg-black/70 text-white text-[10px] px-1 rounded')
+
                     with ui.column().classes('p-2 gap-0 w-full'):
                         ui.label(card.name).classes('text-xs font-bold truncate w-full')
-                        ui.label(f"${vm.lowest_price:.2f}").classes('text-xs text-green-400')
+                        # Card Type instead of Price
+                        ui.label(card.type).classes('text-[10px] text-gray-400 truncate w-full')
 
     def render_consolidated_list(self, items: List[CardViewModel]):
-         headers = ['Image', 'Name', 'Type', 'Price', 'Owned']
-         cols = '60px 4fr 2fr 1fr 1fr'
+         headers = ['Image', 'Name', 'Type', 'Card Type', 'Owned']
+         cols = '60px 4fr 2fr 2fr 1fr'
          with ui.column().classes('w-full gap-1'):
             with ui.grid(columns=cols).classes('w-full bg-gray-800 p-2 font-bold rounded'):
                 for h in headers: ui.label(h)
@@ -463,11 +575,15 @@ class CollectionPage:
                 img_src = card.card_images[0].image_url_small if card.card_images else None
 
                 with ui.grid(columns=cols).classes(f'w-full {bg} p-1 items-center rounded hover:bg-gray-700 transition cursor-pointer') \
-                        .on('click', lambda c=vm: self.open_details(c.api_card, c.is_owned, c.owned_quantity)):
+                        .on('click', lambda c=vm: self.open_details(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
                     ui.image(img_src).classes('h-10 w-8 object-cover')
-                    ui.label(card.name).classes('truncate text-sm font-bold')
+                    with ui.column().classes('gap-0'):
+                        ui.label(card.name).classes('truncate text-sm font-bold')
+                        if card.level:
+                            ui.label(f"Lv {card.level}").classes('text-[10px] text-gray-500')
+                    ui.label(card.race).classes('text-xs text-gray-400') # Showing Race in Type col
+                    # Replaced Price with Card Type
                     ui.label(card.type).classes('text-xs text-gray-400')
-                    ui.label(f"${vm.lowest_price:.2f}").classes('text-sm text-green-400')
                     if vm.is_owned:
                          ui.badge(str(vm.owned_quantity), color='accent').classes('text-dark')
                     else:
@@ -563,9 +679,8 @@ class CollectionPage:
 
     def build_ui(self):
         # Drawer (Filter)
-        # We use a dialog for the filter drawer to avoid nesting in main layout
         filter_dialog = ui.dialog().props('position=right')
-        with filter_dialog, ui.card().classes('h-full w-80 bg-gray-900 border-l border-gray-700 p-0'):
+        with filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0'):
              with ui.scroll_area().classes('h-full w-full'):
                  with ui.column().classes('h-full w-full p-4 gap-4'):
                     ui.label('Filters').classes('text-h6')
@@ -574,19 +689,101 @@ class CollectionPage:
                     self.set_selector = ui.select(self.state['available_sets'], label='Set', with_input=True, clearable=True,
                               on_change=self.apply_filters).bind_value(self.state, 'filter_set').classes('w-full').props('use-input fill-input input-debounce=0')
 
-                    ui.input('Rarity', on_change=self.apply_filters).bind_value(self.state, 'filter_rarity').classes('w-full').props('clearable')
-                    ui.number('Max Price', min=0, on_change=self.apply_filters).bind_value(self.state, 'filter_price_max').classes('w-full').props('clearable')
+                    # Rarity (Dropdown with common rarities)
+                    common_rarities = ["Common", "Rare", "Super Rare", "Ultra Rare", "Secret Rare", "Ghost Rare", "Ultimate Rare", "Starlight Rare", "Collector's Rare"]
+                    ui.select(common_rarities, label='Rarity', with_input=True, clearable=True, on_change=self.apply_filters).bind_value(self.state, 'filter_rarity').classes('w-full')
 
+                    # Attribute
                     ui.select(['DARK', 'LIGHT', 'EARTH', 'WIND', 'FIRE', 'WATER', 'DIVINE'],
                               label='Attribute', clearable=True, on_change=self.apply_filters).bind_value(self.state, 'filter_attr').classes('w-full')
 
-                    ui.select(['Normal Monster', 'Effect Monster', 'Spell Card', 'Trap Card', 'Fusion', 'Synchro', 'Xyz', 'Link'],
-                              label='Type', clearable=True, on_change=self.apply_filters).bind_value(self.state, 'filter_type').classes('w-full')
+                    # Card Types (was Type)
+                    self.ctype_selector = ui.select(self.state['available_card_types'], label='Card Types', with_input=True, clearable=True,
+                                                    on_change=self.apply_filters).bind_value(self.state, 'filter_card_type').classes('w-full')
+
+                    # Monster Type (Race)
+                    self.m_race_selector = ui.select(self.state['available_monster_races'], label='Monster Type', with_input=True, clearable=True,
+                                                    on_change=self.apply_filters).bind_value(self.state, 'filter_monster_race').classes('w-full')
+
+                    # Spell/Trap Type (Race)
+                    self.st_race_selector = ui.select(self.state['available_st_races'], label='Spell/Trap Type', with_input=True, clearable=True,
+                                                    on_change=self.apply_filters).bind_value(self.state, 'filter_st_race').classes('w-full')
+
+                    # Monster Category
+                    categories = ['Flip', 'Gemini', 'Spirit', 'Toon', 'Tuner', 'Union', 'Pendulum']
+                    ui.select(categories, label='Monster Category', clearable=True, on_change=self.apply_filters).bind_value(self.state, 'filter_monster_category').classes('w-full')
 
                     ui.number('Level/Rank', min=0, max=13, on_change=self.apply_filters).bind_value(self.state, 'filter_level').classes('w-full')
 
+                    # ATK
+                    ui.label('ATK').classes('text-sm text-gray-400')
+                    with ui.row().classes('w-full items-center gap-2'):
+                        ui.number(min=0, on_change=lambda e: [self.state.update({'filter_atk_min': e.value}), self.apply_filters()]).bind_value(self.state, 'filter_atk_min').classes('w-16').props('dense borderless')
+
+                        def update_atk(e):
+                            val = e.args[0] if isinstance(e.args[0], dict) else e.value
+                            self.state['filter_atk_min'] = val['min']
+                            self.state['filter_atk_max'] = val['max']
+                            self.apply_filters()
+
+                        atk_slider = ui.range(min=0, max=5000, step=50).classes('col-grow').on('update:model-value', update_atk)
+                        atk_slider.value = {'min': self.state['filter_atk_min'], 'max': self.state['filter_atk_max']}
+
+                        ui.number(min=0, on_change=lambda e: [self.state.update({'filter_atk_max': e.value}), self.apply_filters()]).bind_value(self.state, 'filter_atk_max').classes('w-16').props('dense borderless')
+
+                    # DEF
+                    ui.label('DEF').classes('text-sm text-gray-400')
+                    with ui.row().classes('w-full items-center gap-2'):
+                        ui.number(min=0, on_change=lambda e: [self.state.update({'filter_def_min': e.value}), self.apply_filters()]).bind_value(self.state, 'filter_def_min').classes('w-16').props('dense borderless')
+
+                        def update_def(e):
+                            val = e.args[0] if isinstance(e.args[0], dict) else e.value
+                            self.state['filter_def_min'] = val['min']
+                            self.state['filter_def_max'] = val['max']
+                            self.apply_filters()
+
+                        def_slider = ui.range(min=0, max=5000, step=50).classes('col-grow').on('update:model-value', update_def)
+                        def_slider.value = {'min': self.state['filter_def_min'], 'max': self.state['filter_def_max']}
+
+                        ui.number(min=0, on_change=lambda e: [self.state.update({'filter_def_max': e.value}), self.apply_filters()]).bind_value(self.state, 'filter_def_max').classes('w-16').props('dense borderless')
+
                     ui.separator()
-                    ui.label('Ownership').classes('text-h6')
+                    ui.label('Ownership & Price').classes('text-h6')
+
+                    # Ownership Amount (Min/Max Slider)
+                    ui.label('Ownership Quantity Range').classes('text-sm text-gray-400')
+                    with ui.row().classes('w-full items-center gap-2'):
+                        ui.number(min=0, on_change=self.apply_filters).bind_value(self.state, 'filter_ownership_min').classes('w-16').props('dense borderless')
+
+                        # Custom Logic for Range Sync
+                        def update_range_state(e):
+                            val = e.args[0] if isinstance(e.args[0], dict) else e.value
+                            self.state['filter_ownership_min'] = val['min']
+                            self.state['filter_ownership_max'] = val['max']
+                            self.apply_filters()
+
+                        self.ownership_slider = ui.range(min=0, max=100, step=1).classes('col-grow') \
+                            .on('update:model-value', update_range_state)
+                        self.ownership_slider.value = {'min': self.state['filter_ownership_min'], 'max': self.state['filter_ownership_max']}
+
+                        ui.number(min=0, on_change=self.apply_filters).bind_value(self.state, 'filter_ownership_max').classes('w-16').props('dense borderless')
+
+                    # Price Range
+                    ui.label('Price Range ($)').classes('text-sm text-gray-400')
+                    with ui.row().classes('w-full items-center gap-2'):
+                         ui.number(min=0, on_change=self.apply_filters).bind_value(self.state, 'filter_price_min').classes('w-20').props('dense')
+
+                         def update_price_state(e):
+                             val = e.args[0] if isinstance(e.args[0], dict) else e.value
+                             self.state['filter_price_min'] = val['min']
+                             self.state['filter_price_max'] = val['max']
+                             self.apply_filters()
+
+                         price_slider = ui.range(min=0, max=1000, step=1).classes('col-grow') \
+                             .on('update:model-value', update_price_state)
+                         price_slider.value = {'min': self.state['filter_price_min'], 'max': min(1000, self.state['filter_price_max'])}
+
+                         ui.number(min=0, on_change=self.apply_filters).bind_value(self.state, 'filter_price_max').classes('w-20').props('dense')
 
                     ui.select(['EN', 'DE', 'FR', 'IT', 'PT'], label='Owned Language', clearable=True,
                               on_change=self.apply_filters).bind_value(self.state, 'filter_owned_lang').classes('w-full')
@@ -607,8 +804,6 @@ class CollectionPage:
 
             with ui.row().classes('items-center'):
                 ui.switch('Owned', on_change=lambda e: [self.state.update({'only_owned': e.value}), self.apply_filters()])
-                if self.state['only_owned']:
-                     ui.number(min=1, on_change=self.apply_filters).bind_value(self.state, 'filter_quantity').classes('w-16').props('dense borderless')
 
             ui.separator().props('vertical')
 
@@ -625,7 +820,6 @@ class CollectionPage:
                     .props(f'flat={"grid" == self.state["view_mode"]} color=accent')
 
             ui.space()
-            # Prominent Filter Button
             ui.button(icon='filter_list', on_click=filter_dialog.open).props('color=primary size=lg')
 
         self.content_area()
