@@ -261,7 +261,7 @@ class CollectionPage:
         if self.state['view_scope'] == 'collectors':
              self.state['cards_collectors'] = await run.io_bound(build_collector_rows, api_cards, owned_details, self.state['language'])
 
-        self.apply_filters()
+        await self.apply_filters()
         self.update_filter_ui()
 
         # ui.notify('Data loaded.', type='positive')
@@ -290,7 +290,7 @@ class CollectionPage:
              max_inp.max = self.state['max_owned_quantity']
              max_inp.update()
 
-    def reset_filters(self):
+    async def reset_filters(self):
         self.state.update({
             'search_text': '',
             'filter_set': '',
@@ -332,9 +332,47 @@ class CollectionPage:
             min_inp.value = min_val
             max_inp.value = max_val
 
-        self.apply_filters()
+        await self.apply_filters()
 
-    def apply_filters(self, e=None):
+    async def prepare_current_page_images(self):
+        start = (self.state['page'] - 1) * self.state['page_size']
+        end = min(start + self.state['page_size'], len(self.state['filtered_items']))
+        items = self.state['filtered_items'][start:end]
+        if not items: return
+
+        url_map = {}
+        for item in items:
+            # Both have api_card
+            card = item.api_card
+            image_id = None
+            url = None
+
+            if self.state['view_scope'] == 'collectors':
+                # item is CollectorRow
+                # Use image_id if present, else default id
+                image_id = item.image_id
+                if not image_id and card.card_images:
+                     image_id = card.card_images[0].id
+                elif not image_id:
+                     image_id = card.id
+
+                url = item.image_url
+            else:
+                # Consolidated: use default
+                if card.card_images:
+                    image_id = card.card_images[0].id
+                    url = card.card_images[0].image_url_small
+                else:
+                    image_id = card.id
+
+            if image_id and url:
+                url_map[image_id] = url
+
+        if url_map:
+             # Lazy load: download batch
+             await image_manager.download_batch(url_map, concurrency=10)
+
+    async def apply_filters(self, e=None):
         if self.state['view_scope'] == 'consolidated':
             source = self.state['cards_consolidated']
         else:
@@ -484,6 +522,8 @@ class CollectionPage:
         self.state['filtered_items'] = res
         self.state['page'] = 1
         self.update_pagination()
+
+        await self.prepare_current_page_images()
         if hasattr(self, 'content_area'): self.content_area.refresh()
 
     def update_pagination(self):
@@ -495,7 +535,7 @@ class CollectionPage:
         if scope == 'collectors' and not self.state['cards_collectors']:
              await self.load_data()
         else:
-            self.apply_filters()
+            await self.apply_filters()
 
     async def save_card_change(self, api_card: ApiCard, set_code, rarity, language, quantity, image_id: Optional[int] = None):
         if not self.state['current_collection']:
@@ -594,8 +634,11 @@ class CollectionPage:
                     # Left: Image
                     with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
                         img_url = card.card_images[0].image_url if card.card_images else None
-                        if image_manager.image_exists(card.id):
-                            img_url = f"/images/{card.id}.jpg"
+
+                        # Use local image if available
+                        img_id = card.card_images[0].id if card.card_images else card.id
+                        if image_manager.image_exists(img_id):
+                            img_url = f"/images/{img_id}.jpg"
 
                         if img_url:
                             ui.image(img_url).classes('max-h-full max-w-full object-contain shadow-2xl')
@@ -689,13 +732,16 @@ class CollectionPage:
                         def update_image():
                             # Find url for current_image_id
                             url = None
+                            img_id = current_image_id['value']
                             if card.card_images:
                                 for img in card.card_images:
-                                    if img.id == current_image_id['value']:
+                                    if img.id == img_id:
                                         url = img.image_url
-                                        if image_manager.image_exists(img.id):
-                                            url = f"/images/{img.id}.jpg"
                                         break
+
+                            if image_manager.image_exists(img_id):
+                                url = f"/images/{img_id}.jpg"
+
                             if not url and image_url: url = image_url # Fallback to passed URL
                             if not url and card.card_images: url = card.card_images[0].image_url
 
@@ -914,8 +960,11 @@ class CollectionPage:
                         .on('click', lambda c=vm: self.open_single_view(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
 
                     img_src = card.card_images[0].image_url_small if card.card_images else None
-                    if image_manager.image_exists(card.id):
-                        img_src = f"/images/{card.id}.jpg"
+
+                    # Logic: Use local if exists, else remote
+                    img_id = card.card_images[0].id if card.card_images else card.id
+                    if image_manager.image_exists(img_id):
+                        img_src = f"/images/{img_id}.jpg"
 
                     with ui.element('div').classes('relative w-full aspect-[2/3] bg-black'):
                         if img_src: ui.image(img_src).classes('w-full h-full object-cover')
@@ -941,6 +990,10 @@ class CollectionPage:
                 bg = 'bg-gray-900' if not vm.is_owned else 'bg-gray-800 border border-accent'
                 img_src = card.card_images[0].image_url_small if card.card_images else None
 
+                img_id = card.card_images[0].id if card.card_images else card.id
+                if image_manager.image_exists(img_id):
+                    img_src = f"/images/{img_id}.jpg"
+
                 with ui.grid(columns=cols).classes(f'w-full {bg} p-1 items-center rounded hover:bg-gray-700 transition cursor-pointer') \
                         .on('click', lambda c=vm: self.open_single_view(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
                     ui.image(img_src).classes('h-10 w-8 object-cover')
@@ -965,9 +1018,15 @@ class CollectionPage:
 
             for item in items:
                 bg = 'bg-gray-900' if not item.is_owned else 'bg-gray-800 border border-accent'
+
+                img_src = item.image_url
+                img_id = item.image_id if item.image_id else (item.api_card.card_images[0].id if item.api_card.card_images else item.api_card.id)
+                if image_manager.image_exists(img_id):
+                    img_src = f"/images/{img_id}.jpg"
+
                 with ui.grid(columns=cols).classes(f'w-full {bg} p-1 items-center rounded hover:bg-gray-700 transition cursor-pointer') \
                         .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language, image_url=c.image_url, image_id=c.image_id)):
-                    ui.image(item.image_url).classes('h-12 w-8 object-cover')
+                    ui.image(img_src).classes('h-12 w-8 object-cover')
                     ui.label(item.api_card.name).classes('truncate text-sm font-bold')
                     with ui.column().classes('gap-0'):
                         ui.label(item.set_code).classes('text-xs font-mono font-bold text-yellow-500')
@@ -986,11 +1045,16 @@ class CollectionPage:
                 opacity = "opacity-100" if item.is_owned else "opacity-60 grayscale"
                 border = "border-accent" if item.is_owned else "border-gray-700"
 
+                img_src = item.image_url
+                img_id = item.image_id if item.image_id else (item.api_card.card_images[0].id if item.api_card.card_images else item.api_card.id)
+                if image_manager.image_exists(img_id):
+                    img_src = f"/images/{img_id}.jpg"
+
                 with ui.card().classes(f'collection-card w-full p-0 cursor-pointer {opacity} border {border} hover:scale-105 transition-transform') \
                         .on('click', lambda c=item: self.open_single_view(c.api_card, c.is_owned, c.owned_count, initial_set=c.set_code, rarity=c.rarity, set_name=c.set_name, language=c.language, image_url=c.image_url, image_id=c.image_id)):
 
                     with ui.element('div').classes('relative w-full aspect-[2/3] bg-black'):
-                        if item.image_url: ui.image(item.image_url).classes('w-full h-full object-cover')
+                        if img_src: ui.image(img_src).classes('w-full h-full object-cover')
                         if item.is_owned:
                              ui.label(f"{item.owned_count}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs')
 
@@ -1032,15 +1096,17 @@ class CollectionPage:
             else:
                 self.render_collectors_list(page_items)
 
-    def change_page(self, delta):
+    async def change_page(self, delta):
         new_page = self.state['page'] + delta
         if 1 <= new_page <= self.state['total_pages']:
             self.state['page'] = new_page
+            await self.prepare_current_page_images()
             self.content_area.refresh()
 
-    def set_page(self, val):
+    async def set_page(self, val):
         if val and 1 <= val <= self.state['total_pages']:
             self.state['page'] = int(val)
+            await self.prepare_current_page_images()
             self.content_area.refresh()
 
     def build_ui(self):
@@ -1094,29 +1160,29 @@ class CollectionPage:
 
                             slider = ui.range(min=min_limit, max=max_limit, step=step).classes('col-grow')
 
-                            def on_slider_change(e):
+                            async def on_slider_change(e):
                                 val = e.args[0] if isinstance(e.args[0], dict) else e.value
                                 self.state[min_key] = val['min']
                                 self.state[max_key] = val['max']
                                 min_input.value = val['min']
                                 max_input.value = val['max']
-                                self.apply_filters()
+                                await self.apply_filters()
 
-                            def on_min_input_change(e):
+                            async def on_min_input_change(e):
                                 try:
                                     val = float(e.value) if e.value is not None else min_limit
                                 except: val = min_limit
                                 self.state[min_key] = val
                                 slider.value = {'min': val, 'max': self.state[max_key]}
-                                self.apply_filters()
+                                await self.apply_filters()
 
-                            def on_max_input_change(e):
+                            async def on_max_input_change(e):
                                 try:
                                     val = float(e.value) if e.value is not None else max_limit
                                 except: val = max_limit
                                 self.state[max_key] = val
                                 slider.value = {'min': self.state[min_key], 'max': val}
-                                self.apply_filters()
+                                await self.apply_filters()
 
                             slider.on('update:model-value', on_slider_change)
                             # Initial values
@@ -1156,14 +1222,26 @@ class CollectionPage:
             ui.select(files, value=self.state['selected_file'], label='Collection',
                       on_change=lambda e: [self.state.update({'selected_file': e.value}), self.load_data()]).classes('w-40')
 
-            ui.input(placeholder='Search...', on_change=lambda e: [self.state.update({'search_text': e.value}), self.apply_filters()]) \
+            async def on_search(e):
+                self.state['search_text'] = e.value
+                await self.apply_filters()
+
+            ui.input(placeholder='Search...', on_change=on_search) \
                 .props('debounce=300 icon=search').classes('w-64')
 
+            async def on_sort_change(e):
+                self.state['sort_by'] = e.value
+                await self.apply_filters()
+
             ui.select(['Name', 'ATK', 'DEF', 'Level', 'Newest', 'Price'], value=self.state['sort_by'], label='Sort',
-                      on_change=lambda e: [self.state.update({'sort_by': e.value}), self.apply_filters()]).classes('w-32')
+                      on_change=on_sort_change).classes('w-32')
+
+            async def on_owned_switch(e):
+                self.state['only_owned'] = e.value
+                await self.apply_filters()
 
             with ui.row().classes('items-center'):
-                ui.switch('Owned', on_change=lambda e: [self.state.update({'only_owned': e.value}), self.apply_filters()])
+                ui.switch('Owned', on_change=on_owned_switch)
 
             ui.separator().props('vertical')
 
