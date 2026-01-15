@@ -141,21 +141,26 @@ class YugiohService:
     async def download_all_images(self, progress_callback: Optional[Callable[[float], None]] = None, language: str = "en"):
         """Downloads images for all cards in the database."""
         cards = await self.load_card_database(language)
-        total = len(cards)
-        chunk_size = 20
 
-        for i in range(0, total, chunk_size):
-            chunk = cards[i:i + chunk_size]
-            tasks = []
-            for card in chunk:
-                 if card.card_images:
-                     url = card.card_images[0].image_url_small
-                     tasks.append(image_manager.ensure_image(card.id, url))
+        url_map = {}
+        for card in cards:
+             if card.card_images:
+                 # Use small image for list views mainly, or large?
+                 # Usually cached locally we might want large if space permits, but small is 90% of use.
+                 # Actually, UI logic uses small for lists and usually small for card view unless specified.
+                 # Let's stick to small as per original code usage
+                 url_map[card.id] = card.card_images[0].image_url_small
 
-            await asyncio.gather(*tasks)
+        await image_manager.download_batch(url_map, progress_callback=progress_callback)
 
-            if progress_callback:
-                progress_callback((i + len(chunk)) / total)
+    async def ensure_images_for_cards(self, cards: List[ApiCard]):
+        """Ensures images exist for the specified list of cards (using default artwork)."""
+        url_map = {}
+        for card in cards:
+            if card.card_images:
+                 url_map[card.id] = card.card_images[0].image_url_small
+
+        await image_manager.download_batch(url_map, concurrency=10)
 
     async def migrate_collections(self):
         """Updates all user collections to use specific artwork URLs based on set codes."""

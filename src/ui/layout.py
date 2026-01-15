@@ -42,6 +42,30 @@ def create_layout(content_function):
 
             ui.button('Update Card Database', on_click=update_db, icon='cloud_download').classes('w-full').props('color=secondary')
 
+            async def download_all_imgs():
+                # Dialog for progress
+                prog_dialog = ui.dialog().props('persistent')
+                with prog_dialog, ui.card().classes('w-96'):
+                    ui.label('Downloading All Images').classes('text-h6')
+                    ui.label('This may take a while...').classes('text-sm text-grey')
+                    p_bar = ui.linear_progress(0).classes('w-full q-my-md')
+                    status_lbl = ui.label('Starting...')
+                prog_dialog.open()
+
+                def on_progress(val):
+                    p_bar.value = val
+                    status_lbl.set_text(f"{int(val * 100)}%")
+
+                try:
+                    await ygo_service.download_all_images(progress_callback=on_progress, language=config_manager.get_language())
+                    prog_dialog.close()
+                    ui.notify(f'All images downloaded.', type='positive')
+                except Exception as e:
+                    prog_dialog.close()
+                    ui.notify(f"Error: {e}", type='negative')
+
+            ui.button('Download All Images', on_click=download_all_imgs, icon='download_for_offline').classes('w-full q-mt-sm').props('color=secondary')
+
             async def update_artworks():
                 # Dialog for progress
                 prog_dialog = ui.dialog().props('persistent')
