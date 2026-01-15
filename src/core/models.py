@@ -50,6 +50,7 @@ class ApiCardSet(BaseModel):
     set_rarity: str
     set_rarity_code: Optional[str] = None
     set_price: Optional[str] = None
+    image_id: Optional[int] = None
 
 class ApiCardPrice(BaseModel):
     cardmarket_price: Optional[str] = None

@@ -5,6 +5,7 @@ import asyncio
 from typing import List, Optional, Callable, Dict
 from src.core.models import ApiCard
 from src.services.image_manager import image_manager
+from src.core.persistence import persistence
 from nicegui import run
 
 API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
@@ -155,5 +156,110 @@ class YugiohService:
 
             if progress_callback:
                 progress_callback((i + len(chunk)) / total)
+
+    async def migrate_collections(self):
+        """Updates all user collections to use specific artwork URLs based on set codes."""
+        # Load DB to resolve mappings
+        cards_db = await self.load_card_database("en")
+
+        # Build a quick lookup map: (name, set_code) -> image_url
+        mapping = {}
+        for card in cards_db:
+            if not card.card_sets:
+                continue
+            for cset in card.card_sets:
+                if cset.image_id:
+                    # Find image url
+                    img_url = None
+                    for img in card.card_images:
+                        if img.id == cset.image_id:
+                            img_url = img.image_url_small
+                            break
+
+                    if img_url:
+                        key = (card.name.lower(), cset.set_code.lower())
+                        mapping[key] = img_url
+
+        # Iterate collections
+        files = persistence.list_collections()
+        updated_count = 0
+
+        for filename in files:
+            try:
+                col = await run.io_bound(persistence.load_collection, filename)
+                modified = False
+                for card in col.cards:
+                    key = (card.name.lower(), card.metadata.set_code.lower())
+                    if key in mapping:
+                        new_url = mapping[key]
+                        if card.image_url != new_url:
+                            card.image_url = new_url
+                            modified = True
+
+                if modified:
+                    await run.io_bound(persistence.save_collection, col, filename)
+                    updated_count += 1
+            except Exception as e:
+                print(f"Error migrating {filename}: {e}")
+
+        return updated_count
+
+    async def fetch_artwork_mappings(self, progress_callback: Optional[Callable[[float], None]] = None, language: str = "en"):
+        """
+        Iterates over cards with multiple images and fetches specific image IDs for their sets.
+        This allows mapping specific set codes to specific artworks.
+        """
+        cards = await self.load_card_database(language)
+
+        # Identify candidates: Cards with >1 images and sets that don't have image_id mapped
+        candidates = []
+        for card in cards:
+            if len(card.card_images) > 1 and card.card_sets:
+                # Check if any set is missing image_id
+                if any(s.image_id is None for s in card.card_sets):
+                    candidates.append(card)
+
+        total = len(candidates)
+        if total == 0:
+            return 0
+
+        processed = 0
+        SET_INFO_URL = "https://db.ygoprodeck.com/api/v7/cardsetsinfo.php"
+
+        print(f"Found {total} cards with multiple artworks needing mapping.")
+
+        for card in candidates:
+            # For each set in the card
+            for cset in card.card_sets:
+                if cset.image_id is not None:
+                    continue
+
+                # Fetch info for this set
+                try:
+                    # Rate limit (0.1s delay)
+                    await asyncio.sleep(0.1)
+
+                    response = await run.io_bound(requests.get, SET_INFO_URL, params={"setcode": cset.set_code})
+                    if response.status_code == 200:
+                        data = response.json()
+                        # data is dict like {"id": 1234, ...}
+                        if "id" in data:
+                            cset.image_id = int(data["id"])
+                except Exception as e:
+                    print(f"Error fetching set info for {cset.set_code}: {e}")
+
+            processed += 1
+            if progress_callback:
+                progress_callback(processed / total)
+
+        # Save back to disk
+        try:
+             # Convert Pydantic models to dicts
+             raw_data = [c.dict() for c in cards]
+             await run.io_bound(self._save_db_file, raw_data, language)
+        except Exception as e:
+            print(f"Error saving updated database: {e}")
+
+        return total
 
 ygo_service = YugiohService()

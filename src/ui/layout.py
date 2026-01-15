@@ -42,6 +42,37 @@ def create_layout(content_function):
 
             ui.button('Update Card Database', on_click=update_db, icon='cloud_download').classes('w-full').props('color=secondary')
 
+            async def update_artworks():
+                # Dialog for progress
+                prog_dialog = ui.dialog().props('persistent')
+                with prog_dialog, ui.card().classes('w-96'):
+                    ui.label('Updating Artwork Mappings').classes('text-h6')
+                    ui.label('Fetching set-specific image data...').classes('text-sm text-grey')
+                    p_bar = ui.linear_progress(0).classes('w-full q-my-md')
+                    status_lbl = ui.label('Starting...')
+                prog_dialog.open()
+
+                def on_progress(val):
+                    p_bar.value = val
+                    status_lbl.set_text(f"{int(val * 100)}%")
+
+                try:
+                    count = await ygo_service.fetch_artwork_mappings(progress_callback=on_progress)
+                    prog_dialog.close()
+                    ui.notify(f'Mappings updated. Checked {count} cards.', type='positive')
+
+                    # Migration
+                    n_mig = ui.notification('Migrating collections...', type='info', spinner=True)
+                    migrated = await ygo_service.migrate_collections()
+                    n_mig.dismiss()
+                    ui.notify(f'Migration complete. Updated {migrated} collections.', type='positive')
+
+                except Exception as e:
+                    prog_dialog.close()
+                    ui.notify(f"Error: {e}", type='negative')
+
+            ui.button('Update Artwork Mappings', on_click=update_artworks, icon='image').classes('w-full q-mt-sm').props('color=accent')
+
             with ui.row().classes('w-full justify-end q-mt-md'):
                 ui.button('Close', on_click=d.close).props('flat')
         d.open()
