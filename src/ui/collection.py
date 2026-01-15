@@ -65,6 +65,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[str, List
         img_url = card.card_images[0].image_url_small if card.card_images else None
         default_image_id = card.card_images[0].id if card.card_images else None
 
+        matched_card_ids = set()
         if card.card_sets:
             for cset in card.card_sets:
                 qty = 0
@@ -78,14 +79,19 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[str, List
 
                     # Match Image ID
                     # If cset has a specific image_id, we expect strict match
+                    is_match = False
                     if cset.image_id:
                         if c.metadata.image_id == cset.image_id:
-                            qty += c.quantity
+                            is_match = True
                     else:
                         # If cset has no image_id, it implies the default image
                         # We count it if it's explicitly the default ID OR None
                         if c.metadata.image_id is None or c.metadata.image_id == default_image_id:
-                            qty += c.quantity
+                            is_match = True
+
+                    if is_match:
+                        qty += c.quantity
+                        matched_card_ids.add(c.id)
 
                 price = 0.0
                 if cset.set_price:
@@ -112,6 +118,26 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[str, List
                     language=lang_upper,
                     image_id=cset.image_id
                 ))
+
+            # Handle cards that didn't match any set (Custom sets, mismatches, etc.)
+            for c in owned_list:
+                if c.id not in matched_card_ids:
+                    # Filter by language for this view
+                    if c.metadata.language.upper() != lang_upper: continue
+
+                    # Create a row for this unmatched card
+                    rows.append(CollectorRow(
+                        api_card=card,
+                        set_code=c.metadata.set_code,
+                        set_name="Unknown / Custom Set",
+                        rarity=c.metadata.rarity,
+                        price=0.0,
+                        image_url=c.image_url or img_url,
+                        owned_count=c.quantity,
+                        is_owned=True,
+                        language=lang_upper,
+                        image_id=c.metadata.image_id
+                    ))
         else:
             qty = 0
             for c in owned_list:
