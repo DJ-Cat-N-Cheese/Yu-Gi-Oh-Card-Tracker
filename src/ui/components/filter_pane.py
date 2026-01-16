@@ -27,6 +27,10 @@ class FilterPane:
             ui.select(common_rarities, label='Rarity', with_input=True, clearable=True,
                       on_change=self.on_change).bind_value(self.state, 'filter_rarity').classes('w-full')
 
+            # Condition
+            ui.select(['Mint', 'Near Mint', 'Played', 'Damaged'], label='Condition', multiple=True, clearable=True,
+                      on_change=self.on_change).bind_value(self.state, 'filter_condition').classes('w-full').props('use-chips')
+
             # Attribute
             ui.select(['DARK', 'LIGHT', 'EARTH', 'WIND', 'FIRE', 'WATER', 'DIVINE'],
                       label='Attribute', clearable=True,
@@ -75,10 +79,6 @@ class FilterPane:
             ui.separator()
             ui.label('Ownership & Price').classes('text-h6')
 
-            # Condition (Moved here)
-            ui.select(['Mint', 'Near Mint', 'Played', 'Damaged'], label='Condition', multiple=True, clearable=True,
-                      on_change=self.on_change).bind_value(self.state, 'filter_condition').classes('w-full').props('use-chips')
-
             self.setup_range_filter('Ownership Quantity Range', 'filter_ownership_min', 'filter_ownership_max', 0, self.state.get('max_owned_quantity', 100), 1, 'ownership')
             self.setup_range_filter('Price Range ($)', 'filter_price_min', 'filter_price_max', 0, 1000, 1, 'price')
 
@@ -105,14 +105,14 @@ class FilterPane:
                 max_input.value = val['max']
 
             async def on_slider_update(e):
-                val = getattr(e, 'value', None)
+                val = e.value
                 if val is None and hasattr(e, 'args') and e.args:
                     val = e.args[0]
                 if isinstance(val, dict):
                     update_from_val(val)
 
             async def on_slider_change(e):
-                val = getattr(e, 'value', None)
+                val = e.value
                 if val is None and hasattr(e, 'args') and e.args:
                     val = e.args[0]
                 if isinstance(val, dict):
