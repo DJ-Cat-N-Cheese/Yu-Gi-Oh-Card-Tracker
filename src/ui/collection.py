@@ -147,7 +147,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                                 language=lang,
                                 condition=cond,
                                 first_edition=first,
-                                image_id=cset.image_id
+                                image_id=matched_cv.image_id
                             ))
                 else:
                     # No owned variants matched this API set -> Show empty placeholder row
@@ -284,7 +284,7 @@ class CollectionPage:
         self.pagination_showing_label = None
         self.pagination_total_label = None
 
-    async def load_data(self):
+    async def load_data(self, keep_page=False):
         logger.info(f"Loading data... (Language: {self.state['language']})")
 
         try:
@@ -345,7 +345,7 @@ class CollectionPage:
         if self.state['view_scope'] == 'collectors':
              self.state['cards_collectors'] = await run.io_bound(build_collector_rows, api_cards, owned_details, self.state['language'])
 
-        await self.apply_filters()
+        await self.apply_filters(reset_page=not keep_page)
         self.update_filter_ui()
         logger.info(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
 
@@ -415,7 +415,7 @@ class CollectionPage:
         if url_map:
              await image_manager.download_batch(url_map, concurrency=10)
 
-    async def apply_filters(self, e=None):
+    async def apply_filters(self, e=None, reset_page=True):
         if self.state['view_scope'] == 'consolidated':
             source = self.state['cards_consolidated']
         else:
@@ -567,7 +567,8 @@ class CollectionPage:
              res.sort(key=lambda x: get_qty(x), reverse=reverse)
 
         self.state['filtered_items'] = res
-        self.state['page'] = 1
+        if reset_page:
+            self.state['page'] = 1
         self.update_pagination()
 
         await self.prepare_current_page_images()
@@ -672,7 +673,7 @@ class CollectionPage:
             await run.io_bound(persistence.save_collection, col, self.state['selected_file'])
             logger.info(f"Collection saved: {self.state['selected_file']}")
             ui.notify('Collection saved.', type='positive')
-            await self.load_data()
+            await self.load_data(keep_page=True)
         except Exception as e:
             logger.error(f"Error saving collection: {e}")
             ui.notify(f"Error saving: {e}", type='negative')
