@@ -404,7 +404,7 @@ class DeckBuilderPage:
                      ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense size=sm')
                      ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense size=sm')
 
-            with ui.column().classes('w-full flex-grow border border-gray-800 rounded p-2 overflow-y-auto block'):
+            with ui.element('div').classes('w-full flex-grow border border-gray-800 rounded p-2 overflow-y-auto'):
                 if not items:
                     ui.label('No cards found.').classes('text-grey italic w-full text-center')
                     return
@@ -606,8 +606,8 @@ class DeckBuilderPage:
             # We assign to self.search_results_container so we can clear/refill it
             self.search_results_container = ui.column().classes('w-1/4 h-full bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden')
 
-            # Right: Deck Area (75%)
-            self.deck_area_container = ui.column().classes('w-3/4 h-full relative deck-builder-deck-area overflow-hidden gap-2')
+            # Right: Deck Area (Remaining Space)
+            self.deck_area_container = ui.column().classes('flex-grow h-full relative deck-builder-deck-area overflow-hidden gap-2')
 
         # Initial Render
         self.refresh_search_results()
