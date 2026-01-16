@@ -73,7 +73,12 @@ class SingleCardView:
                             on_change=lambda e: [input_state.update({'set_base_code': e.value}), on_change_callback()]).classes('col-grow')
 
             with ui.row().classes('w-full gap-4'):
-                ui.select(STANDARD_RARITIES, label='Rarity', value=input_state['rarity'],
+                # Ensure current rarity is available in options to prevent crash
+                rarity_options = list(STANDARD_RARITIES)
+                if input_state['rarity'] not in rarity_options:
+                    rarity_options.append(input_state['rarity'])
+
+                ui.select(rarity_options, label='Rarity', value=input_state['rarity'],
                             on_change=lambda e: [input_state.update({'rarity': e.value}), on_change_callback()]).classes('w-1/3')
                 ui.select(['Mint', 'Near Mint', 'Played', 'Damaged'], label='Condition', value=input_state['condition'],
                             on_change=lambda e: [input_state.update({'condition': e.value}), on_change_callback()]).classes('w-1/3')
@@ -365,20 +370,26 @@ class SingleCardView:
                 if not found:
                     # Fallback: Attempt to resolve set name from global DB
                     fallback_name = await ygo_service.get_set_name_by_code(set_code)
+
+                    # Determine name to use
+                    final_name = fallback_name
+                    if not final_name:
+                        final_name = set_name if set_name and set_name != "Custom Set" else "Unknown Set"
+
+                    set_options[set_code] = f"{final_name} ({set_code})"
+
+                    # Create dummy ApiCardSet for set_info_map to prevent crash/Custom fallback
+                    dummy_set = ApiCardSet(
+                        set_name=final_name,
+                        set_code=set_code,
+                        set_rarity=rarity or "Common"
+                    )
+                    set_info_map[set_code] = dummy_set
+                    initial_base_code = set_code
+
+                    # Update the display name if it was missing/custom
                     if fallback_name:
-                        set_options[set_code] = f"{fallback_name} ({set_code})"
-                        # Create dummy ApiCardSet for set_info_map to prevent crash/Custom fallback
-                        dummy_set = ApiCardSet(
-                            set_name=fallback_name,
-                            set_code=set_code,
-                            set_rarity=rarity or "Common"
-                        )
-                        set_info_map[set_code] = dummy_set
-                        initial_base_code = set_code
-                        # Update the display name if it was missing/custom
                         set_name = fallback_name
-                    else:
-                        initial_base_code = list(set_options.keys())[0] if set_options else "Custom"
 
             input_state = {
                 'language': language,
