@@ -2,6 +2,7 @@ import requests
 import json
 import os
 import asyncio
+import logging
 from typing import List, Optional, Callable, Dict
 from src.core.models import ApiCard
 from src.services.image_manager import image_manager
@@ -11,6 +12,8 @@ from nicegui import run
 API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 DATA_DIR = os.path.join(os.getcwd(), "data")
 DB_DIR = os.path.join(DATA_DIR, "db")
+
+logger = logging.getLogger(__name__)
 
 def parse_cards_data(data: List[dict]) -> List[ApiCard]:
     return [ApiCard(**c) for c in data]
@@ -33,9 +36,9 @@ class YugiohService:
                 if not os.path.exists(new_path):
                     try:
                         os.rename(old_path, new_path)
-                        print(f"Migrated {filename} to {DB_DIR}")
+                        logger.info(f"Migrated {filename} to {DB_DIR}")
                     except OSError as e:
-                        print(f"Error migrating {filename}: {e}")
+                        logger.error(f"Error migrating {filename}: {e}")
 
     def _get_db_file(self, language: str = "en") -> str:
         filename = "card_db.json" if language == "en" else f"card_db_{language}.json"
@@ -43,6 +46,7 @@ class YugiohService:
 
     async def fetch_card_database(self, language: str = "en") -> int:
         """Downloads the full database from the API. Returns count of cards."""
+        logger.info(f"Fetching card database for language: {language}")
         params = {}
         if language != "en":
             params["language"] = language
@@ -57,6 +61,7 @@ class YugiohService:
             data = response.json()
             # The API returns {"data": [...] }
             cards_data = data.get("data", [])
+            logger.info(f"Fetched {len(cards_data)} cards from API.")
 
             # Save raw JSON first
             try:
@@ -74,6 +79,7 @@ class YugiohService:
             self._cards_cache[language] = parsed_cards
             return len(self._cards_cache[language])
         else:
+            logger.error(f"API Error: {response.status_code}")
             raise Exception(f"API Error: {response.status_code}")
 
     def _save_db_file(self, data, language: str = "en"):
@@ -92,9 +98,11 @@ class YugiohService:
         db_file = self._get_db_file(language)
 
         if not os.path.exists(db_file):
+            logger.info(f"Database file not found: {db_file}. Fetching from API.")
             await self.fetch_card_database(language)
 
         if language not in self._cards_cache and os.path.exists(db_file):
+             logger.info(f"Loading database from disk: {db_file}")
              # Read file
              try:
                  data = await run.io_bound(self._read_db_file, language)
@@ -104,6 +112,7 @@ class YugiohService:
                  parsed_cards = parse_cards_data(data)
 
              self._cards_cache[language] = parsed_cards
+             logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
 
@@ -151,6 +160,7 @@ class YugiohService:
                  # Let's stick to small as per original code usage
                  url_map[card.id] = card.card_images[0].image_url_small
 
+        logger.info(f"Queueing download for {len(url_map)} images.")
         await image_manager.download_batch(url_map, progress_callback=progress_callback)
 
     async def download_all_images_high_res(self, progress_callback: Optional[Callable[[float], None]] = None, language: str = "en"):
@@ -163,6 +173,7 @@ class YugiohService:
                  # Use high res image
                  url_map[card.id] = card.card_images[0].image_url
 
+        logger.info(f"Queueing download for {len(url_map)} high-res images.")
         await image_manager.download_batch(url_map, progress_callback=progress_callback, high_res=True)
 
     async def ensure_images_for_cards(self, cards: List[ApiCard]):
@@ -176,6 +187,7 @@ class YugiohService:
 
     async def migrate_collections(self):
         """Updates all user collections to use specific artwork URLs based on set codes."""
+        logger.info("Starting collection migration...")
         # Load DB to resolve mappings
         cards_db = await self.load_card_database("en")
 
@@ -216,9 +228,11 @@ class YugiohService:
                 if modified:
                     await run.io_bound(persistence.save_collection, col, filename)
                     updated_count += 1
+                    logger.info(f"Updated collection: {filename}")
             except Exception as e:
-                print(f"Error migrating {filename}: {e}")
+                logger.error(f"Error migrating {filename}: {e}")
 
+        logger.info(f"Migration complete. Updated {updated_count} collections.")
         return updated_count
 
     async def fetch_artwork_mappings(self, progress_callback: Optional[Callable[[float], None]] = None, language: str = "en"):
@@ -234,7 +248,7 @@ class YugiohService:
         if total == 0:
             return 0
 
-        print(f"Found {total} cards with multiple artworks needing mapping.")
+        logger.info(f"Found {total} cards with multiple artworks needing mapping.")
 
         # Limit concurrency (20 req/1s max, so 10 concurrent with small delays is safe)
         sem = asyncio.Semaphore(10)
@@ -268,7 +282,7 @@ class YugiohService:
                                         cset.image_id = img.id
 
                     except Exception as e:
-                        print(f"Error mapping artwork for {card.name} ({img.id}): {e}")
+                        logger.error(f"Error mapping artwork for {card.name} ({img.id}): {e}")
 
             processed_count += 1
             if progress_callback:
@@ -291,8 +305,9 @@ class YugiohService:
                  raw_data = [c.dict(by_alias=True) for c in cards]
 
              await run.io_bound(self._save_db_file, raw_data, language)
+             logger.info("Saved updated database with artwork mappings.")
         except Exception as e:
-            print(f"Error saving updated database: {e}")
+            logger.error(f"Error saving updated database: {e}")
 
         return total
 

@@ -66,6 +66,9 @@ class ImageManager:
         # Filter out existing
         to_download = {id: url for id, url in url_map.items() if not self.image_exists(id, high_res)}
         total = len(to_download)
+
+        self.logger.info(f"Batch download requested for {len(url_map)} images. {total} need downloading.")
+
         if total == 0:
             if progress_callback: progress_callback(1.0)
             return
@@ -85,6 +88,8 @@ class ImageManager:
         async with aiohttp.ClientSession() as session:
             tasks = [_task(cid, url) for cid, url in to_download.items()]
             await asyncio.gather(*tasks)
+
+        self.logger.info(f"Batch download complete. Downloaded {total} images.")
 
     async def download_images_batch(self, tasks: list):
         """Helper to run a batch of downloads. Deprecated but kept for compatibility."""
