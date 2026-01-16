@@ -2,7 +2,6 @@ from nicegui import ui
 from src.ui.theme import apply_theme
 from src.core.config import config_manager
 from src.services.ygo_api import ygo_service
-from src.core.migrations import fix_legacy_set_codes
 from src.services.sample_generator import generate_sample_collection
 
 def create_layout(content_function):
@@ -94,26 +93,6 @@ def create_layout(content_function):
 
             with ui.button('Download All High Res Images', on_click=download_all_imgs_high, icon='download_for_offline').classes('w-full q-mt-sm').props('color=purple'):
                 ui.tooltip('Download high-quality images for all cards (requires disk space)')
-
-            async def fix_legacy_codes():
-                # Dialog for progress
-                prog_dialog = ui.dialog().props('persistent')
-                with prog_dialog, ui.card().classes('w-96'):
-                    ui.label('Fixing Legacy Set Codes').classes('text-h6')
-                    ui.label('Scanning collections...').classes('text-sm text-grey')
-                    ui.spinner().classes('self-center q-my-md')
-                prog_dialog.open()
-
-                try:
-                    count = await fix_legacy_set_codes()
-                    prog_dialog.close()
-                    ui.notify(f'Fixed {count} cards.', type='positive')
-                except Exception as e:
-                    prog_dialog.close()
-                    ui.notify(f"Error: {e}", type='negative')
-
-            with ui.button('Fix Legacy Set Codes', on_click=fix_legacy_codes, icon='build').classes('w-full q-mt-sm').props('color=warning'):
-                ui.tooltip('Update old set codes in your collection to the new format')
 
             async def gen_sample_coll():
                 n = ui.notification('Generating Sample Collection...', type='info', spinner=True, timeout=None)
