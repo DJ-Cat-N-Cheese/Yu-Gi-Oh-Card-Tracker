@@ -5,6 +5,9 @@ from nicegui import ui, app
 # Ensure src is in the python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
+from src.core.logging_setup import setup_logging
+setup_logging()
+
 from src.ui.layout import create_layout
 from src.ui.dashboard import dashboard_page
 from src.ui.collection import collection_page

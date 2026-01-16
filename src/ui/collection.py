@@ -10,6 +10,9 @@ from typing import List, Optional, Dict, Set, Callable
 import asyncio
 import traceback
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 @dataclass
 class CardViewModel:
@@ -281,13 +284,14 @@ class CollectionPage:
 
     async def load_data(self):
         # ui.notify(f'Loading data ({self.state["language"]})...', type='info')
-        print("Loading data...")
+        logger.info(f"Loading data... (Language: {self.state['language']})")
 
         try:
             # Ensure we load lowercase language to avoid API errors
             lang_code = self.state['language'].lower() if self.state['language'] else 'en'
             api_cards = await ygo_service.load_card_database(lang_code)
         except Exception as e:
+            logger.error(f"Error loading database: {e}")
             ui.notify(f"Error loading database: {e}", type='negative')
             return
 
@@ -328,6 +332,7 @@ class CollectionPage:
             try:
                 collection = await run.io_bound(persistence.load_collection, self.state['selected_file'])
             except Exception as e:
+                logger.warning(f"Error loading collection {self.state['selected_file']}: {e}")
                 ui.notify(f"Error loading collection: {e}", type='warning')
 
         self.state['current_collection'] = collection
@@ -356,7 +361,7 @@ class CollectionPage:
         self.update_filter_ui()
 
         # ui.notify('Data loaded.', type='positive')
-        print(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
+        logger.info(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
 
     def update_filter_ui(self):
         # Update dropdown options if they exist
@@ -710,9 +715,11 @@ class CollectionPage:
 
         try:
             await run.io_bound(persistence.save_collection, col, self.state['selected_file'])
+            logger.info(f"Collection saved: {self.state['selected_file']}")
             ui.notify('Collection saved.', type='positive')
             await self.load_data()
         except Exception as e:
+            logger.error(f"Error saving collection: {e}")
             ui.notify(f"Error saving: {e}", type='negative')
 
     def open_single_view(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None, owned_languages: Set[str] = None, rarity: str = None, set_name: str = None, language: str = None, condition: str = "Near Mint", first_edition: bool = False, image_url: str = None, image_id: int = None, set_price: float = 0.0):
@@ -816,8 +823,7 @@ class CollectionPage:
                         else:
                             ui.label('Not in collection').classes('text-grey italic')
         except Exception as e:
-            print(f"ERROR in render_consolidated_single_view: {e}")
-            traceback.print_exc()
+            logger.error(f"ERROR in render_consolidated_single_view: {e}", exc_info=True)
 
     def render_collectors_single_view(self, card: ApiCard, owned_count: int, set_code: str, rarity: str, set_name: str, language: str, condition: str, first_edition: bool, image_url: str = None, image_id: int = None, set_price: float = 0.0):
         try:
@@ -1029,8 +1035,7 @@ class CollectionPage:
 
                                 ui.label('Note: Updates specific variant (Set+Rarity+Lang+Art+Cond+Ed).').classes('text-xs text-grey select-none q-mt-sm')
         except Exception as e:
-            print(f"ERROR in render_collectors_single_view: {e}")
-            traceback.print_exc()
+            logger.error(f"ERROR in render_collectors_single_view: {e}", exc_info=True)
 
     def open_single_view_legacy(self, card: ApiCard, is_owned: bool = False, quantity: int = 0, initial_set: str = None, owned_languages: Set[str] = None):
         set_opts = [s.set_code for s in card.card_sets] if card.card_sets else ["N/A"]

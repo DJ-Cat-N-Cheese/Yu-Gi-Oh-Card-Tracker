@@ -1,10 +1,12 @@
 import json
 import yaml
 import os
+import logging
 from typing import List, Optional
 from src.core.models import Collection
 
 DATA_DIR = "data"
+logger = logging.getLogger(__name__)
 
 class PersistenceManager:
     def __init__(self, data_dir: str = DATA_DIR):
@@ -18,32 +20,43 @@ class PersistenceManager:
 
     def load_collection(self, filename: str) -> Collection:
         """Loads a collection from a JSON or YAML file."""
+        logger.info(f"Loading collection: {filename}")
         filepath = os.path.join(self.data_dir, filename)
         if not os.path.exists(filepath):
+            logger.error(f"Collection file {filename} not found.")
             raise FileNotFoundError(f"Collection file {filename} not found.")
 
-        with open(filepath, 'r', encoding='utf-8') as f:
-            if filename.endswith('.json'):
-                data = json.load(f)
-            elif filename.endswith(('.yaml', '.yml')):
-                data = yaml.safe_load(f)
-            else:
-                raise ValueError("Unsupported file format")
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                if filename.endswith('.json'):
+                    data = json.load(f)
+                elif filename.endswith(('.yaml', '.yml')):
+                    data = yaml.safe_load(f)
+                else:
+                    raise ValueError("Unsupported file format")
 
-        return Collection(**data)
+            return Collection(**data)
+        except Exception as e:
+            logger.error(f"Error loading collection {filename}: {e}")
+            raise
 
     def save_collection(self, collection: Collection, filename: str):
         """Saves a collection to a file."""
+        logger.info(f"Saving collection: {filename}")
         filepath = os.path.join(self.data_dir, filename)
         data = collection.model_dump(mode='json')
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            if filename.endswith('.json'):
-                json.dump(data, f, indent=2)
-            elif filename.endswith(('.yaml', '.yml')):
-                yaml.safe_dump(data, f)
-            else:
-                raise ValueError("Unsupported file format")
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                if filename.endswith('.json'):
+                    json.dump(data, f, indent=2)
+                elif filename.endswith(('.yaml', '.yml')):
+                    yaml.safe_dump(data, f)
+                else:
+                    raise ValueError("Unsupported file format")
+        except Exception as e:
+            logger.error(f"Error saving collection {filename}: {e}")
+            raise
 
 # Global instance
 persistence = PersistenceManager()
