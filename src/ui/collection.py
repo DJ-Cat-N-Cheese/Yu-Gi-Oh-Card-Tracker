@@ -1255,7 +1255,7 @@ class CollectionPage:
                     return
 
                 # Create empty collection
-                new_col = Collection(cards=[])
+                new_col = Collection(name=name.replace('.json', '').replace('.yaml', '').replace('.yml', ''), cards=[])
                 try:
                     await run.io_bound(persistence.save_collection, new_col, name)
                     ui.notify(f'Collection "{name}" created.', type='positive')

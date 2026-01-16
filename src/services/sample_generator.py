@@ -9,7 +9,7 @@ from src.core.utils import generate_variant_id, transform_set_code
 
 logger = logging.getLogger(__name__)
 
-LANGUAGES = ["EN", "DE", "FR", "IT", "JP"]
+LANGUAGES = ["EN", "DE", "ES", "FR", "PT", "IT"]
 CONDITIONS = ["Mint", "Near Mint", "Played", "Damaged"]
 
 async def generate_sample_collection(base_filename: str = "sample_collection") -> str:
