@@ -540,3 +540,63 @@ class SingleCardView:
                             )
         except Exception as e:
             logger.error(f"ERROR in render_collectors_single_view: {e}", exc_info=True)
+
+    async def open_deck_builder(
+        self,
+        card: ApiCard,
+        on_add_callback: Callable[[int, int, str], Any]
+    ):
+        try:
+             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+                d.open()
+                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+
+                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                    # Image Column (Simplified, just use default/first image)
+                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
+                         img_id = card.card_images[0].id if card.card_images else card.id
+                         url = card.card_images[0].image_url if card.card_images else None
+                         small_url = card.card_images[0].image_url_small if card.card_images else None
+                         image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                         self._setup_high_res_image_logic(img_id, url, small_url, image_element)
+
+                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                         # Basic Info
+                         ui.label(card.name).classes('text-4xl font-bold text-white')
+
+                         with ui.grid(columns=4).classes('w-full gap-4 text-lg q-my-md'):
+                             def stat(label, value):
+                                 with ui.column():
+                                     ui.label(label).classes('text-gray-400 text-sm uppercase font-bold')
+                                     ui.label(str(value) if value is not None else '-').classes('font-bold text-xl')
+
+                             stat('Type', card.type)
+                             if 'Monster' in card.type:
+                                 stat('ATK', card.atk)
+                                 stat('DEF', getattr(card, 'def_', '-'))
+                                 stat('Level', card.level)
+                                 stat('Race', card.race)
+                                 stat('Attribute', card.attribute)
+                             else:
+                                 stat('Race', card.race)
+
+                         ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg q-mb-md')
+                         ui.separator().classes('q-my-md bg-gray-700')
+
+                         # Add to Deck Section
+                         ui.label('Add to Deck').classes('text-h6 q-mb-sm text-accent')
+
+                         qty_input = ui.number('Quantity', value=1, min=1, max=3).classes('w-32')
+
+                         with ui.row().classes('gap-4 q-mt-md'):
+                             async def add(target):
+                                 qty = int(qty_input.value or 1)
+                                 await on_add_callback(card.id, qty, target)
+                                 d.close()
+
+                             ui.button('Add to Main', on_click=lambda: add('main')).props('color=positive icon=add')
+                             ui.button('Add to Side', on_click=lambda: add('side')).props('color=warning text-color=dark icon=add')
+                             ui.button('Add to Extra', on_click=lambda: add('extra')).props('color=purple icon=add')
+
+        except Exception as e:
+            logger.error(f"Error opening deck builder view: {e}", exc_info=True)

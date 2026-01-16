@@ -52,6 +52,12 @@ class Collection(BaseModel):
     def total_cards(self) -> int:
         return sum(c.total_quantity for c in self.cards)
 
+class Deck(BaseModel):
+    name: str = "New Deck"
+    main: List[int] = []
+    extra: List[int] = []
+    side: List[int] = []
+
 # --- Legacy Models (Deprecated) ---
 # Keeping these temporarily to prevent immediate ImportErrors in other files during refactoring
 class CardMetadata(BaseModel):
