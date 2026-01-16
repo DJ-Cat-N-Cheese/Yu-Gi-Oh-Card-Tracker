@@ -606,13 +606,13 @@ class DeckBuilderPage:
 
         self.render_header()
 
-        with ui.row().classes('w-full h-[calc(100vh-140px)] gap-4 no-wrap'):
+        with ui.grid(columns='1fr 3fr', rows='minmax(0, 1fr)').classes('w-full h-[calc(100vh-140px)] gap-4'):
             # Left: Search Results (25%)
-            with ui.column().classes('w-1/4 shrink-0 h-full bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results z-50 relative'):
+            with ui.column().classes('h-full bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results'):
                 self.search_results_area()
 
-            # Right: Deck Area (75% - Flex Grow)
-            with ui.column().classes('col h-full relative deck-builder-deck-area overflow-hidden gap-2'):
+            # Right: Deck Area (75%)
+            with ui.column().classes('h-full relative deck-builder-deck-area overflow-hidden gap-2'):
                  self.render_deck_area()
 
         ui.timer(0.1, self.load_initial_data, once=True)
