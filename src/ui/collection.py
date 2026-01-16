@@ -1358,7 +1358,7 @@ class CollectionPage:
                     await self.apply_filters()
 
                 icon = 'arrow_downward' if self.state.get('sort_descending') else 'arrow_upward'
-                with ui.button(icon=icon, on_click=toggle_sort_dir).props('flat round dense'):
+                with ui.button(icon=icon, on_click=toggle_sort_dir).props('flat round dense color=white'):
                     ui.tooltip('Toggle sort direction')
 
             async def on_owned_switch(e):

@@ -105,13 +105,19 @@ class FilterPane:
                 max_input.value = val['max']
 
             async def on_slider_update(e):
-                val = e.args[0] if isinstance(e.args[0], dict) else e.value
-                update_from_val(val)
+                val = e.value
+                if val is None and hasattr(e, 'args') and e.args:
+                    val = e.args[0]
+                if isinstance(val, dict):
+                    update_from_val(val)
 
             async def on_slider_change(e):
-                val = e.args[0] if isinstance(e.args[0], dict) else e.value
-                update_from_val(val)
-                if self.on_change: await self.on_change()
+                val = e.value
+                if val is None and hasattr(e, 'args') and e.args:
+                    val = e.args[0]
+                if isinstance(val, dict):
+                    update_from_val(val)
+                    if self.on_change: await self.on_change()
 
             async def on_min_input_change(e):
                 try:
