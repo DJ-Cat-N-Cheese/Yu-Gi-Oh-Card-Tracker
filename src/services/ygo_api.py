@@ -12,8 +12,10 @@ from src.core.utils import generate_variant_id
 from nicegui import run
 
 API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
+SETS_API_URL = "https://db.ygoprodeck.com/api/v7/cardsets.php"
 DATA_DIR = os.path.join(os.getcwd(), "data")
 DB_DIR = os.path.join(DATA_DIR, "db")
+SETS_FILE = os.path.join(DB_DIR, "sets.json")
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +25,7 @@ def parse_cards_data(data: List[dict]) -> List[ApiCard]:
 class YugiohService:
     def __init__(self):
         self._cards_cache: Dict[str, List[ApiCard]] = {}
+        self._sets_cache: Dict[str, str] = {} # set_code_prefix -> set_name
         self._migrate_old_db_files()
 
     def _migrate_old_db_files(self):
@@ -369,6 +372,83 @@ class YugiohService:
                  url_map[card.id] = card.card_images[0].image_url_small
 
         await image_manager.download_batch(url_map, concurrency=10)
+
+    # --- Global Sets Logic ---
+
+    async def fetch_all_sets(self):
+        """Fetches the global set list from the API and caches it."""
+        if self._sets_cache:
+            return
+
+        # Try load from disk
+        if os.path.exists(SETS_FILE):
+             try:
+                 with open(SETS_FILE, 'r', encoding='utf-8') as f:
+                     data = json.load(f)
+                     if data:
+                        self._sets_cache = data
+                        return
+             except Exception as e:
+                 logger.error(f"Error reading sets file: {e}")
+
+        logger.info("Fetching global card sets from API...")
+        try:
+            response = await run.io_bound(requests.get, SETS_API_URL)
+        except RuntimeError:
+            response = await asyncio.to_thread(requests.get, SETS_API_URL)
+
+        if response.status_code == 200:
+            sets_data = response.json()
+            # Map set_code -> set_name
+            # sets_data is a list of dicts: {"set_name": "...", "set_code": "..."}
+            cache = {}
+            # We track num_of_cards to prioritize larger sets when codes collide (e.g. SDY)
+            # We store (name, count) temporarily
+            temp_cache = {}
+
+            for s in sets_data:
+                code = s.get("set_code")
+                name = s.get("set_name")
+                count = s.get("num_of_cards", 0)
+
+                if code and name:
+                    if code not in temp_cache:
+                        temp_cache[code] = (name, count)
+                    else:
+                        # Overwrite if current set has more cards
+                        existing_name, existing_count = temp_cache[code]
+                        if count > existing_count:
+                            temp_cache[code] = (name, count)
+
+            # Finalize cache
+            self._sets_cache = {k: v[0] for k, v in temp_cache.items()}
+
+            # Save to disk
+            try:
+                if not os.path.exists(DB_DIR): os.makedirs(DB_DIR)
+                with open(SETS_FILE, 'w', encoding='utf-8') as f:
+                    json.dump(self._sets_cache, f)
+            except Exception as e:
+                logger.error(f"Error saving sets file: {e}")
+        else:
+            logger.error(f"Failed to fetch sets: {response.status_code}")
+
+    async def get_set_name_by_code(self, set_code: str) -> Optional[str]:
+        """
+        Resolves a full set code (e.g. 'BP02-DE137' or 'BP02') to its set name (e.g. 'Battle Pack 2').
+        Uses the global sets cache.
+        """
+        await self.fetch_all_sets()
+
+        # Extract prefix
+        # Logic:
+        # BP02-DE137 -> BP02
+        # SDY-006 -> SDY
+        # MOV-EN001 -> MOV
+        # If no hyphen, assume it is the prefix (e.g. "BP02")
+
+        prefix = set_code.split('-')[0]
+        return self._sets_cache.get(prefix)
 
 
 ygo_service = YugiohService()
