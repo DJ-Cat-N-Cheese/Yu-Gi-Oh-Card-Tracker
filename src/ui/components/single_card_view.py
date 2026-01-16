@@ -1,4 +1,5 @@
 from nicegui import ui
+from src.core.models import ApiCardSet
 from src.services.ygo_api import ApiCard, ygo_service
 from src.services.image_manager import image_manager
 from src.core.utils import transform_set_code, generate_variant_id
@@ -251,8 +252,16 @@ class SingleCardView:
                             if card.card_sets:
                                 for s in card.card_sets:
                                     code = s.set_code
+                                    s_name = s.set_name
+
+                                    # Attempt fallback resolution if name seems missing or generic
+                                    if not s_name or s_name == "Custom Set" or s_name == "N/A":
+                                         fallback = await ygo_service.get_set_name_by_code(code)
+                                         if fallback:
+                                             s_name = fallback
+
                                     if code not in set_options:
-                                        set_options[code] = f"{s.set_name} ({code})"
+                                        set_options[code] = f"{s_name} ({code})"
                                         set_info_map[code] = s
                             else:
                                 set_options["Custom"] = "Custom Set"
@@ -313,7 +322,7 @@ class SingleCardView:
             logger.error(f"ERROR in render_consolidated_single_view: {e}", exc_info=True)
 
 
-    def open_collectors(
+    async def open_collectors(
         self,
         card: ApiCard,
         owned_count: int,
@@ -352,7 +361,23 @@ class SingleCardView:
                         initial_base_code = base
                         found = True
                         break
+
                 if not found:
+                    # Fallback: Attempt to resolve set name from global DB
+                    fallback_name = await ygo_service.get_set_name_by_code(set_code)
+                    if fallback_name:
+                        set_options[set_code] = f"{fallback_name} ({set_code})"
+                        # Create dummy ApiCardSet for set_info_map to prevent crash/Custom fallback
+                        dummy_set = ApiCardSet(
+                            set_name=fallback_name,
+                            set_code=set_code,
+                            set_rarity=rarity or "Common"
+                        )
+                        set_info_map[set_code] = dummy_set
+                        initial_base_code = set_code
+                        # Update the display name if it was missing/custom
+                        set_name = fallback_name
+                    else:
                         initial_base_code = list(set_options.keys())[0] if set_options else "Custom"
 
             input_state = {
