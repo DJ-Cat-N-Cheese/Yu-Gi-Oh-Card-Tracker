@@ -1,11 +1,12 @@
 import time
+import random
 from playwright.sync_api import sync_playwright, expect
 
 def verify_deck_builder():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
-        page.set_viewport_size({"width": 1280, "height": 800})
+        page.set_viewport_size({"width": 1920, "height": 1080})
 
         try:
             print("Navigating...")
@@ -23,13 +24,14 @@ def verify_deck_builder():
                 page.get_by_text("+ New Deck").click()
                 time.sleep(1)
 
-                # Fill dialog
-                page.get_by_label("Deck Name").fill("VerifyDeck")
+                # Fill dialog with unique name
+                deck_name = f"VerifyDeck_{random.randint(1000,9999)}"
+                page.get_by_label("Deck Name").fill(deck_name)
                 page.get_by_role("button", name="Create").click()
                 time.sleep(3)
 
             print("Verifying Layout...")
-            # Check 3 zones - use locators that are less text-strict if possible, or partial
+            # Check 3 zones
             expect(page.locator(".deck-builder-deck-area").get_by_text("Main Deck")).to_be_visible()
 
             # Check Gallery
@@ -38,15 +40,13 @@ def verify_deck_builder():
 
             # Wait for cards
             print("Waiting for cards...")
-            time.sleep(3) # Wait for initial data load timer
+            time.sleep(3)
 
             # Drag and Drop
             # Find the first card (draggable)
             draggable_item = gallery.locator(".q-card").first
 
             # Find drop zone (Main Deck)
-            # The drop zone is the 'w-full flex-grow ...' inside the zone
-            # We can target the text "Drag cards here" if visible, or the container
             target = page.locator(".deck-builder-deck-area .nicegui-column.flex-grow").first
 
             print("Dragging...")
@@ -54,7 +54,6 @@ def verify_deck_builder():
             time.sleep(1)
 
             # Verify count
-            # Use partial match for (1)
             if page.locator(".deck-builder-deck-area").get_by_text("(1)").is_visible():
                 print("Success: Card added.")
             else:
