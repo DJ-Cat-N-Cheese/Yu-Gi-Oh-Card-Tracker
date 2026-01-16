@@ -404,7 +404,7 @@ class DeckBuilderPage:
                      ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense size=sm')
                      ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense size=sm')
 
-            with ui.element('div').classes('w-full flex-grow border border-gray-800 rounded p-2 overflow-y-auto'):
+            with ui.scroll_area().classes('w-full flex-grow border border-gray-800 rounded p-2'):
                 if not items:
                     ui.label('No cards found.').classes('text-grey italic w-full text-center')
                     return
