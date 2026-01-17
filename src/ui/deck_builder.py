@@ -119,7 +119,7 @@ class DeckBuilderPage:
             'filtered_items': [], # List[ApiCard] for search results
 
             'page': 1,
-            'page_size': 48,
+            'page_size': 9,
             'total_pages': 1,
 
             'loading': False
@@ -796,7 +796,10 @@ class DeckBuilderPage:
                      if new_card:
                          new_card.move(grid, new_index)
 
-            # No full refresh needed!
+            # Refresh gallery to reset state/listeners and fix potential UI glitches
+            self.refresh_search_results()
+
+            # No full refresh needed for the deck zone!
         else:
              # Intra-deck moves logic remains same (skip refresh)
              pass
