@@ -355,12 +355,83 @@ class DeckBuilderPage:
         if self.state['filter_archetype']:
              res = [c for c in res if c.archetype == self.state['filter_archetype']]
 
-        if self.state['filter_level']:
+        if self.state['filter_set']:
+             # Format: "Set Name | Code"
+             target = self.state['filter_set'].split('|')[0].strip().lower()
+             res = [c for c in res if any(target in (s.set_name or '').lower() or target in (s.set_code or '').lower() for s in c.card_sets)]
+
+        if self.state['filter_rarity']:
+             target = self.state['filter_rarity'].lower()
+             res = [c for c in res if any(target == (s.set_rarity or '').lower() for s in c.card_sets)]
+
+        if self.state['filter_monster_category']:
+             # Check if card matches ANY of the selected categories
+             cats = self.state['filter_monster_category']
+             res = [c for c in res if any(c.matches_category(cat) for cat in cats)]
+
+        if self.state['filter_level'] is not None:
              res = [c for c in res if c.level == int(self.state['filter_level'])]
 
         atk_min, atk_max = self.state['filter_atk_min'], self.state['filter_atk_max']
         if atk_min > 0 or atk_max < 5000:
              res = [c for c in res if c.atk is not None and atk_min <= int(c.atk) <= atk_max]
+
+        def_min, def_max = self.state['filter_def_min'], self.state['filter_def_max']
+        if def_min > 0 or def_max < 5000:
+             res = [c for c in res if c.def_ is not None and def_min <= int(c.def_) <= def_max]
+
+        # Ownership Filters
+        ref_col = self.state['reference_collection']
+        owned_map = {}
+        if ref_col:
+            # Pre-calculate map for O(1) lookups: card_id -> CollectionCard
+            owned_map = {c.card_id: c for c in ref_col.cards}
+
+        # Quantity Range
+        own_min, own_max = self.state['filter_ownership_min'], self.state['filter_ownership_max']
+        if own_min > 0 or own_max < 100:
+             def get_qty(c):
+                 if not ref_col: return 0
+                 found = owned_map.get(c.id)
+                 return found.total_quantity if found else 0
+
+             res = [c for c in res if own_min <= get_qty(c) <= own_max]
+
+        # Condition
+        if self.state['filter_condition'] and ref_col:
+             conds = set(self.state['filter_condition'])
+             def has_condition(c):
+                 found = owned_map.get(c.id)
+                 if not found: return False
+                 for v in found.variants:
+                     for e in v.entries:
+                         if e.condition in conds and e.quantity > 0:
+                             return True
+                 return False
+             res = [c for c in res if has_condition(c)]
+
+        # Owned Language
+        if self.state['filter_owned_lang'] and ref_col:
+             lang = self.state['filter_owned_lang']
+             def has_lang(c):
+                 found = owned_map.get(c.id)
+                 if not found: return False
+                 for v in found.variants:
+                     for e in v.entries:
+                         if e.language == lang and e.quantity > 0:
+                             return True
+                 return False
+             res = [c for c in res if has_lang(c)]
+
+        # Price Range
+        p_min, p_max = self.state['filter_price_min'], self.state['filter_price_max']
+        if p_min > 0 or p_max < 1000:
+             def get_price(c):
+                 if not c.card_prices: return 0.0
+                 try:
+                     return float(c.card_prices[0].tcgplayer_price or 0)
+                 except: return 0.0
+             res = [c for c in res if p_min <= get_price(c) <= p_max]
 
         key = self.state['sort_by']
         reverse = self.state['sort_descending']
@@ -496,18 +567,7 @@ class DeckBuilderPage:
 
             ui.space()
 
-            async def on_search(e):
-                self.state['search_text'] = e.value
-                await self.apply_filters()
-            ui.input(placeholder='Search cards...', value=self.state['search_text'], on_change=on_search).props('debounce=300 icon=search').classes('w-64')
-
-            async def on_owned_toggle(e):
-                self.state['only_owned'] = e.value
-                await self.apply_filters()
-            ui.switch('Owned Only', value=self.state['only_owned'], on_change=on_owned_toggle).classes('text-white')
-
-            with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary'):
-                ui.tooltip('Filters')
+            # Search and filters moved to library column
 
     def _setup_card_tooltip(self, card: ApiCard):
         if not card: return
@@ -542,7 +602,7 @@ class DeckBuilderPage:
         if not self.search_results_container: return
         self.search_results_container.clear()
         with self.search_results_container:
-            ui.label('Library').classes('text-h6 text-white px-2 py-1 font-bold')
+            # Header is now static in build_ui
 
             start = (self.state['page'] - 1) * self.state['page_size']
             end = min(start + self.state['page_size'], len(self.state['filtered_items']))
@@ -870,7 +930,27 @@ class DeckBuilderPage:
             .on('deck_change', self.handle_deck_change):
 
             # Gallery is sticky so it stays visible while scrolling decks
-            self.search_results_container = ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden')
+            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden'):
+                # HEADER (Search, Filters, etc.)
+                with ui.column().classes('w-full p-2 gap-2 border-b border-gray-800 bg-gray-900'):
+                     with ui.row().classes('w-full items-center justify-between'):
+                         ui.label('Library').classes('text-h6 text-white font-bold')
+                         with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('flat color=white dense'):
+                             ui.tooltip('Filters')
+
+                     async def on_search(e):
+                        self.state['search_text'] = e.value
+                        await self.apply_filters()
+                     ui.input(placeholder='Search...', value=self.state['search_text'], on_change=on_search) \
+                        .props('debounce=300 icon=search dense outlined dark input-class=text-white').classes('w-full')
+
+                     async def on_owned_toggle(e):
+                        self.state['only_owned'] = e.value
+                        await self.apply_filters()
+                     ui.switch('Owned Only', value=self.state['only_owned'], on_change=on_owned_toggle).props('dense').classes('text-white text-xs')
+
+                # RESULTS CONTAINER
+                self.search_results_container = ui.column().classes('w-full flex-grow overflow-hidden flex flex-col')
 
             # Deck area grows with content
             with ui.column().classes('flex-grow relative deck-builder-deck-area gap-2'):
