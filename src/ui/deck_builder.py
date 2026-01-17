@@ -31,7 +31,7 @@ class DeckBuilderPage:
         ui.add_head_html('<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>')
         ui.add_body_html('''
             <script>
-            window.initSortable = function(elementId, groupName, pullMode, putMode) {
+            window.initSortable = function(elementId, groupName, pullMode, putMode, allowSort) {
                 var el = document.getElementById(elementId);
                 if (!el) return;
                 if (el._sortable) el._sortable.destroy();
@@ -42,9 +42,11 @@ class DeckBuilderPage:
                         pull: pullMode,
                         put: putMode
                     },
+                    sort: allowSort,
                     animation: 150,
                     ghostClass: 'opacity-50',
                     forceFallback: true,
+                    fallbackTolerance: 3,
                     onEnd: function (evt) {
                         var toIds = Array.from(evt.to.children).map(c => c.getAttribute('data-id')).filter(id => id);
                         var fromIds = Array.from(evt.from.children).map(c => c.getAttribute('data-id')).filter(id => id);
@@ -519,7 +521,7 @@ class DeckBuilderPage:
                                  ui.label(card.name).classes('text-[10px] font-bold w-full leading-tight line-clamp-2 text-wrap h-6')
                                  ui.label(card.type).classes('text-[9px] text-gray-400 truncate w-full')
 
-                ui.run_javascript('initSortable("gallery-list", "deck", "clone", false)')
+                ui.run_javascript('initSortable("gallery-list", "deck", "clone", false, false)')
 
     async def open_deck_builder_wrapper(self, card):
         owned_count = 0
@@ -592,7 +594,7 @@ class DeckBuilderPage:
             for cid in real_card_ids:
                 self._render_deck_card(cid, target, usage_counter, owned_map)
 
-        ui.run_javascript(f'initSortable("deck-{target}", "deck", true, true)')
+        ui.run_javascript(f'initSortable("deck-{target}", "deck", true, true, true)')
 
     def refresh_zone(self, zone):
         self._refresh_zone_content(zone)
@@ -697,16 +699,24 @@ class DeckBuilderPage:
 
         # Validate zones
         valid_zones = ['main', 'extra', 'side']
+        changes_made = False
 
         # Update 'to' zone
         if to_zone in valid_zones:
-            setattr(deck, to_zone, to_ids)
+            current_ids = getattr(deck, to_zone)
+            if current_ids != to_ids:
+                setattr(deck, to_zone, to_ids)
+                changes_made = True
 
         # Update 'from' zone if it's a valid deck zone and different from 'to'
         if from_zone in valid_zones and from_zone != to_zone:
-             setattr(deck, from_zone, from_ids)
+             current_from_ids = getattr(deck, from_zone)
+             if current_from_ids != from_ids:
+                 setattr(deck, from_zone, from_ids)
+                 changes_made = True
 
-        await self.save_current_deck()
+        if changes_made:
+            await self.save_current_deck()
 
         # Refresh UI
         zones_to_refresh = set()
