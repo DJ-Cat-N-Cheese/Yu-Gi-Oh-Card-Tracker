@@ -40,4 +40,5 @@ app.add_static_files('/images', 'data/images')
 app.add_static_files('/sets', 'data/sets')
 
 if __name__ in {"__main__", "__mp_main__"}:
-    ui.run(title='OpenYuGi', favicon='🃏')
+    # Disable reload to prevent restart loops when writing to data/ directory (images, db)
+    ui.run(title='OpenYuGi', favicon='🃏', reload=False)
