@@ -29,6 +29,7 @@ class DeckCardViewModel:
 class DeckBuilderPage:
     def __init__(self):
         ui.add_head_html('<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>')
+        ui.add_head_html('<style>.sortable-ghost-custom { opacity: 0.5; }</style>')
         ui.add_body_html('''
             <script>
             window.initSortable = function(elementId, groupName, pullMode, putMode) {
@@ -43,7 +44,7 @@ class DeckBuilderPage:
                         put: putMode
                     },
                     animation: 150,
-                    ghostClass: 'opacity-50',
+                    ghostClass: 'sortable-ghost-custom',
                     forceFallback: true,
                     fallbackTolerance: 3,
                     onClone: function (evt) {
