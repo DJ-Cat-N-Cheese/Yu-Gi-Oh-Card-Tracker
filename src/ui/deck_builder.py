@@ -81,111 +81,101 @@ class DeckBuilderPage:
         self.filter_pane: Optional[FilterPane] = None
         self.api_card_map = {} # ID -> ApiCard
         self.dragged_item = None
-        self.drag_preview = {'zone': None, 'index': None} # Preview state for visual reordering
 
         self.search_results_container = None
         self.deck_area_container = None
 
     def handle_drag_start(self, card, source_zone, index=None):
         self.dragged_item = {'id': card.id, 'from': source_zone, 'index': index}
-        self.drag_preview = {'zone': None, 'index': None}
-
-    async def handle_drag_enter(self, target_zone, index):
-        """Called when dragging over a specific card slot."""
-        if not self.dragged_item: return
-
-        # Don't update if nothing changed
-        if self.drag_preview['zone'] == target_zone and self.drag_preview['index'] == index:
-            return
-
-        self.drag_preview = {'zone': target_zone, 'index': index}
-        self.refresh_zone(target_zone)
-
-    async def handle_zone_drag_over(self, target_zone):
-        """Called when dragging over the zone container (empty space)."""
-        if not self.dragged_item: return
-
-        # Default to appending to end if not over a specific card
-        # Only update if we are not already at the end of this zone
-        if self.drag_preview['zone'] != target_zone or self.drag_preview['index'] != 9999:
-             self.drag_preview = {'zone': target_zone, 'index': 9999} # 9999 = End
-             self.refresh_zone(target_zone)
 
     def handle_drag_end(self):
         """Called when drag operation ends (success or cancelled). Cleans up state."""
         self.dragged_item = None
-        self.drag_preview = {'zone': None, 'index': None}
-        self.refresh_deck_area()
+        self.refresh_deck_area() # Ensure visual state is clean (e.g. remove opacity)
 
     def refresh_zone(self, zone):
         if zone == 'main': self.render_main_deck_grid.refresh()
         elif zone == 'extra': self.render_extra_deck_grid.refresh()
         elif zone == 'side': self.render_side_deck_grid.refresh()
 
-    async def handle_drop(self, e, target_zone):
+    async def handle_drop(self, e, target_zone, target_index=None):
+        """
+        Handles dropping a card into a zone.
+        target_index: If provided, insert BEFORE this index. If None, append to end.
+        """
         if not self.dragged_item: return
 
-        # Commit the change based on preview or default
-        # If preview is set for this zone, use that index.
-        target_index = None
-        if self.drag_preview['zone'] == target_zone:
-             target_index = self.drag_preview['index']
-
-        # If no index (e.g. dropped on container without triggering enter), append.
-        if target_index is None or target_index == 9999:
-             deck = self.state['current_deck']
-             target_list = getattr(deck, target_zone)
-             target_index = len(target_list)
-
-        await self.execute_move(target_zone, target_index)
-
-        # Reset
-        self.dragged_item = None
-        self.drag_preview = {'zone': None, 'index': None}
-        self.refresh_deck_area() # Refresh all to ensure clean state
-
-    async def execute_move(self, target_zone, target_index):
-        data = self.dragged_item
-        card_id = data.get('id')
-        src_zone = data.get('from')
-        src_index = data.get('index')
+        # Extract source info
+        card_id = self.dragged_item.get('id')
+        src_zone = self.dragged_item.get('from')
+        src_index = self.dragged_item.get('index')
 
         if not card_id or not src_zone: return
 
         deck = self.state['current_deck']
         if not deck: return
 
+        # Get Target List
         target_list = getattr(deck, target_zone)
 
-        if src_zone == target_zone:
-            # Reorder within same zone
-            if src_index is None: return
-            if src_index < 0 or src_index >= len(target_list): return
-
-            # The target_index corresponds to the list state *during* drag,
-            # which matches the list with the source item removed (visual gap).
-            item = target_list.pop(src_index)
-
-            # If target_index was "End" (9999), set to len
-            if target_index > len(target_list): target_index = len(target_list)
-
-            target_list.insert(target_index, item)
-
-        else:
-            # Move from another zone or gallery
-            # 1. Remove from source if it's a deck zone
-            if src_zone in ['main', 'extra', 'side']:
-                 src_list = getattr(deck, src_zone)
-                 if src_index is not None and 0 <= src_index < len(src_list) and src_list[src_index] == card_id:
-                     src_list.pop(src_index)
-                 elif card_id in src_list:
-                     src_list.remove(card_id)
-
-            # 2. Insert into target
-            if target_index > len(target_list): target_index = len(target_list)
+        # Logic 1: Dragging from Gallery (New Card)
+        if src_zone == 'gallery':
+            if target_index is None: target_index = len(target_list)
+            # Add 1 copy
             target_list.insert(target_index, card_id)
 
+        # Logic 2: Moving/Reordering within Zones
+        elif src_zone in ['main', 'extra', 'side']:
+            src_list = getattr(deck, src_zone)
+
+            # Remove from source
+            # We must be careful to remove the specific instance if we have the index
+            removed = False
+            if src_index is not None and 0 <= src_index < len(src_list) and src_list[src_index] == card_id:
+                src_list.pop(src_index)
+                removed = True
+            elif card_id in src_list:
+                # Fallback if index missing or mismatch (shouldn't happen with correct usage)
+                src_list.remove(card_id)
+                removed = True
+
+            if not removed:
+                logger.warning("Could not find source card to move")
+                return
+
+            # Adjust target index if reordering within same zone
+            if src_zone == target_zone:
+                if target_index is None:
+                    target_index = len(target_list) # Append
+                else:
+                    # If we moved an item from BEFORE the target, the indices shifted down by 1
+                    if src_index is not None and src_index < target_index:
+                        target_index -= 1
+            else:
+                 # Moving between zones, just normal insert
+                 if target_index is None: target_index = len(target_list)
+
+            # Insert into target
+            # Clamp index just in case
+            if target_index > len(target_list): target_index = len(target_list)
+            if target_index < 0: target_index = 0
+
+            target_list.insert(target_index, card_id)
+
+        # Save and Refresh
         await self.save_current_deck()
+        self.dragged_item = None # Clear drag state
+
+        # Refresh zones involved
+        zones_to_refresh = {target_zone}
+        if src_zone in ['main', 'extra', 'side']:
+            zones_to_refresh.add(src_zone)
+
+        for z in zones_to_refresh:
+            self.refresh_zone(z)
+
+        self.update_zone_headers()
+
 
     async def load_initial_data(self):
         self.state['loading'] = True
@@ -581,38 +571,6 @@ class DeckBuilderPage:
 
         real_card_ids = getattr(deck, target)
 
-        # Build Display List
-        # We separate the source item (if in this zone) from the flow items
-        # to ensure correct indexing and visual placement.
-        display_cards = []
-        source_item = None
-
-        for i, cid in enumerate(real_card_ids):
-             is_source = (self.dragged_item and
-                          self.dragged_item['from'] == target and
-                          self.dragged_item['index'] == i)
-
-             item_data = {'id': cid, 'real_index': i, 'is_preview': False, 'is_source': is_source}
-
-             if is_source:
-                 source_item = item_data
-             else:
-                 display_cards.append(item_data)
-
-        # Insert Preview Card (Ghost)
-        if self.dragged_item and self.drag_preview['zone'] == target:
-            idx = self.drag_preview['index']
-            # Clamp index
-            if idx is None or idx > len(display_cards): idx = len(display_cards)
-
-            ghost_data = {'id': self.dragged_item['id'], 'real_index': None, 'is_preview': True, 'is_source': False}
-            display_cards.insert(idx, ghost_data)
-
-        # Append source item at the end of the list but marked as hidden
-        # This keeps it in the DOM (to sustain drag) but removes it from visual flow
-        if source_item:
-            display_cards.append(source_item)
-
         # Check Ownership (for coloring)
         ref_col = self.state['reference_collection']
         owned_map = {}
@@ -622,18 +580,19 @@ class DeckBuilderPage:
 
         usage_counter = {}
 
-        if not display_cards:
-            # Render empty state but ensure grid exists to accept drops
+        if not real_card_ids:
+            # Render empty state but ensure grid exists to accept drops (though parent container handles empty drops usually)
              with ui.grid(columns='repeat(auto-fill, minmax(140px, 1fr))').classes('w-full gap-2 min-h-[50px]'):
                   ui.label('Drag cards here').classes('text-grey italic text-xs w-full text-center q-mt-md opacity-50 col-span-full')
              return
 
         with ui.grid(columns='repeat(auto-fill, minmax(140px, 1fr))').classes('w-full gap-2'):
-            for i, item in enumerate(display_cards):
-                cid = item['id']
-                is_preview = item['is_preview']
-                is_source = item.get('is_source', False)
-                real_index = item.get('real_index') # None if preview or new
+            for i, cid in enumerate(real_card_ids):
+                # Is this the item currently being dragged?
+                is_drag_source = (self.dragged_item and
+                                  self.dragged_item.get('id') == cid and
+                                  self.dragged_item.get('from') == target and
+                                  self.dragged_item.get('index') == i)
 
                 # Fetch API Data
                 card = self.api_card_map.get(cid)
@@ -653,12 +612,8 @@ class DeckBuilderPage:
 
                 classes = 'p-0 cursor-pointer w-full aspect-[2/3] border-transparent hover:scale-105 transition-transform relative group border border-gray-800'
 
-                if is_source:
-                    # Hidden source card - absolute positioning to remove from flow, opacity 0 to hide
-                    # pointer-events-none to prevent interaction
-                    classes += ' opacity-0 absolute w-0 h-0 overflow-hidden pointer-events-none'
-                elif is_preview:
-                    classes += ' opacity-70 border-2 border-yellow-400' # Visual indicator for preview
+                if is_drag_source:
+                    classes += ' opacity-40' # Visual feedback for source
                 elif not is_owned_copy:
                     classes += ' opacity-50 grayscale'
                 else:
@@ -667,18 +622,17 @@ class DeckBuilderPage:
                 # Render Card
                 with ui.card().classes(classes) \
                     .props('draggable') \
-                    .on('dragstart', lambda c=card, idx=real_index, t=target: self.handle_drag_start(c, t, idx)) \
-                    .on('dragstart.once', 'event.target.classList.add("opacity-50")') \
-                    .on('dragend.once', 'event.target.classList.remove("opacity-50")') \
+                    .on('dragstart', lambda c=card, idx=i, t=target: self.handle_drag_start(c, t, idx)) \
+                    .on('dragstart.once', 'event.target.classList.add("opacity-40")') \
+                    .on('dragend.once', 'event.target.classList.remove("opacity-40")') \
                     .on('dragend', self.handle_drag_end) \
                     .on('click', lambda c=card, t=target: self.remove_card_from_deck(c.id, t)) \
-                    .on('dragenter', lambda idx=i, s=is_source: self.handle_drag_enter(target, idx) if not s else None) \
                     .on('dragover.prevent.stop', lambda: None) \
-                    .on('drop', lambda e: self.handle_drop(e, target)):
+                    .on('drop.prevent.stop', lambda e, idx=i, t=target: self.handle_drop(e, t, idx)):
 
                     ui.image(img_src).classes('w-full h-full object-cover rounded')
                     # Only show hover actions for normal cards
-                    if not is_preview and not is_source:
+                    if not is_drag_source:
                         with ui.element('div').classes('absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center'):
                             ui.icon('remove', color='white').classes('text-lg')
                         ui.tooltip(card.name)
@@ -722,9 +676,9 @@ class DeckBuilderPage:
             elif target == 'extra': self.render_header_extra()
             elif target == 'side': self.render_header_side()
 
-            # The container handles drops on empty space
+            # The container handles drops on empty space (appending)
             with ui.column().classes('w-full flex-grow bg-black/20 rounded p-2 overflow-y-auto block relative transition-colors') \
-                .on('dragover.prevent', lambda t=target: self.handle_zone_drag_over(t)) \
+                .on('dragover.prevent', lambda: None) \
                 .on('drop', lambda e: self.handle_drop(e, target)):
 
                 if target == 'main': self.render_main_deck_grid()
