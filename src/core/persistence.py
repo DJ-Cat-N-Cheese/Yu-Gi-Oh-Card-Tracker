@@ -157,9 +157,13 @@ class PersistenceManager:
         filepath = os.path.join(self.data_dir, "ui_state.json")
         try:
             current = self.load_ui_state()
+            original_str = json.dumps(current, sort_keys=True)
             current.update(state)
-            with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(current, f, indent=2)
+            new_str = json.dumps(current, sort_keys=True)
+
+            if original_str != new_str:
+                with open(filepath, 'w', encoding='utf-8') as f:
+                    json.dump(current, f, indent=2)
         except Exception as e:
             logger.error(f"Error saving UI state: {e}")
 

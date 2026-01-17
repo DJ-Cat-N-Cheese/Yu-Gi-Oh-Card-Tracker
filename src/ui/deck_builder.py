@@ -46,6 +46,12 @@ class DeckBuilderPage:
                     ghostClass: 'opacity-50',
                     forceFallback: true,
                     fallbackTolerance: 3,
+                    onClone: function (evt) {
+                        if (evt.clone) {
+                            evt.clone.removeAttribute('id');
+                            evt.clone.querySelectorAll('[id]').forEach(el => el.removeAttribute('id'));
+                        }
+                    },
                     onEnd: function (evt) {
                         var toIds = Array.from(evt.to.children).map(c => c.getAttribute('data-id')).filter(id => id);
                         var fromIds = Array.from(evt.from.children).map(c => c.getAttribute('data-id')).filter(id => id);
@@ -537,20 +543,19 @@ class DeckBuilderPage:
 
                          owned_qty = owned_map.get(card.id, 0)
 
-                         with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-800 w-full h-full') \
-                            .props(f'data-id="{card.id}"') \
-                            .on('click', lambda c=card: self.open_deck_builder_wrapper(c)):
+                         with ui.element('div').classes('w-full h-full').props(f'data-id="{card.id}"'):
+                             with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-800 w-full h-full').on('click', lambda c=card: self.open_deck_builder_wrapper(c)):
 
-                             with ui.element('div').classes('relative w-full aspect-[2/3]'):
-                                 ui.image(img_src).classes('w-full h-full object-cover')
-                                 if owned_qty > 0:
-                                     ui.label(f"{owned_qty}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs')
+                                 with ui.element('div').classes('relative w-full aspect-[2/3]'):
+                                     ui.image(img_src).classes('w-full h-full object-cover')
+                                     if owned_qty > 0:
+                                         ui.label(f"{owned_qty}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs')
 
-                             with ui.column().classes('p-1 gap-0 w-full'):
-                                 ui.label(card.name).classes('text-[10px] font-bold w-full leading-tight line-clamp-2 text-wrap h-6')
-                                 ui.label(card.type).classes('text-[9px] text-gray-400 truncate w-full')
+                                 with ui.column().classes('p-1 gap-0 w-full'):
+                                     ui.label(card.name).classes('text-[10px] font-bold w-full leading-tight line-clamp-2 text-wrap h-6')
+                                     ui.label(card.type).classes('text-[9px] text-gray-400 truncate w-full')
 
-                             self._setup_card_tooltip(card)
+                                 self._setup_card_tooltip(card)
 
                 ui.run_javascript('initSortable("gallery-list", "deck", "clone", false)')
 
@@ -755,37 +760,53 @@ class DeckBuilderPage:
         await self.save_current_deck()
 
         # Refresh UI
-        zones_to_refresh = set()
-
         if from_zone == 'gallery':
-            # Optimize Gallery -> Deck addition to prevent flashing.
-            # Instead of refreshing the whole zone, we replace the SortableJS clone with a real deck card.
-            new_index = args.get('new_index')
-            if new_index is not None and to_zone in self.deck_grids:
-                 # 1. Identify the new card ID (it's the one in to_ids that wasn't there before, or we just trust the index)
-                 if new_index < len(to_ids):
-                     new_card_id = to_ids[new_index]
+             # Surgically add the new card component to avoid full refresh/flashing
+             # We need to calculate the correct usage/owned state for this specific card
+             try:
+                 card_id = to_ids[new_index]
 
-                     # 2. Remove the "dumb clone" dropped by SortableJS
-                     await ui.run_javascript(f"var p = document.getElementById('deck-{to_zone}'); if(p && p.children[{new_index}]) p.children[{new_index}].remove();")
+                 owned_total = 0
+                 if self.state['reference_collection']:
+                      for c in self.state['reference_collection'].cards:
+                          if c.card_id == card_id:
+                              owned_total = c.total_quantity
+                              break
 
-                     # 3. Render the new real card (appends to end)
-                     grid = self.deck_grids[to_zone]
-                     with grid:
-                         new_card = self._render_deck_card(new_card_id, to_zone)
+                 # Calculate usage count up to this point (for opacity logic)
+                 usage_count = to_ids[:new_index].count(card_id)
 
-                     # 4. Move to correct index
-                     if new_card:
-                         new_card.move(grid, new_index)
+                 grid = self.deck_grids[to_zone]
+                 with grid:
+                     new_card = self._render_deck_card(
+                         card_id,
+                         to_zone,
+                         usage_counter={card_id: usage_count},
+                         owned_map={card_id: owned_total}
+                     )
 
-            # No full refresh needed!
+                 if new_card:
+                     new_card.move(grid, index=new_index)
+
+                     # Remove the SortableJS client-side "ghost" element.
+                     # Since we stripped IDs in onClone, the ghost likely has no ID or just data-id.
+                     # We remove elements with matching data-id but NO ID attribute to avoid removing the new real card.
+                     await ui.run_javascript(f'''
+                        var container = document.getElementById("deck-{to_zone}");
+                        if (container) {{
+                            Array.from(container.children).forEach(c => {{
+                                if (c.getAttribute("data-id") == "{card_id}" && !c.getAttribute("id")) {{
+                                    c.remove();
+                                }}
+                            }});
+                        }}
+                     ''')
+             except Exception as ex:
+                 logger.error(f"Error in surgical update: {ex}")
+                 self.refresh_zone(to_zone)
         else:
              # Intra-deck moves logic remains same (skip refresh)
              pass
-
-        for z in zones_to_refresh:
-            if z in valid_zones:
-                self.refresh_zone(z)
 
         self.update_zone_headers()
 
