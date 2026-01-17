@@ -283,13 +283,13 @@ class BrowseSetsPage:
 
         # Date Filter Slider
         d_range = self.state['filter_date_range']
-        # Convert slider ints to comparable values?
-        # Actually easier to convert set date to int for comparison
-        min_d = d_range['min']
-        max_d = d_range['max']
-
-        # Optimization: Don't filter if range is full (optional, but good for perf)
-        # But we must be careful if data changed. Just filter.
+        try:
+            min_d = int(d_range['min'])
+            max_d = int(d_range['max'])
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid date range values: {d_range} - {e}")
+            min_d = 0
+            max_d = 999999
 
         def check_date(s):
             d_str = s.get('date')
@@ -297,14 +297,25 @@ class BrowseSetsPage:
             d_val = self.date_to_int(d_str)
             return min_d <= d_val <= max_d
 
-        res = [s for s in res if check_date(s)]
+        try:
+            res = [s for s in res if check_date(s)]
+        except Exception as e:
+            logger.error(f"Error filtering dates: {e}")
 
         # Count Filter Slider
         c_range = self.state['filter_count_range']
-        min_c = c_range['min']
-        max_c = c_range['max']
+        try:
+            min_c = int(c_range['min'])
+            max_c = int(c_range['max'])
+        except (ValueError, TypeError) as e:
+            logger.error(f"Invalid count range values: {c_range} - {e}")
+            min_c = 0
+            max_c = 9999
 
-        res = [s for s in res if min_c <= int(s.get('count', 0)) <= max_c]
+        try:
+            res = [s for s in res if min_c <= int(s.get('count', 0)) <= max_c]
+        except Exception as e:
+             logger.error(f"Error filtering counts: {e}")
 
         # Sort
         key = self.state['sort_by']
@@ -331,6 +342,7 @@ class BrowseSetsPage:
             self.state['page'] = 1
 
     async def open_set_detail(self, set_code):
+        logger.info(f"Opening set detail for: {set_code}")
         try:
             self.state['selected_set'] = set_code
             self.state['view'] = 'detail'
@@ -588,13 +600,16 @@ class BrowseSetsPage:
         """
 
         def render_fan_spinner():
+            if container.is_deleted: return
             container.clear()
             with container:
                 ui.spinner('dots', size='lg').classes('absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-gray-600')
 
         async def load_fan():
+             if container.is_deleted: return
              try:
                 cards = await ygo_service.get_set_cards(set_code)
+                if container.is_deleted: return
                 container.clear()
                 with container:
                      fan_div = ui.element('div').classes('relative w-full h-full bg-gray-800 overflow-hidden')
@@ -622,52 +637,63 @@ class BrowseSetsPage:
                             ui.image(img).classes('absolute w-[50%] left-1/2 transform -translate-x-1/2 -bottom-8 z-10 shadow-xl border border-white/20 rounded')
              except Exception as e:
                 logger.error(f"Error loading fallback for set {set_code}: {e}")
-                container.clear()
+                if not container.is_deleted: container.clear()
 
         # Check Local existence AND resolution
-        # We check resolution synchronously here because checking ~24 files (one page) is fast enough
-        # and ensures we never show a bad cached image.
         path = image_manager.get_set_image_path(set_code)
         if image_manager.set_image_exists(set_code) and image_manager.check_image_resolution(path):
              safe_code = "".join(c for c in set_code if c.isalnum() or c in ('-', '_')).strip()
              with container:
-                container.clear()
                 ui.image(f"/sets/{safe_code}.jpg").classes('w-full h-full object-contain')
         elif image_url:
              # Spinner
              render_fan_spinner()
 
              async def download_and_update():
-                 # ensure_set_image checks resolution
-                 path = await image_manager.ensure_set_image(set_code, image_url)
-                 if path:
-                     safe_code = "".join(c for c in set_code if c.isalnum() or c in ('-', '_')).strip()
-                     container.clear()
-                     with container:
-                         ui.image(f"/sets/{safe_code}.jpg").classes('w-full h-full object-contain')
-                 else:
-                     # Download failed or Low Res -> Fan
-                     await load_fan()
+                 if container.is_deleted: return
+                 try:
+                     # ensure_set_image checks resolution
+                     path = await image_manager.ensure_set_image(set_code, image_url)
+                     if container.is_deleted: return
 
-             ui.timer(0.1, download_and_update, once=True)
+                     if path:
+                         safe_code = "".join(c for c in set_code if c.isalnum() or c in ('-', '_')).strip()
+                         container.clear()
+                         with container:
+                             ui.image(f"/sets/{safe_code}.jpg").classes('w-full h-full object-contain')
+                     else:
+                         # Download failed or Low Res -> Fan
+                         await load_fan()
+                 except Exception as e:
+                     logger.error(f"Error updating set image: {e}")
+
+             # Use container context to ensure timer is cleaned up if container is removed
+             with container:
+                 ui.timer(0.1, download_and_update, once=True)
         else:
             render_fan_spinner()
-            ui.timer(0.1, load_fan, once=True)
+            with container:
+                ui.timer(0.1, load_fan, once=True)
 
     def render_set_card(self, set_info):
-        from functools import partial
+        async def on_click():
+            logger.info(f"Click detected on set: {set_info['code']}")
+            await self.open_set_detail(set_info['code'])
 
-        with ui.card().classes('w-full p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-700 bg-gray-900') \
-                .on('click', partial(self.open_set_detail, set_info['code'])):
+        # Use a plain div with q-card class
+        with ui.element('div').classes('q-card w-full p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-700 bg-gray-900 shadow-2xl relative'):
 
-            # Image Area wrapper - h-96 for better visibility
-            with ui.element('div').classes('relative w-full h-96 bg-black overflow-hidden'):
+            # Full cover invisible button to guarantee click capture
+            ui.button().classes('absolute inset-0 opacity-0 z-30 w-full h-full').on('click', on_click)
+
+            # Image Area wrapper - h-[500px] as requested
+            with ui.element('div').classes('relative w-full h-[500px] bg-black overflow-hidden'):
                 # Content Container
                 content_container = ui.element('div').classes('w-full h-full')
                 self.render_set_visual(content_container, set_info['code'], set_info.get('image'))
 
                 # Overlay Info
-                with ui.row().classes('absolute bottom-0 w-full bg-black/80 p-1 justify-between items-center z-20'):
+                with ui.row().classes('absolute bottom-0 w-full bg-black/80 p-1 justify-between items-center z-20 pointer-events-none'):
                     ui.label(set_info['code']).classes('text-xs font-mono font-bold text-yellow-500')
                     count = set_info.get('count', 0)
                     ui.label(f"{count} Cards").classes('text-xs text-gray-400')
