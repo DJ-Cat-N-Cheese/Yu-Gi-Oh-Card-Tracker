@@ -6,6 +6,7 @@ from src.services.image_manager import image_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.deck_drag_drop import DeckDragDropHandler
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Set
 import logging
@@ -135,6 +136,8 @@ class DeckBuilderPage:
 
         self.search_results_container = None
         self.deck_area_container = None
+
+        self.drag_drop_handler = DeckDragDropHandler(self)
 
     def refresh_zone(self, zone):
         if zone == 'main': self.render_main_deck_grid.refresh()
@@ -717,98 +720,7 @@ class DeckBuilderPage:
         self.refresh_zone(zone)
         ui.notify(f"Sorted {zone} deck.", type='positive')
 
-    async def handle_deck_change(self, e):
-        args = e.args.get('detail', {})
-        to_zone = args.get('to_zone')
-        to_ids_str = args.get('to_ids')
-        from_zone = args.get('from_zone')
-        from_ids_str = args.get('from_ids')
-
-        # Convert strings to ints
-        try:
-            to_ids = [int(x) for x in to_ids_str] if to_ids_str else []
-            from_ids = [int(x) for x in from_ids_str] if from_ids_str else []
-        except ValueError:
-            return
-
-        # Check for no-op moves to prevent unnecessary saves
-        new_index = args.get('new_index')
-        old_index = args.get('old_index')
-
-        # 1. Gallery to Gallery (micro-drag in gallery)
-        if from_zone == 'gallery' and to_zone == 'gallery':
-            return
-
-        # 2. Same zone, same index (drop in place)
-        if from_zone == to_zone and new_index == old_index:
-            return
-
-        deck = self.state['current_deck']
-        if not deck: return
-
-        # Validate zones
-        valid_zones = ['main', 'extra', 'side']
-
-        # Update 'to' zone
-        if to_zone in valid_zones:
-            setattr(deck, to_zone, to_ids)
-
-        # Update 'from' zone if it's a valid deck zone and different from 'to'
-        if from_zone in valid_zones and from_zone != to_zone:
-             setattr(deck, from_zone, from_ids)
-
-        await self.save_current_deck()
-
-        # Refresh UI
-        if from_zone == 'gallery':
-             # Surgically add the new card component to avoid full refresh/flashing
-             # We need to calculate the correct usage/owned state for this specific card
-             try:
-                 card_id = to_ids[new_index]
-
-                 owned_total = 0
-                 if self.state['reference_collection']:
-                      for c in self.state['reference_collection'].cards:
-                          if c.card_id == card_id:
-                              owned_total = c.total_quantity
-                              break
-
-                 # Calculate usage count up to this point (for opacity logic)
-                 usage_count = to_ids[:new_index].count(card_id)
-
-                 grid = self.deck_grids[to_zone]
-                 with grid:
-                     new_card = self._render_deck_card(
-                         card_id,
-                         to_zone,
-                         usage_counter={card_id: usage_count},
-                         owned_map={card_id: owned_total}
-                     )
-
-                 if new_card:
-                     new_card.move(grid, index=new_index)
-
-                     # Remove the SortableJS client-side "ghost" element.
-                     # Since we stripped IDs in onClone, the ghost likely has no ID or just data-id.
-                     # We remove elements with matching data-id but NO ID attribute to avoid removing the new real card.
-                     await ui.run_javascript(f'''
-                        var container = document.getElementById("deck-{to_zone}");
-                        if (container) {{
-                            Array.from(container.children).forEach(c => {{
-                                if (c.getAttribute("data-id") == "{card_id}" && !c.getAttribute("id")) {{
-                                    c.remove();
-                                }}
-                            }});
-                        }}
-                     ''')
-             except Exception as ex:
-                 logger.error(f"Error in surgical update: {ex}")
-                 self.refresh_zone(to_zone)
-        else:
-             # Intra-deck moves logic remains same (skip refresh)
-             pass
-
-        self.update_zone_headers()
+    # handle_deck_change delegate moved to DeckDragDropHandler
 
     def build_ui(self):
         self.filter_dialog = ui.dialog().props('position=right')
@@ -821,7 +733,7 @@ class DeckBuilderPage:
         # Removed fixed height to allow page scrolling
         with ui.row().classes('w-full gap-4 flex-nowrap items-start') \
             .props('id="deck-builder-container"') \
-            .on('deck_change', self.handle_deck_change):
+            .on('deck_change', self.drag_drop_handler.handle_deck_change):
 
             # Gallery is sticky so it stays visible while scrolling decks
             self.search_results_container = ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden')

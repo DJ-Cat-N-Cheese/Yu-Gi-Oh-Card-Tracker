@@ -12,7 +12,7 @@ async def run():
         page.on("pageerror", lambda err: print(f"PAGE ERROR: {err}"))
 
         print("Navigating to deck builder...")
-        await page.goto("http://localhost:8080/deck_builder")
+        await page.goto("http://localhost:8080/decks")
 
         print("Waiting for gallery to populate (timeout 30s)...")
         try:
