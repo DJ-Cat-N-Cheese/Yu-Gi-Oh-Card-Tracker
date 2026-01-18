@@ -226,6 +226,7 @@ class BrowseSetsPage:
         await self.apply_set_filters()
 
         # Load Collection
+        self.state['current_collection'] = None
         if self.state['selected_collection_file']:
              try:
                 self.state['current_collection'] = await run.io_bound(persistence.load_collection, self.state['selected_collection_file'])
@@ -1000,6 +1001,7 @@ class BrowseSetsPage:
                      await self.load_data() # Reloads collection
                      # Need to reload rows too
                      await self.load_set_details(self.state['selected_set'])
+                     self.render_set_header.refresh()
 
                  ui.select(file_options, label='Collection', value=self.state['selected_collection_file'], on_change=change_col).classes('min-w-[200px]').props('dark')
 
