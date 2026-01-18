@@ -14,6 +14,7 @@ import asyncio
 import copy
 import os
 import uuid
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,84 @@ class DeckBuilderPage:
             for cid in getattr(deck, zone, []):
                 usage[cid] = usage.get(cid, 0) + 1
         return usage
+
+    def calculate_deck_counts(self) -> Dict[int, int]:
+        """Calculates total quantities of each card across Main, Extra, and Side decks."""
+        deck = self.state['current_deck']
+        if not deck: return {}
+
+        counts = {}
+        for zone in ['main', 'extra', 'side']:
+            for cid in getattr(deck, zone, []):
+                counts[cid] = counts.get(cid, 0) + 1
+        return counts
+
+    def calculate_missing_counts(self, deck_counts: Dict[int, int]) -> Dict[int, int]:
+        """Compares deck counts against the reference collection and returns the difference."""
+        ref_col = self.state['reference_collection']
+        missing = {}
+
+        # If no collection is selected, everything is missing
+        if not ref_col:
+            return deck_counts
+
+        # Create a map of owned quantities
+        owned_map = {}
+        for c in ref_col.cards:
+            owned_map[c.card_id] = c.total_quantity
+
+        for cid, required_qty in deck_counts.items():
+            owned_qty = owned_map.get(cid, 0)
+            if owned_qty < required_qty:
+                missing[cid] = required_qty - owned_qty
+
+        return missing
+
+    def get_export_data(self, mode: str) -> List[Dict]:
+        """
+        Orchestrates the export data preparation.
+        mode: 'full' or 'missing'
+        """
+        deck_counts = self.calculate_deck_counts()
+
+        if mode == 'missing':
+            target_counts = self.calculate_missing_counts(deck_counts)
+        else:
+            target_counts = deck_counts
+
+        export_list = []
+        for cid, qty in target_counts.items():
+            card = self.api_card_map.get(cid)
+            name = card.name if card else f"Unknown Card ({cid})"
+            export_list.append({
+                'id': cid,
+                'name': name,
+                'quantity': qty
+            })
+
+        # Sort by name for nicer output
+        export_list.sort(key=lambda x: x['name'])
+        return export_list
+
+    def generate_csv_export(self, data: List[Dict]) -> str:
+        """Generates a CSV string from the export data."""
+        lines = ["Card Name,Quantity"]
+        for item in data:
+            # Escape quotes in names if necessary
+            name = item['name'].replace('"', '""')
+            lines.append(f'"{name}",{item["quantity"]}')
+        return "\n".join(lines)
+
+    def generate_json_export(self, data: List[Dict]) -> str:
+        """Generates a JSON string from the export data."""
+        return json.dumps(data, indent=2)
+
+    def generate_cardmarket_export(self, data: List[Dict]) -> str:
+        """Generates a Cardmarket-compatible wants list string."""
+        lines = []
+        for item in data:
+            lines.append(f"{item['quantity']} {item['name']}")
+        return "\n".join(lines)
 
     def refresh_zone(self, zone):
         self._refresh_zone_content(zone)
@@ -647,6 +726,8 @@ class DeckBuilderPage:
 
             ui.button(icon='save_as', on_click=save_banlist_as).props('flat round color=white').tooltip('Save Banlist As')
 
+            ui.button(icon='download', on_click=self.open_export_dialog).props('flat round color=white').tooltip('Export Deck / Missing Cards')
+
             # Search and filters moved to library column
 
     def _render_ban_icon(self, card_id: int):
@@ -1013,6 +1094,61 @@ class DeckBuilderPage:
                 self.refresh_zone(z)
 
         self.update_zone_headers()
+
+    def open_export_dialog(self):
+        if not self.state['current_deck']:
+            ui.notify("Please select a deck first.", type='warning')
+            return
+
+        with ui.dialog() as d, ui.card().classes('w-[500px]') as container:
+            # Content container that we can clear/replace
+            content_area = ui.column().classes('w-full')
+
+            def render_initial_options():
+                content_area.clear()
+                with content_area:
+                    ui.label('Export Deck / Missing Cards').classes('text-h6')
+                    scope_radio = ui.radio(['Full Deck', 'Missing Cards'], value='Full Deck').props('inline')
+
+                    with ui.row().classes('w-full gap-2 q-mt-md'):
+                        async def handle_export(format_type):
+                            mode = 'full' if scope_radio.value == 'Full Deck' else 'missing'
+                            data = self.get_export_data(mode)
+
+                            if not data:
+                                ui.notify("No cards to export.", type='warning')
+                                return
+
+                            if format_type == 'csv':
+                                content = self.generate_csv_export(data)
+                                ui.download(content.encode('utf-8'), f"{self.state['current_deck_name']}_{mode}.csv")
+                                d.close()
+                            elif format_type == 'json':
+                                content = self.generate_json_export(data)
+                                ui.download(content.encode('utf-8'), f"{self.state['current_deck_name']}_{mode}.json")
+                                d.close()
+                            elif format_type == 'cardmarket':
+                                content = self.generate_cardmarket_export(data)
+                                render_cardmarket_view(content)
+
+                        ui.button('CSV', on_click=lambda: handle_export('csv')).classes('flex-grow')
+                        ui.button('JSON', on_click=lambda: handle_export('json')).classes('flex-grow')
+                        ui.button('Cardmarket', on_click=lambda: handle_export('cardmarket')).classes('flex-grow')
+
+            def render_cardmarket_view(content):
+                content_area.clear()
+                with content_area:
+                    ui.label('Cardmarket Wants List').classes('text-h6')
+                    ui.label('Copy the text below and paste it into Cardmarket.').classes('text-sm text-grey')
+                    ui.textarea(value=content).props('readonly autogrow').classes('w-full h-[300px]')
+
+                    with ui.row().classes('w-full gap-2 q-mt-md'):
+                        ui.button('Back', on_click=render_initial_options).props('flat')
+                        ui.button('Close', on_click=d.close).classes('flex-grow')
+
+            render_initial_options()
+
+        d.open()
 
     def build_ui(self):
         self.filter_dialog = ui.dialog().props('position=right')
