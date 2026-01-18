@@ -48,6 +48,10 @@ async def test_add_card_to_collection(mock_persistence, mock_changelog, mock_con
     page.render_header = MagicMock()
     page.render_header.refresh = MagicMock()
 
+    # Mock render_library_content refresh
+    page.render_library_content = MagicMock()
+    page.render_library_content.refresh = MagicMock()
+
     # Mock load_collection_data to avoid async complexity or just mock it out
     page.load_collection_data = AsyncMock()
 
@@ -105,3 +109,56 @@ async def test_undo_last_action(mock_persistence, mock_changelog, mock_config, m
         call_args = mock_apply.call_args
         assert call_args.kwargs['quantity'] == -2
         assert call_args.kwargs['mode'] == 'ADD'
+
+@pytest.mark.asyncio
+async def test_apply_collection_filters_monster_category(mock_persistence, mock_config, mock_ygo):
+    page = BulkAddPage()
+
+    # Mock data
+    c1 = ApiCard(id=1, name="Synchro Mon", type="Synchro Monster", desc="...", frameType="synchro")
+    c2 = ApiCard(id=2, name="Effect Mon", type="Effect Monster", desc="...", frameType="effect")
+
+    e1 = BulkCollectionEntry(
+        id="1", api_card=c1, quantity=1, set_code="SET", rarity="Common",
+        language="EN", condition="NM", first_edition=False, image_url="", image_id=1, variant_id="v1"
+    )
+    e2 = BulkCollectionEntry(
+        id="2", api_card=c2, quantity=1, set_code="SET", rarity="Common",
+        language="EN", condition="NM", first_edition=False, image_url="", image_id=2, variant_id="v2"
+    )
+
+    page.col_state['collection_cards'] = [e1, e2]
+    page.col_state['collection_page_size'] = 10 # Set explicitly to avoid Mock
+    page.render_collection_content = MagicMock()
+    page.render_collection_content.refresh = MagicMock()
+
+    # Filter Synchro
+    page.col_state['filter_monster_category'] = ['Synchro']
+    await page.apply_collection_filters()
+
+    res = page.col_state['collection_filtered']
+    assert len(res) == 1
+    assert res[0].id == "1"
+
+    # Filter Effect
+    page.col_state['filter_monster_category'] = ['Effect']
+    await page.apply_collection_filters()
+
+    res = page.col_state['collection_filtered']
+    # Note: Synchro Monster is usually also Effect Monster if not Normal.
+    # But matches_category handles logic.
+    # In API data, "Synchro Monster" implies Effect unless explicitly Normal.
+    # So "Effect" should match both if logic is robust, or just Effect Mon if specific.
+    # ApiCard.matches_category logic:
+    # if "Effect" in type -> True.
+    # "Synchro Monster" does NOT have "Effect" in string.
+    # Fallback: if Synchro/Fusion/... and not Normal in type -> True.
+    # So Synchro Mon should match Effect too.
+    assert len(res) == 2
+
+    # Filter Normal (assuming neither is Normal)
+    page.col_state['filter_monster_category'] = ['Normal']
+    await page.apply_collection_filters()
+
+    res = page.col_state['collection_filtered']
+    assert len(res) == 0
