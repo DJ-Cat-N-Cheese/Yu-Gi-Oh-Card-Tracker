@@ -36,7 +36,7 @@ def mock_ui():
 async def test_bulk_add_initialization(mock_persistence, mock_config, mock_ygo):
     page = BulkAddPage()
     assert page.state['selected_collection'] == 'test_collection.json'
-    assert page.state['default_language'] == 'en'
+    assert page.state['default_language'] == 'EN'
 
 @pytest.mark.asyncio
 async def test_add_card_to_collection(mock_persistence, mock_changelog, mock_config, mock_ygo, mock_ui):

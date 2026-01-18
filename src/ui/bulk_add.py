@@ -5,7 +5,7 @@ from src.core.config import config_manager
 from src.services.ygo_api import ygo_service, ApiCard
 from src.services.image_manager import image_manager
 from src.services.collection_editor import CollectionEditor
-from src.core.utils import generate_variant_id
+from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.core.models import Collection
@@ -58,6 +58,8 @@ class BulkAddPage:
         default_lang = config_manager.get_language() or 'EN'
         if default_lang: default_lang = default_lang.upper()
 
+        page_size = config_manager.get_bulk_add_page_size()
+
         self.state = {
             'selected_collection': None,
             'default_language': default_lang,
@@ -69,7 +71,7 @@ class BulkAddPage:
             'library_cards': [], # List[LibraryEntry]
             'library_filtered': [],
             'library_page': 1,
-            'library_page_size': 50,
+            'library_page_size': page_size,
             'library_total_pages': 1,
             'library_search_text': '',
             'library_sort_by': 'Name',
@@ -100,7 +102,7 @@ class BulkAddPage:
             'collection_cards': [], # List[BulkCollectionEntry]
             'collection_filtered': [],
             'collection_page': 1,
-            'collection_page_size': 50,
+            'collection_page_size': page_size,
             'collection_total_pages': 1,
             'search_text': '', # mapped manually in apply
             'sort_by': 'Newest',
@@ -364,6 +366,8 @@ class BulkAddPage:
         st_races = set()
         archetypes = set()
 
+        default_lang = self.state['default_language'].upper()
+
         for c in api_cards:
             if c.card_sets:
                 for s in c.card_sets:
@@ -374,31 +378,45 @@ class BulkAddPage:
                 if c.race: st_races.add(c.race)
 
             if c.card_sets:
-                seen_variants = set()
+                # Group sets by (normalized_code, rarity)
+                grouped_sets = {}
                 for s in c.card_sets:
-                    key = (s.set_code, s.set_rarity)
-                    if key in seen_variants: continue
-                    seen_variants.add(key)
+                    norm_code = normalize_set_code(s.set_code)
+                    key = (norm_code, s.set_rarity)
+                    if key not in grouped_sets:
+                        grouped_sets[key] = []
+                    grouped_sets[key].append(s)
 
+                for key, variants in grouped_sets.items():
+                    # Pick the best variant
+                    selected = variants[0]
+                    # Try to find match for default language
+                    for v in variants:
+                         v_lang = extract_language_code(v.set_code)
+                         if v_lang == default_lang:
+                             selected = v
+                             break
+
+                    # Create entry
                     price = 0.0
-                    if s.set_price:
-                        try: price = float(s.set_price)
+                    if selected.set_price:
+                        try: price = float(selected.set_price)
                         except: pass
 
-                    img_id = s.image_id if s.image_id else (c.card_images[0].id if c.card_images else c.id)
+                    img_id = selected.image_id if selected.image_id else (c.card_images[0].id if c.card_images else c.id)
                     img_url = c.card_images[0].image_url_small if c.card_images else None
-                    if s.image_id and c.card_images:
+                    if selected.image_id and c.card_images:
                         for img in c.card_images:
-                            if img.id == s.image_id:
+                            if img.id == selected.image_id:
                                 img_url = img.image_url_small
                                 break
 
                     entries.append(LibraryEntry(
-                        id=f"{c.id}_{s.set_code}_{s.set_rarity}",
+                        id=f"{c.id}_{selected.set_code}_{selected.set_rarity}",
                         api_card=c,
-                        set_code=s.set_code,
-                        set_name=s.set_name,
-                        rarity=s.set_rarity,
+                        set_code=selected.set_code,
+                        set_name=selected.set_name,
+                        rarity=selected.set_rarity,
                         image_url=img_url,
                         image_id=img_id,
                         price=price
@@ -477,6 +495,7 @@ class BulkAddPage:
         elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
         elif key == 'Price': res.sort(key=lambda x: x.price, reverse=reverse)
         elif key == 'Set': res.sort(key=lambda x: x.set_code, reverse=reverse)
+        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
 
         self.state['library_filtered'] = res
         self.state['library_page'] = 1
@@ -580,6 +599,7 @@ class BulkAddPage:
         elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
         elif key == 'Set': res.sort(key=lambda x: x.set_code, reverse=reverse)
         elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
+        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
 
         self.col_state['collection_filtered'] = res
         self.col_state['collection_page'] = 1
@@ -765,10 +785,15 @@ class BulkAddPage:
 
                 with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-800 w-full aspect-[2/3] select-none') \
                         .props(f'data-id="{item.id}"') \
-                        .on('click', lambda i=item: self.open_single_view_library(i)):
+                        .on('click', lambda i=item: self.open_single_view_library(i)) \
+                        .on('contextmenu.prevent', lambda i=item: self.add_card_to_collection(i, self.state['default_language'], self.state['default_condition'], self.state['default_first_ed'], 1)):
 
                     with ui.element('div').classes('relative w-full h-full'):
                          ui.image(img_src).classes('w-full h-full object-cover')
+
+                         with ui.row().classes('absolute top-0 left-0 w-full bg-black/80 p-0.5 gap-0 justify-center'):
+                             ui.label(item.api_card.name).classes('text-[9px] font-bold text-white leading-none truncate w-full text-center')
+
                          with ui.column().classes('absolute bottom-0 left-0 w-full bg-black/80 p-0.5 gap-0'):
                              ui.label(item.set_code).classes('text-[10px] font-mono font-bold text-yellow-500 leading-none truncate')
                              ui.label(item.rarity).classes('text-[8px] text-gray-300 leading-none truncate')
@@ -804,7 +829,8 @@ class BulkAddPage:
 
                 with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
                         .props(f'data-id="{item.id}"') \
-                        .on('click', lambda i=item: self.open_single_view_collection(i)):
+                        .on('click', lambda i=item: self.open_single_view_collection(i)) \
+                        .on('contextmenu.prevent', lambda i=item: self._update_collection(i.api_card, i.set_code, i.rarity, i.language, -1, i.condition, i.first_edition, i.image_id, 'ADD', i.variant_id)):
 
                     with ui.element('div').classes('relative w-full h-full'):
                          ui.image(img_src).classes('w-full h-full object-cover')
@@ -812,12 +838,17 @@ class BulkAddPage:
                          ui.label(flag).classes('absolute top-1 left-1 text-lg shadow-black drop-shadow-md bg-black/30 rounded px-1')
                          ui.label(f"{item.quantity}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs shadow-md')
 
-                         with ui.row().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-1 items-center rounded-tr w-full justify-between'):
-                            with ui.row().classes('gap-1'):
-                                ui.label(cond_short).classes('font-bold text-yellow-500')
-                                if item.first_edition:
-                                    ui.label('1st').classes('font-bold text-orange-400')
-                            ui.label(item.set_code).classes('font-mono')
+                         with ui.row().classes('absolute top-0 left-0 w-full bg-black/80 p-0.5 gap-0 justify-center'):
+                             ui.label(item.api_card.name).classes('text-[9px] font-bold text-white leading-none truncate w-full text-center')
+
+                         with ui.column().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-0 w-full'):
+                             with ui.row().classes('w-full justify-between items-center'):
+                                 with ui.row().classes('gap-1'):
+                                     ui.label(cond_short).classes('font-bold text-yellow-500')
+                                     if item.first_edition:
+                                         ui.label('1st').classes('font-bold text-orange-400')
+                                 ui.label(item.set_code).classes('font-mono')
+                             ui.label(item.rarity).classes('text-[8px] text-gray-300 w-full truncate')
 
                     self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
 
@@ -825,6 +856,7 @@ class BulkAddPage:
 
     def build_ui(self):
         ui.add_head_html('<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>')
+        ui.add_head_html('<style>.sortable-ghost-custom { opacity: 0.5; }</style>')
         ui.add_body_html('''
             <script>
             window.initSortable = function(elementId, groupName, pullMode, putMode) {
@@ -836,6 +868,9 @@ class BulkAddPage:
                     group: { name: groupName, pull: pullMode, put: putMode },
                     animation: 150,
                     sort: true,
+                    ghostClass: 'sortable-ghost-custom',
+                    forceFallback: true,
+                    fallbackTolerance: 3,
                     onClone: function (evt) { evt.clone.removeAttribute('id'); },
                     onStart: function (evt) {
                         if (evt.from.id === 'collection-list') {
@@ -892,11 +927,11 @@ class BulkAddPage:
         self.render_header()
 
         # Trash Zone - using a fixed overlay that is sortable (conceptually)
-        # Actually, if we use Sortable on it, we need to initialize it.
-        # But Sortable needs a list.
-        # So we make trash-zone a sortable list.
-        with ui.element('div').props('id="trash-zone"').classes('fixed inset-0 z-[100] hidden bg-red-900/20'):
-             pass
+        # We put it at z-[50] so it's BEHIND the lists (z-[60]), allowing "safe zone" drop on list,
+        # but catching drops that "spill" out of the list.
+        with ui.element('div').props('id="trash-zone"').classes('fixed inset-0 z-[50] hidden bg-red-900/40 flex-col items-center justify-center gap-4'):
+             ui.icon('delete_forever', size='120px', color='white').classes('opacity-80')
+             ui.label('Drop outside the collection to Remove').classes('text-white text-3xl font-bold opacity-90 drop-shadow-md')
 
         # Init trash zone sortable
         ui.add_body_html('''
@@ -907,6 +942,8 @@ class BulkAddPage:
                  if (el) {
                      new Sortable(el, {
                         group: { name: 'shared', pull: false, put: true },
+                        ghostClass: 'sortable-ghost-custom',
+                        forceFallback: true,
                         onAdd: function (evt) {
                              var itemEl = evt.item;
                              var container = document.getElementById('bulk-add-container');
@@ -928,68 +965,86 @@ class BulkAddPage:
             </script>
         ''')
 
-        with ui.row().classes('w-full h-[calc(100vh-140px)] gap-4 flex-nowrap relative z-[200]').props('id="bulk-add-container"').on('card_drop', self.handle_drop):
+        with ui.row().classes('w-full h-[calc(100vh-140px)] gap-4 flex-nowrap relative z-[60]').props('id="bulk-add-container"').on('card_drop', self.handle_drop):
             # Left: Library
             with ui.column().classes('w-1/2 h-full bg-dark border border-gray-800 rounded flex flex-col overflow-hidden'):
                 # Header
-                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2'):
+                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
                     ui.label('Library').classes('text-h6 font-bold')
-                    with ui.row().classes('items-center gap-1'):
+                    with ui.row().classes('items-center gap-1 flex-nowrap'):
+                        # Pagination
+                        async def change_page(delta):
+                             new_p = max(1, min(self.state['library_total_pages'], self.state['library_page'] + delta))
+                             if new_p != self.state['library_page']:
+                                 self.state['library_page'] = new_p
+                                 self.render_library_content.refresh()
+                        ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense color=white size=sm')
+                        ui.label().bind_text_from(self.state, 'library_page', lambda p: f"{p}/{self.state['library_total_pages']}").classes('text-xs font-mono')
+                        ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense color=white size=sm')
+
+                        ui.separator().props('vertical')
+
                         async def on_search(e):
                             self.state['library_search_text'] = e.value
                             await self.apply_library_filters()
-                        ui.input(placeholder='Search...', on_change=on_search).props('dense borderless dark debounce=300').classes('w-32 text-sm')
-                        ui.button(icon='filter_list', on_click=self.library_filter_dialog.open).props('flat dense color=white')
+                        ui.input(placeholder='Search...', on_change=on_search).props('dense borderless dark debounce=300').classes('w-24 text-sm')
+                        ui.button(icon='filter_list', on_click=self.library_filter_dialog.open).props('flat dense color=white size=sm')
+
+                        # Sort
+                        lib_sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set', 'Price', 'Newest']
+                        async def on_lib_sort(e):
+                            self.state['library_sort_by'] = e.value
+                            await self.apply_library_filters()
+                        ui.select(lib_sort_opts, value=self.state['library_sort_by'], on_change=on_lib_sort).props('dense options-dense borderless').classes('w-20 text-xs')
+
                         async def toggle_sort():
                             self.state['library_sort_desc'] = not self.state['library_sort_desc']
                             await self.apply_library_filters()
-                        ui.button(icon='sort', on_click=toggle_sort).props('flat dense color=white')
+                        ui.button(on_click=toggle_sort).props('flat dense color=white size=sm').bind_icon_from(self.state, 'library_sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
 
                 with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
                     with ui.scroll_area().classes('w-full h-full'):
                          self.render_library_content()
 
-                with ui.row().classes('w-full p-1 bg-gray-900 border-t border-gray-800 items-center justify-between'):
-                     ui.label().bind_text_from(self.state, 'library_page', lambda p: f"Page {p} of {self.state['library_total_pages']}")
-                     with ui.row().classes('gap-1'):
-                         async def change_page(delta):
-                             new_p = max(1, min(self.state['library_total_pages'], self.state['library_page'] + delta))
-                             if new_p != self.state['library_page']:
-                                 self.state['library_page'] = new_p
-                                 self.render_library_content.refresh()
-                         ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense color=white')
-                         ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense color=white')
-
             # Right: Collection
             with ui.column().classes('w-1/2 h-full bg-dark border border-gray-800 rounded flex flex-col overflow-hidden'):
                 # Header
-                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2'):
+                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
                     ui.label('Collection').classes('text-h6 font-bold')
-                    with ui.row().classes('items-center gap-1'):
-                        async def on_col_search(e):
-                            self.col_state['search_text'] = e.value
-                            await self.apply_collection_filters()
-                        ui.input(placeholder='Search...', on_change=on_col_search).props('dense borderless dark debounce=300').classes('w-32 text-sm')
-                        ui.button(icon='filter_list', on_click=self.collection_filter_dialog.open).props('flat dense color=white')
-                        async def toggle_col_sort():
-                            self.col_state['sort_desc'] = not self.col_state['sort_desc']
-                            await self.apply_collection_filters()
-                        ui.button(icon='sort', on_click=toggle_col_sort).props('flat dense color=white')
-
-                with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
-                     with ui.scroll_area().classes('w-full h-full'):
-                        self.render_collection_content()
-
-                with ui.row().classes('w-full p-1 bg-gray-900 border-t border-gray-800 items-center justify-between'):
-                     ui.label().bind_text_from(self.col_state, 'collection_page', lambda p: f"Page {p} of {self.col_state['collection_total_pages']}")
-                     with ui.row().classes('gap-1'):
-                         async def change_col_page(delta):
+                    with ui.row().classes('items-center gap-1 flex-nowrap'):
+                        # Pagination
+                        async def change_col_page(delta):
                              new_p = max(1, min(self.col_state['collection_total_pages'], self.col_state['collection_page'] + delta))
                              if new_p != self.col_state['collection_page']:
                                  self.col_state['collection_page'] = new_p
                                  self.render_collection_content.refresh()
-                         ui.button(icon='chevron_left', on_click=lambda: change_col_page(-1)).props('flat dense color=white')
-                         ui.button(icon='chevron_right', on_click=lambda: change_col_page(1)).props('flat dense color=white')
+                        ui.button(icon='chevron_left', on_click=lambda: change_col_page(-1)).props('flat dense color=white size=sm')
+                        ui.label().bind_text_from(self.col_state, 'collection_page', lambda p: f"{p}/{self.col_state['collection_total_pages']}").classes('text-xs font-mono')
+                        ui.button(icon='chevron_right', on_click=lambda: change_col_page(1)).props('flat dense color=white size=sm')
+
+                        ui.separator().props('vertical')
+
+                        async def on_col_search(e):
+                            self.col_state['search_text'] = e.value
+                            await self.apply_collection_filters()
+                        ui.input(placeholder='Search...', on_change=on_col_search).props('dense borderless dark debounce=300').classes('w-24 text-sm')
+                        ui.button(icon='filter_list', on_click=self.collection_filter_dialog.open).props('flat dense color=white size=sm')
+
+                        # Sort
+                        col_sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set', 'Quantity', 'Newest']
+                        async def on_col_sort(e):
+                            self.col_state['sort_by'] = e.value
+                            await self.apply_collection_filters()
+                        ui.select(col_sort_opts, value=self.col_state['sort_by'], on_change=on_col_sort).props('dense options-dense borderless').classes('w-20 text-xs')
+
+                        async def toggle_col_sort():
+                            self.col_state['sort_desc'] = not self.col_state['sort_desc']
+                            await self.apply_collection_filters()
+                        ui.button(on_click=toggle_col_sort).props('flat dense color=white size=sm').bind_icon_from(self.col_state, 'sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
+                     with ui.scroll_area().classes('w-full h-full'):
+                        self.render_collection_content()
 
         ui.timer(0.1, self.load_library_data, once=True)
 

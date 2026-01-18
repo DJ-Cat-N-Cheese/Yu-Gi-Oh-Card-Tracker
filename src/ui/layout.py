@@ -33,14 +33,28 @@ def create_layout(content_function):
                     val = int(e.value)
                     if val > 0:
                         config_manager.set_deck_builder_page_size(val)
-                        ui.notify('Page size saved.')
+                        ui.notify('Deck Builder page size saved.')
                 except (ValueError, TypeError):
                     pass
 
-            ui.number('Cards Per Page (Library)',
+            ui.number('Cards Per Page (Deck Builder)',
                       value=config_manager.get_deck_builder_page_size(),
                       min=1, max=100,
                       on_change=change_page_size).classes('w-full')
+
+            def change_bulk_page_size(e):
+                try:
+                    val = int(e.value)
+                    if val > 0:
+                        config_manager.set_bulk_add_page_size(val)
+                        ui.notify('Bulk Add page size saved.')
+                except (ValueError, TypeError):
+                    pass
+
+            ui.number('Cards Per Page (Bulk Add)',
+                      value=config_manager.get_bulk_add_page_size(),
+                      min=1, max=100,
+                      on_change=change_bulk_page_size).classes('w-full')
 
             ui.separator().classes('q-my-md')
             ui.label('Data Management').classes('text-subtitle2 text-grey')

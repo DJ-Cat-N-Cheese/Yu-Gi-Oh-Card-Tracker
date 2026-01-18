@@ -23,7 +23,8 @@ class ConfigManager:
         return {
             "language": "en",
             "theme": "dark",
-            "deck_builder_page_size": 9
+            "deck_builder_page_size": 9,
+            "bulk_add_page_size": 50
         }
 
     def save_config(self):
@@ -42,6 +43,13 @@ class ConfigManager:
 
     def set_deck_builder_page_size(self, size: int):
         self.config["deck_builder_page_size"] = size
+        self.save_config()
+
+    def get_bulk_add_page_size(self) -> int:
+        return self.config.get("bulk_add_page_size", 50)
+
+    def set_bulk_add_page_size(self, size: int):
+        self.config["bulk_add_page_size"] = size
         self.save_config()
 
 config_manager = ConfigManager()
