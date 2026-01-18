@@ -81,6 +81,7 @@ class DeckBuilderPage:
         ui_state = persistence.load_ui_state()
         last_deck = ui_state.get('deck_builder_last_deck')
         last_col = ui_state.get('deck_builder_last_collection')
+        last_banlist = ui_state.get('deck_builder_last_banlist')
 
         self.state = {
             'search_text': '',
@@ -118,7 +119,7 @@ class DeckBuilderPage:
             'available_collections': [],
 
             'available_banlists': [],
-            'current_banlist_name': None,
+            'current_banlist_name': last_banlist,
             'current_banlist_map': {}, # id -> status
 
             'all_api_cards': [], # List[ApiCard]
@@ -195,6 +196,9 @@ class DeckBuilderPage:
             self.state['available_banlists'] = banlist_service.get_banlists()
 
             # Load default banlist
+            if self.state['current_banlist_name'] and self.state['current_banlist_name'] not in self.state['available_banlists']:
+                 self.state['current_banlist_name'] = None
+
             if not self.state['current_banlist_name'] and self.state['available_banlists']:
                  if 'TCG' in self.state['available_banlists']:
                       self.state['current_banlist_name'] = 'TCG'
@@ -601,6 +605,7 @@ class DeckBuilderPage:
             banlist_options = self.state['available_banlists']
             async def on_banlist_change(e):
                 val = e.value
+                persistence.save_ui_state({'deck_builder_last_banlist': val})
                 self.state['current_banlist_name'] = val
                 if val:
                      self.state['current_banlist_map'] = await banlist_service.load_banlist(val)
