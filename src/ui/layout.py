@@ -138,7 +138,7 @@ def create_layout(content_function):
             nav_button('Collection', 'style', '/collection')
             nav_button('Browse Sets', 'library_books', '/sets')
             nav_button('Deck Builder', 'construction', '/decks')
-            nav_button('Import/Scan', 'qr_code_scanner', '/import')
+            nav_button('Import Tools', 'qr_code_scanner', '/import')
 
             ui.separator().classes('q-my-md bg-grey-8')
             ui.label('Settings').classes('text-grey-4 q-px-md text-sm uppercase font-bold')
