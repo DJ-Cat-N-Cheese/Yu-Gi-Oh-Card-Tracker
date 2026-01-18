@@ -437,9 +437,28 @@ class CollectionPage:
 
         txt = self.state['search_text'].lower()
         if txt:
-            res = [c for c in res if txt in c.api_card.name.lower() or
-                   txt in c.api_card.type.lower() or
-                   txt in c.api_card.desc.lower()]
+            def matches_search(item):
+                # 1. Check common fields
+                if (txt in item.api_card.name.lower() or
+                    txt in item.api_card.type.lower() or
+                    txt in item.api_card.desc.lower()):
+                    return True
+
+                # 2. Check Set Code
+                if self.state['view_scope'] == 'consolidated':
+                    # In consolidated view, check if ANY of the card's sets match
+                    if item.api_card.card_sets:
+                        for s in item.api_card.card_sets:
+                            if txt in s.set_code.lower():
+                                return True
+                else:
+                    # In collectors view, check the SPECIFIC set code of this row
+                    if hasattr(item, 'set_code') and txt in item.set_code.lower():
+                        return True
+
+                return False
+
+            res = [c for c in res if matches_search(c)]
 
         if self.state['only_owned']:
             res = [c for c in res if c.is_owned]
