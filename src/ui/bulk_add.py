@@ -55,9 +55,12 @@ class BulkAddPage:
         }
 
         # UI State
+        default_lang = config_manager.get_language() or 'EN'
+        if default_lang: default_lang = default_lang.upper()
+
         self.state = {
             'selected_collection': None,
-            'default_language': config_manager.get_language() or 'EN',
+            'default_language': default_lang,
             'default_condition': 'Near Mint',
             'default_first_ed': False,
             'available_collections': [],
