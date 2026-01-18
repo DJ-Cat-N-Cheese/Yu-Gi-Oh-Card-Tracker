@@ -83,6 +83,9 @@ class DeckBuilderPage:
         last_deck = ui_state.get('deck_builder_last_deck')
         last_col = ui_state.get('deck_builder_last_collection')
 
+        last_sort_by = ui_state.get('deck_builder_sort_by', 'Name')
+        last_sort_desc = ui_state.get('deck_builder_sort_desc', False)
+
         # Default to TCG if no state exists, but respect None (No Banlist) if saved
         if 'deck_builder_last_banlist' in ui_state:
             last_banlist = ui_state['deck_builder_last_banlist']
@@ -113,8 +116,8 @@ class DeckBuilderPage:
 
             'only_owned': False,
 
-            'sort_by': 'Name',
-            'sort_descending': False,
+            'sort_by': last_sort_by,
+            'sort_descending': last_sort_desc,
 
             'current_deck': None, # Deck object
             'current_deck_name': last_deck, # Initialize from session
@@ -442,9 +445,34 @@ class DeckBuilderPage:
         source = self.state['all_api_cards']
         res = list(source)
 
+        # Helpers for sorting/filtering
+        ref_col = self.state['reference_collection']
+        owned_map = {}
+        if ref_col:
+            owned_map = {c.card_id: c for c in ref_col.cards}
+
+        def get_qty(c):
+             if not ref_col: return 0
+             found = owned_map.get(c.id)
+             return found.total_quantity if found else 0
+
+        def get_price(c):
+             if not c.card_prices: return 0.0
+             try:
+                 return float(c.card_prices[0].tcgplayer_price or 0)
+             except: return 0.0
+
         txt = self.state['search_text'].lower()
         if txt:
-             res = [c for c in res if txt in c.name.lower() or txt in c.type.lower() or txt in c.desc.lower()]
+             def matches(c):
+                 if txt in c.name.lower() or txt in c.type.lower() or txt in c.desc.lower():
+                     return True
+                 if c.card_sets:
+                     for s in c.card_sets:
+                         if txt in s.set_code.lower():
+                             return True
+                 return False
+             res = [c for c in res if matches(c)]
 
         if self.state['filter_card_type']:
              ctypes = self.state['filter_card_type']
@@ -486,21 +514,11 @@ class DeckBuilderPage:
         if def_min > 0 or def_max < 5000:
              res = [c for c in res if c.def_ is not None and def_min <= int(c.def_) <= def_max]
 
-        # Ownership Filters
-        ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            # Pre-calculate map for O(1) lookups: card_id -> CollectionCard
-            owned_map = {c.card_id: c for c in ref_col.cards}
+        # Ownership Filters - (Helper map already created at top)
 
         # Quantity Range
         own_min, own_max = self.state['filter_ownership_min'], self.state['filter_ownership_max']
         if own_min > 0 or own_max < 100:
-             def get_qty(c):
-                 if not ref_col: return 0
-                 found = owned_map.get(c.id)
-                 return found.total_quantity if found else 0
-
              res = [c for c in res if own_min <= get_qty(c) <= own_max]
 
         # Condition
@@ -532,11 +550,6 @@ class DeckBuilderPage:
         # Price Range
         p_min, p_max = self.state['filter_price_min'], self.state['filter_price_max']
         if p_min > 0 or p_max < 1000:
-             def get_price(c):
-                 if not c.card_prices: return 0.0
-                 try:
-                     return float(c.card_prices[0].tcgplayer_price or 0)
-                 except: return 0.0
              res = [c for c in res if p_min <= get_price(c) <= p_max]
 
         key = self.state['sort_by']
@@ -552,6 +565,10 @@ class DeckBuilderPage:
             res.sort(key=lambda x: (x.level or -1), reverse=reverse)
         elif key == 'Newest':
             res.sort(key=lambda x: x.id, reverse=reverse)
+        elif key == 'Price':
+             res.sort(key=lambda x: get_price(x), reverse=reverse)
+        elif key == 'Quantity':
+             res.sort(key=lambda x: get_qty(x), reverse=reverse)
 
         if self.state['only_owned'] and self.state['reference_collection']:
              owned_ids = set(c.card_id for c in self.state['reference_collection'].cards)
@@ -662,6 +679,44 @@ class DeckBuilderPage:
             selected = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
             if selected and selected not in deck_options: selected = None
             ui.select(deck_options, value=selected, label='Current Deck', on_change=on_deck_change).classes('min-w-[200px]')
+
+            async def save_deck_as():
+                if not self.state['current_deck']:
+                    ui.notify("No deck loaded.", type='warning')
+                    return
+
+                with ui.dialog() as d, ui.card():
+                    ui.label('Save Deck As').classes('text-h6')
+                    name_input = ui.input('New Name')
+                    async def save():
+                        name = name_input.value
+                        if not name: return
+
+                        filename = f"{name}.ydk"
+                        if filename in self.state['available_decks']:
+                             ui.notify(f"Deck '{name}' already exists!", type='negative')
+                             return
+
+                        try:
+                            # Save current deck content to new file
+                            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename)
+
+                            # Switch to new deck
+                            self.state['current_deck_name'] = name
+                            self.state['available_decks'] = persistence.list_decks()
+                            persistence.save_ui_state({'deck_builder_last_deck': name})
+
+                            self.render_header.refresh()
+                            d.close()
+                            ui.notify(f"Saved deck as: {name}", type='positive')
+                        except Exception as e:
+                            logger.error(f"Error saving deck: {e}")
+                            ui.notify(f"Error saving: {e}", type='negative')
+
+                    ui.button('Save', on_click=save).props('color=primary')
+                d.open()
+
+            ui.button(icon='save_as', on_click=save_deck_as).props('flat round color=white').tooltip('Save Deck As')
 
             col_options = {f: f.replace('.json', '') for f in self.state['available_collections']}
             col_options[None] = 'None (All Owned)'
@@ -1169,8 +1224,44 @@ class DeckBuilderPage:
                 with ui.column().classes('w-full p-2 gap-2 border-b border-gray-800 bg-gray-900'):
                      with ui.row().classes('w-full items-center justify-between'):
                          ui.label('Library').classes('text-h6 text-white font-bold')
-                         with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('flat color=white dense'):
-                             ui.tooltip('Filters')
+
+                         with ui.row().classes('gap-1 items-center'):
+                             # Sort Controls
+                             sort_btn = None
+
+                             async def on_sort_change(e):
+                                 self.state['sort_by'] = e.value
+                                 # Smart default similar to Collection
+                                 if e.value != 'Name': self.state['sort_descending'] = True
+                                 else: self.state['sort_descending'] = False
+
+                                 persistence.save_ui_state({
+                                     'deck_builder_sort_by': self.state['sort_by'],
+                                     'deck_builder_sort_desc': self.state['sort_descending']
+                                 })
+
+                                 if sort_btn:
+                                     sort_btn.props(f'icon={"arrow_downward" if self.state["sort_descending"] else "arrow_upward"}')
+                                 await self.apply_filters()
+
+                             ui.select(['Name', 'ATK', 'DEF', 'Level', 'Newest', 'Price', 'Quantity'],
+                                       value=self.state['sort_by'], on_change=on_sort_change) \
+                                       .props('dense options-dense').classes('w-24 text-xs')
+
+                             async def toggle_sort():
+                                 self.state['sort_descending'] = not self.state['sort_descending']
+                                 persistence.save_ui_state({'deck_builder_sort_desc': self.state['sort_descending']})
+                                 if sort_btn:
+                                     sort_btn.props(f'icon={"arrow_downward" if self.state["sort_descending"] else "arrow_upward"}')
+                                 await self.apply_filters()
+
+                             sort_icon = 'arrow_downward' if self.state['sort_descending'] else 'arrow_upward'
+                             with ui.button(icon=sort_icon, on_click=toggle_sort).props('flat dense size=sm color=white') as b:
+                                 sort_btn = b
+                                 ui.tooltip('Toggle Sort Direction')
+
+                             with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('flat color=white dense'):
+                                 ui.tooltip('Filters')
 
                      async def on_search(e):
                         self.state['search_text'] = e.value
