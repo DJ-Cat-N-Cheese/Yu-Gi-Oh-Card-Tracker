@@ -239,6 +239,7 @@ class BulkAddPage:
              }
              changelog_manager.log_change(self.state['selected_collection'], 'ADD', card_data, qty)
              await self.load_collection_data()
+             self.render_library_content.refresh()
              self.render_header.refresh()
         return success
 
@@ -289,6 +290,37 @@ class BulkAddPage:
              self.render_header.refresh()
         return success
 
+    async def reduce_collection_card_qty(self, entry: BulkCollectionEntry):
+        success = await self._update_collection(
+            api_card=entry.api_card,
+            set_code=entry.set_code,
+            rarity=entry.rarity,
+            lang=entry.language,
+            qty=-1,
+            cond=entry.condition,
+            first=entry.first_edition,
+            img_id=entry.image_id,
+            variant_id=entry.variant_id,
+            mode='ADD'
+        )
+
+        if success:
+             card_data = {
+                'card_id': entry.api_card.id,
+                'name': entry.api_card.name,
+                'set_code': entry.set_code,
+                'rarity': entry.rarity,
+                'image_id': entry.image_id,
+                'language': entry.language,
+                'condition': entry.condition,
+                'first_edition': entry.first_edition,
+                'variant_id': entry.variant_id
+             }
+             changelog_manager.log_change(self.state['selected_collection'], 'REMOVE', card_data, 1)
+             await self.load_collection_data()
+             self.render_header.refresh()
+        return success
+
     async def handle_drop(self, e):
         detail = e.args.get('detail', {})
         data_id = detail.get('data_id')
@@ -308,14 +340,18 @@ class BulkAddPage:
 
              await self.add_card_to_collection(entry, lang, cond, is_first, 1)
              ui.notify(f"Added {entry.api_card.name}", type='positive')
+             # Refresh library to avoid artifacts or stuck drag states
+             self.render_library_content.refresh()
 
-        # REMOVE: Collection -> Trash
-        elif from_id == 'collection-list' and to_id == 'trash-zone':
+        # REMOVE: Collection -> Library (Drag back to library to remove)
+        elif from_id == 'collection-list' and to_id == 'library-list':
              entry = next((item for item in self.col_state['collection_cards'] if item.id == data_id), None)
              if not entry: return
 
              await self.remove_card_from_collection(entry)
              ui.notify(f"Removed {entry.api_card.name}", type='info')
+             # Refresh library to ensure the dropped item doesn't stay as a ghost
+             self.render_library_content.refresh()
 
         # REORDER/REFRESH: Collection -> Collection
         elif from_id == 'collection-list' and to_id == 'collection-list':
@@ -346,7 +382,7 @@ class BulkAddPage:
         is_local = image_manager.image_exists(img_id, high_res=True)
         initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
 
-        with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none').props('style="max-width: none" delay=1050') as tooltip:
+        with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none').props('style="max-width: none" delay=3500') as tooltip:
             if initial_src:
                 ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl').props('fit=contain')
             if not is_local and high_res_url:
@@ -586,6 +622,9 @@ class BulkAddPage:
         if s['filter_rarity']:
              target = s['filter_rarity'].lower()
              res = [e for e in res if e.rarity.lower() == target]
+        if s['filter_monster_category']:
+             cats = s['filter_monster_category']
+             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
         if s['filter_owned_lang']:
              res = [e for e in res if e.language == s['filter_owned_lang']]
         if s['filter_condition']:
@@ -798,7 +837,8 @@ class BulkAddPage:
 
                     self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
 
-        ui.run_javascript('initSortable("library-list", "shared", "clone", false)')
+        # putMode = true to allow dropping from collection (to remove)
+        ui.run_javascript('initSortable("library-list", "shared", "clone", true)')
 
     @ui.refreshable
     def render_collection_content(self):
@@ -828,7 +868,7 @@ class BulkAddPage:
                 with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
                         .props(f'data-id="{item.id}"') \
                         .on('click', lambda i=item: self.open_single_view_collection(i)) \
-                        .on('contextmenu.prevent', lambda i=item: self._update_collection(i.api_card, i.set_code, i.rarity, i.language, -1, i.condition, i.first_edition, i.image_id, 'ADD', i.variant_id)):
+                        .on('contextmenu.prevent', lambda i=item: self.reduce_collection_card_qty(i)):
 
                     with ui.element('div').classes('relative w-full h-full'):
                          ui.image(img_src).classes('w-full h-full object-cover')
@@ -868,22 +908,6 @@ class BulkAddPage:
                     forceFallback: true,
                     fallbackTolerance: 3,
                     onClone: function (evt) { evt.clone.removeAttribute('id'); },
-                    onStart: function (evt) {
-                        if (evt.from.id === 'collection-list') {
-                            var trash = document.getElementById('trash-zone');
-                            if (trash) {
-                                trash.classList.remove('hidden');
-                                trash.classList.add('block');
-                            }
-                        }
-                    },
-                    onEnd: function (evt) {
-                        var trash = document.getElementById('trash-zone');
-                        if (trash) {
-                            trash.classList.add('hidden');
-                            trash.classList.remove('block');
-                        }
-                    },
                     onAdd: function (evt) {
                          var itemEl = evt.item;
                          var fromId = evt.from.id;
@@ -901,7 +925,11 @@ class BulkAddPage:
                                  bubbles: true
                              }));
                          }
-                         itemEl.remove();
+                         // For drops into library (from collection), we remove the element visually
+                         // so it doesn't stay as a "ghost" while the backend processes.
+                         if (toId === 'library-list') {
+                             itemEl.remove();
+                         }
                     }
                 });
             }
@@ -921,45 +949,6 @@ class BulkAddPage:
                  self.collection_filter_pane.build()
 
         self.render_header()
-
-        # Trash Zone - using a fixed overlay that is sortable (conceptually)
-        # We put it at z-[50] so it's BEHIND the lists (z-[60]), allowing "safe zone" drop on list,
-        # but catching drops that "spill" out of the list.
-        with ui.element('div').props('id="trash-zone"').classes('fixed inset-0 z-[50] hidden bg-red-900/40 flex-col items-center justify-center gap-4'):
-             ui.icon('delete_forever', size='120px', color='white').classes('opacity-80')
-             ui.label('Drop outside the collection to Remove').classes('text-white text-3xl font-bold opacity-90 drop-shadow-md')
-
-        # Init trash zone sortable
-        ui.add_body_html('''
-            <script>
-             // Wait for element to be present
-             setTimeout(function() {
-                 var el = document.getElementById('trash-zone');
-                 if (el) {
-                     new Sortable(el, {
-                        group: { name: 'shared', pull: false, put: true },
-                        ghostClass: 'sortable-ghost-custom',
-                        forceFallback: true,
-                        onAdd: function (evt) {
-                             var itemEl = evt.item;
-                             var container = document.getElementById('bulk-add-container');
-                             if (container) {
-                                 container.dispatchEvent(new CustomEvent('card_drop', {
-                                     detail: {
-                                         data_id: itemEl.getAttribute('data-id'),
-                                         from_id: evt.from.id,
-                                         to_id: 'trash-zone'
-                                     },
-                                     bubbles: true
-                                 }));
-                             }
-                             itemEl.remove();
-                        }
-                     });
-                 }
-             }, 1000);
-            </script>
-        ''')
 
         with ui.row().classes('w-full h-[calc(100vh-140px)] gap-4 flex-nowrap relative z-[60]').props('id="bulk-add-container"').on('card_drop', self.handle_drop):
             # Left: Library
@@ -984,7 +973,6 @@ class BulkAddPage:
                             self.state['library_search_text'] = e.value
                             await self.apply_library_filters()
                         ui.input(placeholder='Search...', on_change=on_search).props('dense borderless dark debounce=300').classes('w-24 text-sm')
-                        ui.button(icon='filter_list', on_click=self.library_filter_dialog.open).props('flat dense color=white size=sm')
 
                         # Sort
                         lib_sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set', 'Price', 'Newest']
@@ -997,6 +985,8 @@ class BulkAddPage:
                             self.state['library_sort_desc'] = not self.state['library_sort_desc']
                             await self.apply_library_filters()
                         ui.button(on_click=toggle_sort).props('flat dense color=white size=sm').bind_icon_from(self.state, 'library_sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                        ui.button(icon='filter_list', on_click=self.library_filter_dialog.open).props('flat dense color=white size=sm')
 
                 with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
                     with ui.scroll_area().classes('w-full h-full'):
@@ -1024,7 +1014,6 @@ class BulkAddPage:
                             self.col_state['search_text'] = e.value
                             await self.apply_collection_filters()
                         ui.input(placeholder='Search...', on_change=on_col_search).props('dense borderless dark debounce=300').classes('w-24 text-sm')
-                        ui.button(icon='filter_list', on_click=self.collection_filter_dialog.open).props('flat dense color=white size=sm')
 
                         # Sort
                         col_sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set', 'Quantity', 'Newest']
@@ -1037,6 +1026,8 @@ class BulkAddPage:
                             self.col_state['sort_desc'] = not self.col_state['sort_desc']
                             await self.apply_collection_filters()
                         ui.button(on_click=toggle_col_sort).props('flat dense color=white size=sm').bind_icon_from(self.col_state, 'sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                        ui.button(icon='filter_list', on_click=self.collection_filter_dialog.open).props('flat dense color=white size=sm')
 
                 with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
                      with ui.scroll_area().classes('w-full h-full'):
