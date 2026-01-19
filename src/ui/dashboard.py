@@ -126,8 +126,8 @@ def render_metrics(stats):
     with ui.row().classes('w-full gap-4'):
         metric_card('Unique Cards', f"{stats['unique_owned']:,}", 'style', 'primary')
         metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
-        metric_card('Est. Value', f"${stats['total_value']:,.2f}", 'attach_money', 'positive')
-        metric_card('Completion', f"{stats['completion_pct']:.1f}%", 'pie_chart', 'info', sub_text='of total database')
+        # metric_card('Est. Value', f"${stats['total_value']:,.2f}", 'attach_money', 'positive')
+        metric_card('Completion (of total database)', f"{stats['completion_pct']:.1f}%", 'pie_chart', 'info')
 
 @ui.refreshable
 def render_charts_area(stats):
@@ -150,7 +150,8 @@ def render_charts_area(stats):
                 'textStyle': {'color': '#ccc'}
             },
             'tooltip': {
-                'trigger': 'item'
+                'trigger': 'item',
+                'formatter': '{b}: {c} ({d}%)'
             },
             'legend': {
                 'type': 'scroll',
@@ -183,7 +184,8 @@ def render_charts_area(stats):
                             'show': True,
                             'fontSize': '20',
                             'fontWeight': 'bold',
-                            'color': '#fff'
+                            'color': '#fff',
+                            'formatter': '{d}%'
                         }
                     },
                     'labelLine': {
@@ -260,7 +262,8 @@ def dashboard_page():
             ui.separator().classes('bg-gray-800 q-my-sm')
             ui.label('Quick Navigation').classes('text-xl font-bold text-white')
 
-            with ui.grid(columns='repeat(auto-fit, minmax(250px, 1fr))').classes('w-full gap-6'):
+            # Main Functions (2 Rows, 2 Cols)
+            with ui.grid(columns=2).classes('w-full gap-6'):
                 nav_card('Collection',
                          'Manage your inventory, view prices, and track your progress.',
                          'style', '/collection', 'text-blue-400')
@@ -277,9 +280,19 @@ def dashboard_page():
                          'Quickly add large numbers of cards via lists or drag-and-drop.',
                          'playlist_add', '/bulk_add', 'text-green-400')
 
+            # Admin Functions (1 Row, 3 Cols)
+            with ui.grid(columns=3).classes('w-full gap-6'):
+                nav_card('Scan Cards',
+                         'Use your webcam to scan physical cards and add them.',
+                         'camera', '/scan', 'text-pink-400')
+
                 nav_card('Import Tools',
                          'Import existing collections or merge data from other sources.',
                          'qr_code_scanner', '/import', 'text-orange-400')
+
+                nav_card('Edit Card DB',
+                         'Manually edit card database entries or fix issues.',
+                         'edit', '/db_editor', 'text-red-400')
 
             # --- Charts (Bottom) ---
             ui.separator().classes('bg-gray-800 q-my-sm')
