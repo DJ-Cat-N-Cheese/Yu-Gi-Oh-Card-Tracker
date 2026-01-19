@@ -17,12 +17,9 @@ class StructureDeckDialog:
         self.decks = []
         self.selected_deck_title: Optional[str] = None
         self.main_deck_cards: List[DeckCard] = []
-        self.bonus_cards_options: List[DeckCard] = []
-        self.selected_bonus_cards: List[str] = [] # List of card codes
 
         # UI Elements
         self.deck_select: Optional[ui.select] = None
-        self.bonus_select: Optional[ui.select] = None
         self.preview_container: Optional[ui.element] = None
         self.add_btn: Optional[ui.button] = None
 
@@ -31,6 +28,7 @@ class StructureDeckDialog:
         self.dialog.open()
         with self.dialog, ui.card().classes('w-[600px] h-[80vh] flex flex-col bg-gray-900 text-white border border-gray-700'):
             ui.label('Add Structure Deck').classes('text-h6 font-bold mb-4')
+            ui.label('Note: Promo / Bonus cards have to be added manually.').classes('text-sm text-gray-400 italic mb-2')
 
             with ui.column().classes('w-full flex-grow gap-4'):
                 # 1. Deck Selector
@@ -43,21 +41,10 @@ class StructureDeckDialog:
                 # Loading spinner for deck fetching
                 self.deck_loading = ui.spinner().classes('self-center hidden')
 
-                # 2. Bonus Cards Selector (Hidden initially)
-                self.bonus_container = ui.column().classes('w-full hidden')
-                with self.bonus_container:
-                    ui.label('Select Bonus Cards:').classes('font-bold text-sm')
-                    self.bonus_select = ui.select(
-                        options=[],
-                        multiple=True,
-                        label='Bonus Cards',
-                        on_change=lambda e: setattr(self, 'selected_bonus_cards', e.value)
-                    ).classes('w-full').props('use-chips dark behavior="menu"')
-
-                # 3. Preview / Info
+                # 2. Preview / Info
                 self.preview_container = ui.scroll_area().classes('w-full flex-grow border border-gray-700 rounded p-2 bg-black/20')
 
-                # 4. Actions
+                # 3. Actions
                 with ui.row().classes('w-full justify-end mt-4'):
                     ui.button('Cancel', on_click=self.dialog.close).props('flat')
                     self.add_btn = ui.button('Add Deck', on_click=self._on_confirm).props('color=primary')
@@ -85,7 +72,6 @@ class StructureDeckDialog:
         self.selected_deck_title = title
         self.add_btn.disable()
         self.preview_container.clear()
-        self.bonus_container.classes(add='hidden')
 
         with self.preview_container:
             ui.spinner().classes('self-center')
@@ -93,8 +79,7 @@ class StructureDeckDialog:
         # Fetch details
         deck_data = await yugipedia_service.get_deck_list(title)
         self.main_deck_cards = deck_data['main']
-        self.bonus_cards_options = deck_data['bonus']
-        self.selected_bonus_cards = []
+        # Bonus cards are ignored as per requirements
 
         # Update UI
         self.preview_container.clear()
@@ -107,13 +92,6 @@ class StructureDeckDialog:
                  with ui.column().classes('gap-1 text-xs'):
                      for c in self.main_deck_cards:
                          ui.label(f"{c.quantity}x {c.name} ({c.code}) - {c.rarity}")
-
-        # Bonus Cards
-        if self.bonus_cards_options:
-            self.bonus_container.classes(remove='hidden')
-            opts = {c.code: f"{c.name} ({c.rarity})" for c in self.bonus_cards_options}
-            self.bonus_select.options = opts
-            self.bonus_select.value = []
 
         if self.main_deck_cards:
             self.add_btn.enable()
@@ -132,19 +110,6 @@ class StructureDeckDialog:
                 'rarity': c.rarity,
                 'name': c.name # Debug info
             })
-
-        # Bonus Cards
-        # Map code -> Card
-        bonus_map = {c.code: c for c in self.bonus_cards_options}
-        for code in self.selected_bonus_cards:
-            if code in bonus_map:
-                c = bonus_map[code]
-                final_list.append({
-                    'set_code': c.code,
-                    'quantity': c.quantity,
-                    'rarity': c.rarity,
-                    'name': c.name
-                })
 
         self.dialog.close()
 
