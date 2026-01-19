@@ -56,7 +56,8 @@ class SingleCardView:
         on_save_callback: Callable[[str], Any],
         default_set_base_code: str = None,
         original_variant_id: str = None,
-        show_remove_button: bool = True
+        show_remove_button: bool = True,
+        rarity_map: Dict[str, Set[str]] = None
     ):
         """
         Renders the inventory management section (Language, Set, Rarity, etc.).
@@ -86,8 +87,14 @@ class SingleCardView:
                 set_select = ui.select(set_options, label='Set Name', value=input_state['set_base_code']).classes('col-grow').props('dark')
 
             with ui.row().classes('w-full gap-4'):
+                # Determine initial rarity options based on the current set code
+                current_base_code = input_state['set_base_code']
+                if rarity_map and current_base_code in rarity_map:
+                    rarity_options = sorted(list(rarity_map[current_base_code]))
+                else:
+                    rarity_options = list(STANDARD_RARITIES)
+
                 # Ensure current rarity is available in options to prevent crash
-                rarity_options = list(STANDARD_RARITIES)
                 if input_state['rarity'] not in rarity_options:
                     rarity_options.append(input_state['rarity'])
 
@@ -98,12 +105,29 @@ class SingleCardView:
                     new_code = e.value
                     input_state['set_base_code'] = new_code
 
+                    # Update Rarity Options
+                    if rarity_map and new_code in rarity_map:
+                        new_rarity_opts = sorted(list(rarity_map[new_code]))
+                        rarity_select.options = new_rarity_opts
+                        # Default to first available rarity if current is invalid
+                        if rarity_select.value not in new_rarity_opts and new_rarity_opts:
+                             input_state['rarity'] = new_rarity_opts[0]
+                             rarity_select.value = new_rarity_opts[0]
+                    else:
+                        # Fallback if no strict map found (e.g. Custom Set)
+                        rarity_select.options = STANDARD_RARITIES
+
                     if new_code in set_info_map:
                         s_info = set_info_map[new_code]
-                        # Update rarity if available
-                        if s_info.set_rarity:
+                        # Update rarity if available and compatible
+                        if s_info.set_rarity and s_info.set_rarity in rarity_select.options:
                             input_state['rarity'] = s_info.set_rarity
                             rarity_select.value = s_info.set_rarity
+                        elif rarity_select.options:
+                            # If default not available, ensure we pick a valid one from options
+                            if rarity_select.value not in rarity_select.options:
+                                input_state['rarity'] = rarity_select.options[0]
+                                rarity_select.value = rarity_select.options[0]
 
                     # Update language based on set code
                     extracted_lang = extract_language_code(new_code)
@@ -342,6 +366,8 @@ class SingleCardView:
                             # Prepare options
                             set_options = {}
                             set_info_map = {}
+                            rarity_map = {}
+
                             if card.card_sets:
                                 for s in card.card_sets:
                                     code = s.set_code
@@ -356,6 +382,10 @@ class SingleCardView:
                                     if code not in set_options:
                                         set_options[code] = f"{s_name} ({code})"
                                         set_info_map[code] = s
+
+                                    if code not in rarity_map:
+                                        rarity_map[code] = set()
+                                    rarity_map[code].add(s.set_rarity)
                             else:
                                 set_options["Custom"] = "Custom Set"
 
@@ -409,7 +439,8 @@ class SingleCardView:
                                 on_change_callback=on_change,
                                 on_save_callback=on_save_wrapper,
                                 default_set_base_code=default_set_code,
-                                show_remove_button=False
+                                show_remove_button=False,
+                                rarity_map=rarity_map
                             )
 
                         self._render_available_sets(card)
@@ -439,6 +470,7 @@ class SingleCardView:
         try:
             set_options = {}
             set_info_map = {}
+            rarity_map = {}
 
             if card.card_sets:
                 for s in card.card_sets:
@@ -446,6 +478,10 @@ class SingleCardView:
                     if code not in set_options:
                         set_options[code] = f"{s.set_name} ({code})"
                         set_info_map[code] = s
+
+                    if code not in rarity_map:
+                        rarity_map[code] = set()
+                    rarity_map[code].add(s.set_rarity)
             else:
                 set_options["Custom"] = "Custom Set"
 
@@ -682,7 +718,8 @@ class SingleCardView:
                                 on_change_callback=update_display_stats,
                                 on_save_callback=on_save_wrapper,
                                 default_set_base_code=initial_base_code,
-                                original_variant_id=variant_id
+                                original_variant_id=variant_id,
+                                rarity_map=rarity_map
                             )
 
                         self._render_available_sets(card)
