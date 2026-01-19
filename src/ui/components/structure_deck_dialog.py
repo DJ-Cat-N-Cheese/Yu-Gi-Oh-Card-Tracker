@@ -28,6 +28,7 @@ class StructureDeckDialog:
         self.dialog.open()
         with self.dialog, ui.card().classes('w-[600px] h-[80vh] flex flex-col bg-gray-900 text-white border border-gray-700'):
             ui.label('Add Structure Deck').classes('text-h6 font-bold mb-4')
+            ui.label('Note: Promo / Bonus cards have to be added manually.').classes('text-sm text-gray-400 italic mb-2')
 
             with ui.column().classes('w-full flex-grow gap-4'):
                 # 1. Deck Selector
