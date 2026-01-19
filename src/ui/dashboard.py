@@ -100,7 +100,7 @@ def metric_card(label, value, icon, color='accent', sub_text=None):
             if sub_text:
                 ui.label(sub_text).classes('text-xs text-grey-600')
 
-def nav_card(title, description, icon, target_url, color_class='text-accent'):
+def nav_card(title, description, icon, target_url, color_class='text-accent', is_large=False):
     with ui.card().classes('group relative overflow-hidden bg-gray-900 border border-gray-800 p-6 cursor-pointer hover:border-gray-600 hover:bg-gray-800 transition-all duration-300') \
             .on('click', lambda: ui.navigate.to(target_url)):
 
@@ -113,8 +113,11 @@ def nav_card(title, description, icon, target_url, color_class='text-accent'):
 
             ui.icon('arrow_forward', size='1.2rem').classes('text-gray-600 group-hover:text-white transition-colors opacity-0 group-hover:opacity-100 transform translate-x-[-10px] group-hover:translate-x-0 transition-all duration-300')
 
-        ui.label(title).classes('text-xl font-bold text-white q-mb-sm group-hover:text-accent transition-colors')
-        ui.label(description).classes('text-sm text-gray-400 leading-relaxed')
+        title_size = 'text-2xl' if is_large else 'text-xl'
+        desc_size = 'text-base' if is_large else 'text-sm'
+
+        ui.label(title).classes(f'{title_size} font-bold text-white q-mb-sm group-hover:text-accent transition-colors')
+        ui.label(description).classes(f'{desc_size} text-gray-400 leading-relaxed')
 
 @ui.refreshable
 def render_metrics(stats):
@@ -126,8 +129,8 @@ def render_metrics(stats):
     with ui.row().classes('w-full gap-4'):
         metric_card('Unique Cards', f"{stats['unique_owned']:,}", 'style', 'primary')
         metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
-        metric_card('Est. Value', f"${stats['total_value']:,.2f}", 'attach_money', 'positive')
-        metric_card('Completion', f"{stats['completion_pct']:.1f}%", 'pie_chart', 'info', sub_text='of total database')
+        # metric_card('Est. Value', f"${stats['total_value']:,.2f}", 'attach_money', 'positive')
+        metric_card('Completion (of total database)', f"{stats['completion_pct']:.1f}%", 'pie_chart', 'info')
 
 @ui.refreshable
 def render_charts_area(stats):
@@ -150,7 +153,8 @@ def render_charts_area(stats):
                 'textStyle': {'color': '#ccc'}
             },
             'tooltip': {
-                'trigger': 'item'
+                'trigger': 'item',
+                'formatter': '{b}: {c} ({d}%)'
             },
             'legend': {
                 'type': 'scroll',
@@ -183,7 +187,8 @@ def render_charts_area(stats):
                             'show': True,
                             'fontSize': '20',
                             'fontWeight': 'bold',
-                            'color': '#fff'
+                            'color': '#fff',
+                            'formatter': '{d}%'
                         }
                     },
                     'labelLine': {
@@ -260,26 +265,37 @@ def dashboard_page():
             ui.separator().classes('bg-gray-800 q-my-sm')
             ui.label('Quick Navigation').classes('text-xl font-bold text-white')
 
-            with ui.grid(columns='repeat(auto-fit, minmax(250px, 1fr))').classes('w-full gap-6'):
+            # Main Functions (2 Rows, 2 Cols)
+            with ui.grid(columns=2).classes('w-full gap-6'):
                 nav_card('Collection',
                          'Manage your inventory, view prices, and track your progress.',
-                         'style', '/collection', 'text-blue-400')
+                         'style', '/collection', 'text-blue-400', is_large=True)
 
                 nav_card('Deck Builder',
                          'Create and edit decks using your collection or the full database.',
-                         'construction', '/decks', 'text-yellow-500')
+                         'construction', '/decks', 'text-yellow-500', is_large=True)
 
                 nav_card('Browse Sets',
                          'Explore card sets, check rarity spread, and view completion.',
-                         'library_books', '/sets', 'text-purple-400')
+                         'library_books', '/sets', 'text-purple-400', is_large=True)
 
                 nav_card('Bulk Add',
                          'Quickly add large numbers of cards via lists or drag-and-drop.',
-                         'playlist_add', '/bulk_add', 'text-green-400')
+                         'playlist_add', '/bulk_add', 'text-green-400', is_large=True)
+
+            # Admin Functions (1 Row, 3 Cols)
+            with ui.grid(columns=3).classes('w-full gap-6'):
+                nav_card('Scan Cards',
+                         'Use your webcam to scan physical cards and add them.',
+                         'camera', '/scan', 'text-pink-400')
 
                 nav_card('Import Tools',
                          'Import existing collections or merge data from other sources.',
                          'qr_code_scanner', '/import', 'text-orange-400')
+
+                nav_card('Edit Card DB',
+                         'Manually edit card database entries or fix issues.',
+                         'edit', '/db_editor', 'text-red-400')
 
             # --- Charts (Bottom) ---
             ui.separator().classes('bg-gray-800 q-my-sm')
