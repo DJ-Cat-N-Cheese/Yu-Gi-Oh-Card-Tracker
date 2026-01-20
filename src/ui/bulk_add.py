@@ -67,6 +67,7 @@ class BulkCollectionEntry:
     api_card: ApiCard
     quantity: int
     set_code: str
+    set_name: str
     rarity: str
     language: str
     condition: str
@@ -783,6 +784,7 @@ class BulkAddPage:
                         api_card=api_card,
                         quantity=entry.quantity,
                         set_code=variant.set_code,
+                        set_name=set_name,
                         rarity=variant.rarity,
                         language=entry.language,
                         condition=entry.condition,
@@ -817,7 +819,7 @@ class BulkAddPage:
         if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
         if s['filter_set']:
              target = s['filter_set'].split('|')[0].strip().lower()
-             res = [e for e in res if target in e.set_code.lower()]
+             res = [e for e in res if target in e.set_name.lower() or target in e.set_code.lower()]
         if s['filter_rarity']:
              target = s['filter_rarity'].lower()
              res = [e for e in res if e.rarity.lower() == target]
@@ -936,20 +938,12 @@ class BulkAddPage:
                  await self.load_collection_data()
                  ui.notify('Collection updated.', type='positive')
 
-        # Resolve set name
-        set_name = "Custom Set"
-        if entry.api_card.card_sets:
-            for s in entry.api_card.card_sets:
-                if s.set_code == entry.set_code:
-                    set_name = s.set_name
-                    break
-
         await self.single_card_view.open_collectors(
             card=entry.api_card,
             owned_count=entry.quantity,
             set_code=entry.set_code,
             rarity=entry.rarity,
-            set_name=set_name,
+            set_name=entry.set_name,
             language=entry.language,
             condition=entry.condition,
             first_edition=entry.first_edition,
