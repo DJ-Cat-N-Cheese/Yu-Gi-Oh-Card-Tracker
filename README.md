@@ -5,173 +5,287 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![NiceGUI](https://img.shields.io/badge/Built_with-NiceGUI-red.svg)](https://nicegui.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Active_Development-green)](https://github.com/yourusername/openyugi)
 
-**OpenYuGi** is a professional-grade, privacy-focused application designed for serious collectors and players. Unlike cloud-based alternatives, OpenYuGi runs entirely on your local machine, giving you absolute ownership of your data while providing advanced features like comprehensive deck building, granular rarity tracking, and market data integration.
+---
+
+## 📖 Introduction
+
+**OpenYuGi** is not just another collection manager—it is a professional-grade, privacy-focused environment designed for serious collectors, tournament players, and data hoarders.
+
+In an era where every app demands an account, a subscription, and an internet connection, OpenYuGi takes a radical stance: **Your Data, Your Drive.**
+
+### Why OpenYuGi?
+
+*   **🔒 Privacy First**: No login. No telemetry. No cloud sync. Your collection lives in plain text JSON files on your hard drive. You are the sole owner of your inventory.
+*   **⚡ Blazing Fast**: Built with a reactive local server, the interface responds instantly. No loading spinners while fetching data from a remote server.
+*   **🛠 Hacker Friendly**: The entire application is built on Python and readable text files. Want to write a script to analyze your card values? You can parse your own data in seconds.
+*   **♾️ Forever Free**: As an open-source project, OpenYuGi will never charge you to manage your own cards.
 
 ---
 
 ## ✨ Key Features at a Glance
 
-*   **🔒 Local-First Architecture**: Your data lives on your disk. No accounts, no cloud, no tracking.
-*   **📦 Smart Collection Management**: Track thousands of cards with support for specific printings (Set, Rarity, Edition).
-*   **🛠 Professional Deck Builder**: Full support for `.ydk` files, banlist validation, and side-decking.
-*   **🔍 Advanced Filtering**: Filter by any metric (ATK, DEF, Set, Rarity, Price, etc.).
-*   **🔄 Data Import**: Seamlessly migrate from Cardmarket stock files or JSON backups.
-*   **📊 Market Integration**: Automatic price fetching to track your collection's value.
+*   **Smart Inventory**: Track infinite cards with granular details (Set Code, Rarity, Condition, Language, Edition).
+*   **Dual-Mode Views**: Switch between "Player Mode" (consolidated copies) and "Collector Mode" (specific printings).
+*   **Pro Deck Builder**: Full `.ydk` support, integrated banlist validation, and collection cross-referencing.
+*   **Market Integration**: Automatic price fetching from Cardmarket and TCGPlayer.
+*   **Bulk Operations**: Add, move, or edit hundreds of cards at once.
+*   **Migration Tools**: Import from Cardmarket stock files or backup JSONs.
 
 ---
 
 ## 🚀 Getting Started
 
-Follow this guide to get your first collection up and running in minutes.
+Follow this comprehensive guide to set up your environment.
 
-### 1. Installation
+### 1. Installation & Setup
 
 **Prerequisites**
-*   **Python 3.10+**: [Download Here](https://www.python.org/downloads/)
-*   **(Optional) Tesseract OCR**: Only required if you intend to use the experimental scanner feature.
-    *   *Windows*: [Installer](https://github.com/UB-Mannheim/tesseract/wiki) (Add to PATH)
-    *   *Linux*: `sudo apt-get install tesseract-ocr`
+*   **Python 3.10 or newer**: [Download Here](https://www.python.org/downloads/). Verify with `python --version`.
+*   **(Optional) Tesseract OCR**: Only required for the experimental scanner.
+    *   **Windows**: [Download Installer](https://github.com/UB-Mannheim/tesseract/wiki). **Important**: During installation, ensure you check "Add to PATH".
+    *   **Linux**: `sudo apt-get install tesseract-ocr`
+    *   **macOS**: `brew install tesseract`
 
-**Setup**
-```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/openyugi.git
-cd openyugi
+**Step-by-Step Installation**
 
-# 2. Create a Virtual Environment
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/Mac:
-source venv/bin/activate
+1.  **Clone the Repository**
+    ```bash
+    git clone https://github.com/yourusername/openyugi.git
+    cd openyugi
+    ```
 
-# 3. Install Dependencies
-pip install -r requirements.txt
-```
+2.  **Create a Virtual Environment** (Highly Recommended)
+    *   *Windows*:
+        ```bash
+        python -m venv venv
+        .\venv\Scripts\activate
+        ```
+    *   *Linux / macOS*:
+        ```bash
+        python3 -m venv venv
+        source venv/bin/activate
+        ```
 
-**Run the App**
-```bash
-python main.py
-```
-Open your browser at `http://localhost:8080`.
+3.  **Install Dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
+    *Troubleshooting*: If you see errors related to `opencv-python`, try upgrading pip: `pip install --upgrade pip`.
+
+4.  **Launch the Application**
+    ```bash
+    python main.py
+    ```
+    The server will start, and your default web browser should automatically open `http://localhost:8080`.
 
 ### 2. Creating Your First Collection
-1.  Navigate to the **Collection** page using the sidebar or quick nav.
-2.  In the top-left dropdown menu (labeled "Collection"), select **+ New Collection**.
-3.  Enter a name (e.g., "Main Binder") and click **Create**.
+OpenYuGi supports multiple separate collection files (e.g., "Main Binder", "Trade Binder", "Bulk Box").
+
+1.  Navigate to the **Collection** page (default view).
+2.  Locate the **Collection Dropdown** in the top-left header.
+3.  Select the last option: **+ New Collection**.
+4.  Enter a descriptive name (e.g., `My_Goat_Format_Collection`) and click **Create**.
+5.  Your new JSON file is created in `data/collections/`.
 
 ### 3. Adding Cards
-There are three ways to populate your collection:
-*   **Manual Search**: In the **Collection** view, ensure the "Owned" toggle is **OFF**. Search for any card (e.g., "Dark Magician"). Click the card image to open the detail view, then add the specific quantity, set, and rarity you own.
-*   **Bulk Add**: Go to the **Bulk Add** page. Paste a list of card names (one per line) to add them all at once.
-*   **Import**: If you have a backup or a Cardmarket export, use the **Import Tools** page to migrate your data.
+Populate your database using one of these methods:
+
+*   **Method A: Manual Search (Best for single cards)**
+    1.  Use the **Search Bar** in the header. Type a card name (e.g., "Blue-Eyes").
+    2.  Click the card to open the **Detail View**.
+    3.  Select your specific Set Code (e.g., `LOB-EN001`) and Rarity.
+    4.  Click **Add**.
+
+*   **Method B: Bulk Add (Best for lists)**
+    1.  Navigate to **Bulk Add**.
+    2.  Paste a list of card names.
+    3.  Click **Process**.
+
+*   **Method C: Import (Best for migration)**
+    1.  Go to **Import Tools**.
+    2.  Upload a supported file (see *Import/Export* section below).
 
 ---
 
 ## 📖 In-Depth Feature Guide
 
 ### 📦 Smart Collection Management
-OpenYuGi offers a powerful interface to manage inventories of any size, catering to both players and investors.
 
-*   **Dual View Modes**:
-    *   **Consolidated View**: Best for players. Groups all printings of a card together, showing you your total playable copies regardless of rarity.
-    *   **Collectors View**: Best for traders and collectors. Lists every specific printing (Set Code + Rarity + Edition) as a separate row, allowing you to track exactly which version you own (e.g., *LOB-EN001 Ultra Rare vs. LOB-EN001 Unlimited*).
-*   **Advanced Filtering**: Drill down into your collection with precision. Filter by **Set Code**, **Rarity**, **Price Range**, **Quantity**, or Card Stats (ATK/DEF/Level).
-*   **Undo System**: Made a mistake? The global Undo button allows you to revert your last action instantly.
+The **Collection View** is the heart of OpenYuGi. It is designed to handle thousands of entries without lag.
+
+#### View Modes
+*   **Consolidated View (Default)**:
+    *   *Purpose*: Deck building and gameplay.
+    *   *Behavior*: Aggregates all copies of "Mystical Space Typhoon" into a single entry.
+    *   *Info*: Shows "Total Owned: 15" regardless of whether they are Commons, Secrets, or Starfoils.
+*   **Collectors View**:
+    *   *Purpose*: Valuation and trading.
+    *   *Behavior*: Displays a separate row for every distinct printing.
+    *   *Info*: "MRD-047 (Ultra) - 1x", "MRL-047 (Common) - 3x".
+
+#### Filters & sorting
+The filter pane (accessible via the Filter icon) offers granular control:
+*   **Set Code**: Supports loose matching (`LOB`) or strict matching (`| LOB`).
+*   **Rarity**: Filter by specific rarities (e.g., "Quarter Century Secret Rare").
+*   **Stats**: Filter by ATK/DEF ranges, Level, or Scale.
+*   **Ownership**: Toggle "Owned Only" to hide database cards you don't have.
 
 ### 🛠 Professional Deck Builder
-A dedicated environment for theory-crafting and tournament prep.
 
-*   **Format Support**: Create, edit, and save decks in the standard `.ydk` format, fully compatible with simulators like EDOPro and YGOOmega.
-*   **Collection Integration**: The builder highlights cards you own, helping you distinguish between decks you can build IRL and those you need to buy singles for.
-*   **Banlist Validation**: Integrated checks against **TCG**, **OCG**, and **Goat** banlists.
-*   **Drag & Drop**: Intuitive interface for moving cards between Main, Extra, and Side decks.
+The Deck Builder is fully compatible with the wider Yugioh ecosystem.
 
-### 🧩 Additional Tools
+*   **Format**: Decks are saved as `.ydk` files in `data/decks/`. You can copy these files directly to your **EDOPro** or **YGOOmega** folder.
+*   **Banlist Integration**:
+    *   The app automatically fetches **TCG**, **OCG**, and **Goat** lists.
+    *   Illegal cards are visually highlighted with red borders.
+    *   *Note*: Edison format is not currently supported by the auto-fetcher.
+*   **Collection Sync**: The builder shows you exactly how many copies of a card you own while you build. No more proxying cards you thought you had!
 
-**Import / Export**
-*   **Cardmarket Import**: Upload a Cardmarket stock export file (`.txt` or `.pdf`) to instantly populate your collection.
-*   **JSON Backups**: Full export of your data to JSON format for safekeeping or migration.
-*   **CSV Export**: Export your collection list to CSV for use in spreadsheets.
+### 🔄 Import / Export Tools
 
-**Database Editor**
-*   **Custom Cards**: Add homebrew cards or proxies to your database.
-*   **Errata & Fixes**: Locally correct card stats or text without waiting for an upstream API update.
-*   **Set Management**: Manually add or modify sets and rarities to keep your collection accurate.
+OpenYuGi removes the friction of moving data.
 
-**Advanced Banlists**
-*   **Historical Formats**: Includes built-in support for Goat Format.
-*   **Auto-Update**: Fetches the latest lists directly from the web.
+#### Supported Import Formats
+1.  **Cardmarket Stock File (`.txt`, `.pdf`)**:
+    *   Export your stock from Cardmarket and upload it here.
+    *   *Format Example*:
+        ```text
+        1x "Blue-Eyes White Dragon" (LOB-001) - Near Mint - English - 50,00 €
+        3x "Pot of Greed" (LOB-119) - Played - German - 1,50 €
+        ```
+2.  **OpenYuGi JSON Backup**:
+    *   Restores a full collection snapshot.
 
-### 📸 AI-Powered Webcam Scanner (Experimental)
+#### Export Options
+*   **CSV Export**: Generates a spreadsheet-compatible file containing `Card Name, Set Code, Rarity, Quantity, Price`.
+*   **JSON Backup**: A complete dump of the internal data structure.
+
+### 🗄️ Database Editor
+
+Sometimes the official API is wrong, or you have a custom proxy.
+
+*   **Edit Cards**: Modify ATK, DEF, Level, or Name locally.
+*   **Custom Sets**: Create your own Set Codes (e.g., `CUST-001`) and assign them to cards.
+*   **Fix Rarities**: If a new reprint isn't in the database yet, you can manually add the Rarity entry to the card.
+
+---
+
+## 📸 AI-Powered Webcam Scanner (Experimental)
 ![Status](https://img.shields.io/badge/Status-Not%20Working%20Yet-red)
 
-*Note: This feature is currently a work in progress and is not yet functional for daily use.*
+> **⚠️ WARNING**: This feature is currently a **Work In Progress**. It is included in the codebase for developers but is **not functional** for end-users.
 
-The goal of this feature is to allow real-time card recognition via webcam using OpenCV and Tesseract OCR.
-- **Planned**: Auto-detection of set codes.
-- **Planned**: Hands-free rapid entry.
+**Current Status**:
+The scanner pipeline (OpenCV -> Contour Detection -> Perspective Transform -> Tesseract OCR) is implemented but requires significant tuning for lighting conditions and camera focus.
+
+**Planned Capabilities**:
+1.  **Auto-Detection**: Place a card under the camera; the app detects the border.
+2.  **Code Reading**: OCR extracts the Set Code (e.g., `LOB-EN001`).
+3.  **DB Lookup**: The code is matched against your local database to identify the card.
 
 ---
 
-## 🏗 Architecture & Technical Guide
+## 🏗 Architecture & Data Model
 
-OpenYuGi follows a clean, modular architecture separating business logic from the UI, making it easy to extend and maintain.
+For developers and power users who want to touch the metal.
 
 ### Directory Structure
+```
+openyugi/
+├── data/                  # USER DATA (Backup this folder!)
+│   ├── collections/       # .json inventory files
+│   ├── decks/             # .ydk deck files
+│   ├── images/            # Downloaded .jpg assets
+│   └── db/                # Local card database cache
+├── src/
+│   ├── core/              # Models, Config, Persistence
+│   ├── services/          # API, Scanner, Image Manager
+│   └── ui/                # NiceGUI Frontend Components
+├── main.py                # Entry Point
+└── requirements.txt       # Dependencies
+```
 
-*   **`src/core`**: The brain of the application. Contains Pydantic models (`models.py`) and file persistence logic (`persistence.py`). This layer has **no** dependencies on the UI.
-*   **`src/services`**: Integration layer. Handles external APIs (YGOPRODeck), the Scanner logic (`scanner/`), and Image management.
-*   **`src/ui`**: The frontend layer built with **NiceGUI**. Each page (e.g., `deck_builder.py`, `scan.py`) is a self-contained module.
-*   **`data/`**: Your data storage.
-    *   `collections/`: JSON files for your card inventory.
-    *   `decks/`: `.ydk` files for your decks.
-    *   `images/`: Cached card artwork.
-    *   `db/`: Local copy of the Card Database.
+### Data Schema (JSON)
+Your collection is stored as a list of **CollectionCard** objects. Here is what a single entry looks like in your `.json` file:
 
-### Tech Stack
-
-*   **NiceGUI**: A Python-based UI framework that wraps Vue.js and Quasar. It allows us to write reactive, modern web UIs entirely in Python.
-*   **OpenCV & Tesseract**: The powerhouse behind the scanner. OpenCV handles image processing, while Tesseract performs Optical Character Recognition.
-*   **Pydantic**: Ensures rigorous data validation. Every card, deck, and collection entry is a typed object, preventing data corruption.
+```json
+{
+  "card_id": 46986414,
+  "name": "Blue-Eyes White Dragon",
+  "variants": [
+    {
+      "set_code": "LOB-001",
+      "rarity": "Ultra Rare",
+      "entries": [
+        {
+          "quantity": 1,
+          "condition": "Near Mint",
+          "language": "EN",
+          "first_edition": true,
+          "purchase_price": 50.00
+        }
+      ]
+    }
+  ]
+}
+```
 
 ---
 
-## ⚠️ Troubleshooting & "Watch Out For"
+## ⚠️ Troubleshooting
 
-### 1. "The Scanner button is grayed out"
-**Cause:** The application failed to load `opencv` or `pytesseract`.
-**Fix:** This is normal if you haven't installed the optional Tesseract software. The rest of the app works fine without it.
+### "ModuleNotFoundError: No module named 'src'"
+*   **Cause**: You ran `python src/main.py` instead of `python main.py`.
+*   **Fix**: Always run the application from the root directory using `python main.py`.
 
-### 2. "Images aren't loading"
-**Behavior:** OpenYuGi uses a **Lazy Loading** strategy. It only downloads images when you first view them to save bandwidth and disk space.
-**Fix:** Ensure you have an active internet connection for the first load.
+### "The Scanner is disabled"
+*   **Cause**: You did not install Tesseract or the `pytesseract` library could not find the executable.
+*   **Fix**: Install Tesseract (see Installation section) and restart the app. This feature is optional.
 
-### 3. "My changes aren't saving"
-**Note:** The application disables "Hot Reload" (`reload=False` in `main.py`) because it writes to the `data/` directory. If you are developing and editing code, you must manually restart the server to see code changes.
+### "Images are missing"
+*   **Cause**: OpenYuGi uses **Lazy Loading**. Images are downloaded on-demand.
+*   **Fix**: Ensure you have an internet connection. If images still fail, check the `data/images` folder permissions.
+
+### "I can't find Edison Format"
+*   **Status**: The auto-fetcher only grabs TCG, OCG, and Goat lists. Edison support is planned but not yet implemented.
 
 ---
 
 ## 🗺 Roadmap
 
-*   [ ] **Price Trending**: Historical price graphs using Cardmarket/TCGPlayer data.
-*   [ ] **Cloud Sync**: Optional integration with Google Drive/Dropbox for backup.
-*   [ ] **Mobile Optimization**: improved touch controls for the Deck Builder.
-*   [ ] **Advanced Scanner**: GPU acceleration for faster detection.
+The journey doesn't end here. We have big plans for OpenYuGi:
+
+*   [ ] **Price History Graphs**: Visualize the value of your collection over time.
+*   [ ] **Cloud Sync Plugins**: Optional support for syncing `data/` to Google Drive or Dropbox.
+*   [ ] **Mobile Interface**: Optimization for touch screens and mobile browsers.
+*   [ ] **GPU Acceleration**: Leveraging CUDA for the AI Scanner.
+*   [ ] **Custom Banlists**: A UI to create your own banlists for local tournaments.
+
+---
+
+## 🤝 Contributing
+
+OpenYuGi is a community-driven project. We welcome pull requests!
+
+1.  Fork the repo.
+2.  Create a feature branch (`git checkout -b feature/AmazingFeature`).
+3.  Commit your changes.
+4.  Open a Pull Request.
 
 ---
 
 ## ❓ FAQ
 
-**Q: Where is my data stored?**
-A: Everything is in the `data/` folder in the project root. You can back up this folder to save your entire state.
+**Q: Is this safer than a website?**
+A: Yes. Your data never leaves your computer. If the internet goes down, or if a website shuts down, your collection remains safe on your drive.
 
-**Q: Can I use Edison Format?**
-A: Currently, the app defaults to TCG, OCG, and Goat banlists. Edison is not yet explicitly supported in the auto-fetcher.
+**Q: Can I manage multiple collections?**
+A: Absolutely. You can create unlimited collection files (e.g., one for trades, one for keeps, one for bulk).
 
-**Q: Is this legal?**
-A: OpenYuGi is a fan-made project. Card images and data are provided by the YGOPRODeck API. This tool is for personal collection management only.
+**Q: Does it support Speed Duel / Rush Duel?**
+A: The database includes Speed Duel cards. Rush Duel support depends on the YGOPRODeck API coverage.
 
 ---
 
