@@ -324,10 +324,14 @@ class CardScanner:
             x, y, w, h = roi
             cv2.rectangle(canvas, (x, y), (x + w, y + h), color, 2)
 
-        draw_roi(self.roi_set_id_search, (0, 255, 0))
+        # Indicate full scan for Set ID and Language (Green Border)
+        cv2.rectangle(canvas, (0, 0), (self.width, self.height), (0, 255, 0), 4)
+
+        # Draw specific ROIs that are still used
         draw_roi(self.roi_1st_ed, (255, 0, 0))
         draw_roi(self.roi_name, (0, 255, 255))
         draw_roi(self.roi_art, (255, 0, 255))
-        draw_roi(self.roi_desc, (255, 255, 255))
+
+        # roi_set_id_search and roi_desc are no longer used (Full Scan)
 
         return canvas
