@@ -27,6 +27,7 @@ function initScanner() {
     if (window.overlayCanvas) {
         window.overlayCtx = window.overlayCanvas.getContext('2d');
     }
+    console.warn("Scanner JS Loaded - If you see this, console logs are working.");
 }
 
 async function startCamera(deviceId) {
@@ -133,7 +134,8 @@ function captureFrame() {
 
         // Return lower quality JPEG to reduce size
         var dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-        console.log("Client: captureFrame success, size: " + dataUrl.length);
+        // Using console.info to better survive log filters
+        console.info("Client: captureFrame success, size: " + dataUrl.length);
         return dataUrl;
     } catch (err) {
         console.error("Client: captureFrame exception:", err);

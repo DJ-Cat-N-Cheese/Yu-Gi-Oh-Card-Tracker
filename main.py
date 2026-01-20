@@ -1,6 +1,7 @@
 import sys
 import os
 from nicegui import ui, app
+from fastapi.responses import JSONResponse
 
 # Ensure src is in the python path
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -53,6 +54,11 @@ def db_editor():
 # Serve images
 app.add_static_files('/images', 'data/images')
 app.add_static_files('/sets', 'data/sets')
+
+# Handle Chrome DevTools probe to prevent 404 warnings
+@app.get('/.well-known/appspecific/com.chrome.devtools.json')
+def chrome_devtools_probe():
+    return JSONResponse(content={})
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Disable reload to prevent restart loops when writing to data/ directory (images, db)
