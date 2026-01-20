@@ -208,6 +208,7 @@ class ScanPage:
         # Debug Lab State
         self.debug_report = {}
         self.debug_loading = False
+        self.latest_capture_src = None
 
     async def init_cameras(self):
         try:
@@ -304,11 +305,15 @@ class ScanPage:
 
     async def handle_debug_upload(self, e: events.UploadEventArguments):
         self.debug_loading = True
+        self.latest_capture_src = None # Clear previous capture on upload
         self.render_debug_lab.refresh()
         try:
             content = await e.file.read()
+            # For upload, we rely on the report's input_image_url or we could base64 encode content here.
+            # Using report URL is cleaner if backend saves it.
             report = await scanner_manager.analyze_static_image(content)
             self.debug_report = report
+            # If report has input url, use it as preview too if needed, but the UI logic handles priority.
         except Exception as err:
             ui.notify(f"Analysis failed: {err}", type='negative')
         self.debug_loading = False
@@ -325,6 +330,10 @@ class ScanPage:
                 self.debug_loading = False
                 self.render_debug_lab.refresh()
                 return
+
+            # Show immediate preview
+            self.latest_capture_src = data_url
+            self.render_debug_lab.refresh()
 
             # Convert Data URL to bytes
             import base64
@@ -403,9 +412,13 @@ class ScanPage:
                 ui.separator().classes('bg-gray-600')
                 ui.upload(label="Or Upload Image", on_upload=self.handle_debug_upload, auto_upload=True).props('accept=.jpg,.png color=secondary').classes('w-full')
 
-                if self.debug_report.get('input_image_url'):
-                    ui.label("Analyzed Image:").classes('font-bold mt-2')
-                    ui.image(self.debug_report['input_image_url']).classes('w-full h-auto border rounded')
+                # Preview Section
+                preview_src = self.latest_capture_src or self.debug_report.get('input_image_url')
+                if preview_src:
+                    ui.label("Latest Input:").classes('font-bold mt-2 text-lg')
+                    ui.image(preview_src).classes('w-full h-auto border rounded shadow-md')
+                elif self.debug_loading:
+                    ui.label("Processing...").classes('italic text-accent mt-2')
 
             # --- CARD 2: VISUAL PIPELINE ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
