@@ -365,6 +365,9 @@ class UnifiedImportController:
             for s in item.api_card.card_sets:
                 if s.set_code == item.set_code and s.set_rarity == item.rarity:
                     variant_exists = True
+                    # Ensure image_id is preserved if we found an existing match but the item didn't have it set (e.g. from ambiguity resolution)
+                    if item.image_id is None:
+                        item.image_id = s.image_id
                     break
 
             if not variant_exists:
@@ -498,58 +501,69 @@ class UnifiedImportController:
             ui.label("Resolve Ambiguities").classes('text-h6')
             ui.label("Cards with missing Set Code/Rarity combinations or multiple matches.").classes('text-caption text-grey')
 
+            # Declare container ref
+            rows_container = None
+
+            def render_rows():
+                if not rows_container: return
+                rows_container.clear()
+                with rows_container:
+                    for item in self.ambiguous_rows:
+                        row = item['row']
+                        matches = item['matches']
+
+                        # Prepare Set Code Options: Matches + Target Code
+                        code_opts = {}
+                        if item.get('target_code'):
+                             code_opts[item['target_code']] = f"{item['target_code']} (New/Target)"
+
+                        for m in matches:
+                            code_opts[m['code']] = f"{m['code']} (Existing)"
+
+                        # Ensure selected value is in options (fallback)
+                        if item['selected_set_code'] not in code_opts:
+                            code_opts[item['selected_set_code']] = item['selected_set_code']
+
+                        with ui.row().classes('w-full items-center gap-2 q-mb-sm border-b border-gray-800 pb-2'):
+                            # 1. Include Checkbox
+                            ui.checkbox(value=item['include'],
+                                        on_change=lambda e, it=item: it.update({'include': e.value})).classes('w-10 justify-center')
+
+                            # 2. Card Info
+                            with ui.column().classes('w-1/4'):
+                                ui.label(f"{row.quantity}x {row.name}").classes('font-bold')
+                                ui.label(f"Orig: {row.set_prefix} | {row.rarity_abbr}").classes('text-xs text-grey-5')
+
+                            # 3. Set Code Dropdown
+                            def update_code(e, it=item):
+                                it['selected_set_code'] = e.value
+                                pass
+
+                            ui.select(options=code_opts, value=item['selected_set_code'],
+                                      on_change=lambda e: update_code(e)) \
+                                      .classes('w-1/4').props('dark dense options-dense')
+
+                            # 4. Rarity Dropdown
+                            ui.select(options=rarity_options, value=item['selected_rarity'],
+                                      on_change=lambda e, it=item: it.update({'selected_rarity': e.value})) \
+                                      .classes('w-1/4').props('dark dense options-dense')
+
+            def toggle_all(e):
+                for item in self.ambiguous_rows:
+                    item['include'] = e.value
+                render_rows()
+
             with ui.scroll_area().classes('h-96 w-full q-my-md'):
                 # Header
                 with ui.row().classes('w-full items-center gap-2 font-bold text-grey-4 q-mb-sm border-b border-gray-600 pb-2'):
-                    ui.label("Inc.").classes('w-10 text-center')
+                    ui.checkbox(value=True, on_change=toggle_all).classes('w-10 justify-center').props('dense')
                     ui.label("Card").classes('w-1/4')
                     ui.label("Set Code").classes('w-1/4')
                     ui.label("Rarity").classes('w-1/4')
 
-                # Rows
-                for item in self.ambiguous_rows:
-                    row = item['row']
-                    matches = item['matches']
-
-                    # Prepare Set Code Options: Matches + Target Code
-                    # Use a dict for uniqueness
-                    code_opts = {}
-                    if item.get('target_code'):
-                         code_opts[item['target_code']] = f"{item['target_code']} (New/Target)"
-
-                    for m in matches:
-                        code_opts[m['code']] = f"{m['code']} (Existing)"
-
-                    # Ensure selected value is in options (fallback)
-                    if item['selected_set_code'] not in code_opts:
-                        code_opts[item['selected_set_code']] = item['selected_set_code']
-
-                    with ui.row().classes('w-full items-center gap-2 q-mb-sm border-b border-gray-800 pb-2'):
-                        # 1. Include Checkbox
-                        ui.checkbox(value=item['include'],
-                                    on_change=lambda e, it=item: it.update({'include': e.value})).classes('w-10 justify-center')
-
-                        # 2. Card Info
-                        with ui.column().classes('w-1/4'):
-                            ui.label(f"{row.quantity}x {row.name}").classes('font-bold')
-                            ui.label(f"Orig: {row.set_prefix} | {row.rarity_abbr}").classes('text-xs text-grey-5')
-
-                        # 3. Set Code Dropdown
-                        def update_code(e, it=item):
-                            it['selected_set_code'] = e.value
-                            # If this code matches a known variant, update selected_card to use that card's ID
-                            # (Though usually the card ID is consistent across variants, but just in case)
-                            # Also we might want to pre-select rarity if it's an existing variant
-                            pass
-
-                        ui.select(options=code_opts, value=item['selected_set_code'],
-                                  on_change=lambda e: update_code(e)) \
-                                  .classes('w-1/4').props('dark dense options-dense')
-
-                        # 4. Rarity Dropdown
-                        ui.select(options=rarity_options, value=item['selected_rarity'],
-                                  on_change=lambda e, it=item: it.update({'selected_rarity': e.value})) \
-                                  .classes('w-1/4').props('dark dense options-dense')
+                # Render initial rows
+                rows_container = ui.column().classes('w-full')
+                render_rows()
 
             with ui.row().classes('w-full justify-end gap-4 q-mt-md'):
                 ui.button("Cancel", on_click=dialog.close).props('outline color=white')
@@ -627,25 +641,39 @@ class UnifiedImportController:
             ui.label("Import Preview").classes('text-h6')
             ui.label("Review items before importing. Uncheck to exclude.").classes('text-caption text-grey')
 
+            rows_container = None
+
+            def render_rows():
+                if not rows_container: return
+                rows_container.clear()
+                with rows_container:
+                    for item in preview_items:
+                        p = item['data']
+                        with ui.row().classes('w-full items-center gap-2 q-mb-sm border-b border-gray-800 pb-2'):
+                            ui.checkbox(value=item['include'],
+                                        on_change=lambda e, it=item: it.update({'include': e.value})).classes('w-10 justify-center')
+
+                            ui.label(str(p.quantity)).classes('w-10 text-center')
+                            ui.label(p.api_card.name).classes('w-1/3 font-bold truncate')
+                            ui.label(p.set_code).classes('w-1/4 text-sm')
+                            ui.label(p.rarity).classes('w-1/4 text-sm')
+
+            def toggle_all(e):
+                for item in preview_items:
+                    item['include'] = e.value
+                render_rows()
+
             with ui.scroll_area().classes('h-96 w-full q-my-md'):
                  # Header
                 with ui.row().classes('w-full items-center gap-2 font-bold text-grey-4 q-mb-sm border-b border-gray-600 pb-2'):
-                    ui.label("Inc.").classes('w-10 text-center')
+                    ui.checkbox(value=True, on_change=toggle_all).classes('w-10 justify-center').props('dense')
                     ui.label("Qty").classes('w-10 text-center')
                     ui.label("Card").classes('w-1/3')
                     ui.label("Set Code").classes('w-1/4')
                     ui.label("Rarity").classes('w-1/4')
 
-                for item in preview_items:
-                    p = item['data']
-                    with ui.row().classes('w-full items-center gap-2 q-mb-sm border-b border-gray-800 pb-2'):
-                        ui.checkbox(value=item['include'],
-                                    on_change=lambda e, it=item: it.update({'include': e.value})).classes('w-10 justify-center')
-
-                        ui.label(str(p.quantity)).classes('w-10 text-center')
-                        ui.label(p.api_card.name).classes('w-1/3 font-bold truncate')
-                        ui.label(p.set_code).classes('w-1/4 text-sm')
-                        ui.label(p.rarity).classes('w-1/4 text-sm')
+                rows_container = ui.column().classes('w-full')
+                render_rows()
 
             with ui.row().classes('w-full justify-end gap-4 q-mt-md'):
                 ui.button("Cancel", on_click=dialog.close).props('outline color=white')
