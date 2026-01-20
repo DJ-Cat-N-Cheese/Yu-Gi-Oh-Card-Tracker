@@ -286,7 +286,8 @@ class UnifiedImportController:
                                 'card': entry['card'],
                                 'variant': entry['variant'],
                                 'code': entry['variant'].set_code, # Keep actual DB code
-                                'rarity': entry['rarity']
+                                'rarity': entry['rarity'],
+                                'lang': entry.get('lang', 'en')
                             })
                             seen_variant_ids.add(vid)
 
