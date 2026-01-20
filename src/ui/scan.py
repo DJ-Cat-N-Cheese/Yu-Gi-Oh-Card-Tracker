@@ -78,44 +78,66 @@ function stopCamera() {
 }
 
 function captureFrame() {
-    // Attempt re-init if missing
-    if (!window.scannerVideo) initScanner();
+    console.log("Client: captureFrame sequence started");
+    try {
+        // Attempt re-init if missing
+        if (!window.scannerVideo) initScanner();
 
-    if (!window.scannerVideo) return "ERR:NO_VIDEO_ELEMENT";
-    if (!window.scannerStream) return "ERR:NO_STREAM";
-
-    // Get actual dimensions
-    const vw = window.scannerVideo.videoWidth;
-    const vh = window.scannerVideo.videoHeight;
-
-    if (vw === 0 || vh === 0) return "ERR:DIM_ZERO";
-
-    // Downscale if too large to prevent websocket saturation
-    const maxDim = 800;
-    let w = vw;
-    let h = vh;
-
-    if (w > maxDim || h > maxDim) {
-        if (w > h) {
-            h = Math.round(h * (maxDim / w));
-            w = maxDim;
-        } else {
-            w = Math.round(w * (maxDim / h));
-            h = maxDim;
+        if (!window.scannerVideo) {
+            console.error("Client: No video element found");
+            return "ERR:NO_VIDEO_ELEMENT";
         }
+        if (!window.scannerStream) {
+            console.error("Client: No media stream active");
+            return "ERR:NO_STREAM";
+        }
+
+        // Check ready state (HAVE_CURRENT_DATA = 2, HAVE_ENOUGH_DATA = 4)
+        if (window.scannerVideo.readyState < 2) {
+             console.warn("Client: Video not ready (readyState=" + window.scannerVideo.readyState + ")");
+             return "ERR:VIDEO_NOT_READY";
+        }
+
+        // Get actual dimensions
+        const vw = window.scannerVideo.videoWidth;
+        const vh = window.scannerVideo.videoHeight;
+
+        if (vw === 0 || vh === 0) {
+            console.error("Client: Video dimensions zero");
+            return "ERR:DIM_ZERO";
+        }
+
+        // Downscale if too large to prevent websocket saturation
+        const maxDim = 800;
+        let w = vw;
+        let h = vh;
+
+        if (w > maxDim || h > maxDim) {
+            if (w > h) {
+                h = Math.round(h * (maxDim / w));
+                w = maxDim;
+            } else {
+                w = Math.round(w * (maxDim / h));
+                h = maxDim;
+            }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+
+        const ctx = canvas.getContext('2d');
+        // Draw scaled image
+        ctx.drawImage(window.scannerVideo, 0, 0, w, h);
+
+        // Return lower quality JPEG to reduce size
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        console.log("Client: captureFrame success, size: " + dataUrl.length);
+        return dataUrl;
+    } catch (err) {
+        console.error("Client: captureFrame exception:", err);
+        return "ERR:JS_EXCEPTION:" + err.message;
     }
-
-    const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
-
-    const ctx = canvas.getContext('2d');
-    // Draw scaled image
-    ctx.drawImage(window.scannerVideo, 0, 0, w, h);
-
-    // Return lower quality JPEG to reduce size
-    var dataUrl = canvas.toDataURL('image/jpeg', 0.6);
-    return dataUrl;
 }
 
 function drawOverlay(points) {
@@ -305,10 +327,12 @@ class ScanPage:
                         # Success
                         self.last_capture_error = None
                         if scanner_manager.manual_scan_requested:
-                            logger.info("Client sending frame for manual scan...")
+                            logger.info(f"Client sending frame for manual scan... (Length: {len(response)})")
                         scanner_manager.push_frame(response)
                     else:
                         # Null response (no video stream yet or initialization pending)
+                        if scanner_manager.manual_scan_requested:
+                             logger.warning(f"Manual scan requested but captureFrame returned empty response: {response!r}")
                         pass
 
                     # Update Overlay
