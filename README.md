@@ -6,130 +6,101 @@
 [![NiceGUI](https://img.shields.io/badge/Built_with-NiceGUI-red.svg)](https://nicegui.io/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**OpenYuGi** is a professional-grade, privacy-focused application designed for serious collectors and players. Unlike cloud-based alternatives, OpenYuGi runs entirely on your local machine, giving you absolute ownership of your data while providing advanced features like AI-powered card scanning, comprehensive deck building, and precise rarity tracking.
-
----
-
-## ✨ Key Features
-
-### 📸 AI-Powered Webcam Scanner ![Work In Progress](https://img.shields.io/badge/Status-Work%20In%20Progress-orange)
-*Note: This feature is currently in active development. Performance may vary depending on lighting and camera quality.*
-
-Forget manual data entry. OpenYuGi utilizes **OpenCV** and **Tesseract OCR** to detect cards in real-time via your webcam.
-- **Auto-Detection**: Instantly identifies card borders and extracts set codes (e.g., `LOB-EN001`).
-- **Live Preview**: Visual feedback with green/red contours to ensure perfect scans.
-- **Smart Matching**: Automatically resolves ambiguous scans by checking against your local database.
-
-### 🛠 Professional Deck Builder
-Construct your winning strategy with a robust deck editor.
-- **Format Support**: Fully compatible with standard `.ydk` files (used by EDOPro, YGOOmega).
-- **Banlist Integration**: Real-time validation against the latest banlists.
-- **Side Decking**: Dedicated support for Main, Extra, and Side decks.
-- **Analysis**: Visualize deck composition and stats.
-
-### 📦 Smart Collection Management
-Manage thousands of cards with ease.
-- **Bulk Operations**: Add or remove cards in bulk efficiently.
-- **Rarity Tracking**: Distinguish between a *Common* reprint and a *Secret Rare* original.
-- **Data Import**: Import seamlessly from CSV, JSON, or Cardmarket exports.
-- **Filter & Search**: Powerful filtering by set, rarity, quantity, and more.
-
-### 🔒 Local-First Architecture
-- **You Own Your Data**: All collections, decks, and settings are stored in human-readable JSON/YAML files in the `data/` directory.
-- **Offline Capable**: Once images are downloaded, the app works entirely offline.
-- **No Accounts**: No login, no tracking, no cloud dependencies.
-
----
-
-## 🧩 Additional Features
-
-### 📅 Advanced Banlist Management
-Stay tournament-ready with our integrated banlist service.
-- **Auto-Update**: Fetches the latest TCG/OCG lists directly from the web.
-- **Historical Lists**: Switch between different banlist eras to test legacy formats (e.g., Goat, Edison).
-- **Compliance Check**: Instantly see if your deck is legal for your chosen format.
-
-### 🗄️ Database Editor
-Take control of the card definitions themselves.
-- **Custom Cards**: Add homebrew cards or proxies to your database.
-- **Correction**: Fix errors in card text or stats locally without waiting for upstream API updates.
-- **Set Management**: Manually add or modify sets and rarities to keep your collection accurate.
-
-### 🖼️ Intelligent Image Caching
-OpenYuGi respects your disk space and bandwidth.
-- **Lazy Loading**: Downloads images only when they are displayed on screen.
-- **Bulk Download**: Optional "Download All" feature for completely offline usage.
-- **Optimization**: Images are stored in optimized formats to ensure the UI remains snappy even with thousands of cards.
-
-### 🔄 Import/Export & Migration
-- **Cardmarket Integration**: Paste your Cardmarket want-list or stock export to instantly populate your collection.
-- **CSV Support**: Export your entire collection to CSV for spreadsheet analysis or insurance purposes.
-- **JSON Backups**: Full JSON export for easy backup and restoration.
+**OpenYuGi** is a professional-grade, privacy-focused application designed for serious collectors and players. Unlike cloud-based alternatives, OpenYuGi runs entirely on your local machine, giving you absolute ownership of your data while providing advanced features like comprehensive deck building, granular rarity tracking, and market data integration.
 
 ---
 
 ## 🚀 Getting Started
 
-### Prerequisites
+Follow this guide to get your first collection up and running in minutes.
 
-1.  **Python 3.10 or higher**: [Download Python](https://www.python.org/downloads/)
-2.  **Tesseract OCR** (Required for the Scanner):
-    *   **Windows**: [Download the installer](https://github.com/UB-Mannheim/tesseract/wiki) and add the installation path (e.g., `C:\Program Files\Tesseract-OCR`) to your System PATH variable.
-    *   **macOS**: `brew install tesseract`
-    *   **Linux**: `sudo apt-get install tesseract-ocr`
+### 1. Installation
 
-### Installation
+**Prerequisites**
+*   **Python 3.10+**: [Download Here](https://www.python.org/downloads/)
+*   **(Optional) Tesseract OCR**: Only required if you intend to use the experimental scanner feature.
+    *   *Windows*: [Installer](https://github.com/UB-Mannheim/tesseract/wiki) (Add to PATH)
+    *   *Linux*: `sudo apt-get install tesseract-ocr`
 
-1.  **Clone the Repository**
-    ```bash
-    git clone https://github.com/yourusername/openyugi.git
-    cd openyugi
-    ```
+**Setup**
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/openyugi.git
+cd openyugi
 
-2.  **Set up a Virtual Environment (Recommended)**
-    ```bash
-    python -m venv venv
-    # Windows
-    .\venv\Scripts\activate
-    # Linux/macOS
-    source venv/bin/activate
-    ```
+# 2. Create a Virtual Environment
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
 
-3.  **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
+# 3. Install Dependencies
+pip install -r requirements.txt
+```
 
-### Running the Application
-
-Launch the application server:
+**Run the App**
 ```bash
 python main.py
 ```
-Open your browser and navigate to `http://localhost:8080`.
+Open your browser at `http://localhost:8080`.
+
+### 2. Creating Your First Collection
+1.  Navigate to the **Collection** page using the sidebar or quick nav.
+2.  In the top-left dropdown menu (labeled "Collection"), select **+ New Collection**.
+3.  Enter a name (e.g., "Main Binder") and click **Create**.
+
+### 3. Adding Cards
+There are three ways to populate your collection:
+*   **Manual Search**: In the **Collection** view, ensure the "Owned" toggle is **OFF**. Search for any card (e.g., "Dark Magician"). Click the card image to open the detail view, then add the specific quantity, set, and rarity you own.
+*   **Bulk Add**: Go to the **Bulk Add** page. Paste a list of card names (one per line) to add them all at once.
+*   **Import**: If you have a backup or a Cardmarket export, use the **Import Tools** page to migrate your data.
 
 ---
 
-## 🏗 Architecture & Technical Guide
+## ✨ Features Guide
 
-OpenYuGi follows a clean, modular architecture separating business logic from the UI.
+### 📦 Smart Collection Management
+OpenYuGi offers a powerful interface to manage inventories of any size.
 
-### Directory Structure
+*   **Dual View Modes**:
+    *   **Consolidated View**: Best for players. Groups all printings of a card together, showing you your total playable copies regardless of rarity.
+    *   **Collectors View**: Best for traders and collectors. Lists every specific printing (Set Code + Rarity + Edition) as a separate row, allowing you to track exactly which version you own (e.g., *LOB-EN001 Ultra Rare vs. LOB-EN001 Unlimited*).
+*   **Advanced Filtering**: Drill down into your collection with precision. Filter by **Set Code**, **Rarity**, **Price Range**, **Quantity**, or Card Stats (ATK/DEF/Level).
+*   **Market Data**: Automatically fetches price data (Cardmarket/TCGPlayer) to give you an estimated value of your collection.
+*   **Undo System**: Made a mistake? The global Undo button allows you to revert your last action instantly.
 
-*   **`src/core`**: The brain of the application. Contains Pydantic models (`models.py`) and file persistence logic (`persistence.py`). This layer has **no** dependencies on the UI.
-*   **`src/services`**: Integration layer. Handles external APIs (YGOPRODeck), the Scanner logic (`scanner/`), and Image management.
-*   **`src/ui`**: The frontend layer built with **NiceGUI**. Each page (e.g., `deck_builder.py`, `scan.py`) is a self-contained module.
-*   **`data/`**: Your data storage.
-    *   `collections/`: JSON files for your card inventory.
-    *   `decks/`: `.ydk` files for your decks.
-    *   `images/`: Cached card artwork.
-    *   `db/`: Local copy of the Card Database.
+### 🛠 Professional Deck Builder
+A dedicated environment for theory-crafting and tournament prep.
 
-### Tech Stack
+*   **Format Support**: Create, edit, and save decks in the standard `.ydk` format, fully compatible with simulators like EDOPro and YGOOmega.
+*   **Collection Integration**: The builder highlights cards you own, helping you distinguish between decks you can build IRL and those you need to buy singles for.
+*   **Banlist Validation**: Integrated checks against **TCG**, **OCG**, and **Goat** banlists.
+*   **Drag & Drop**: Intuitive interface for moving cards between Main, Extra, and Side decks.
 
-*   **NiceGUI**: A Python-based UI framework that wraps Vue.js and Quasar. It allows us to write reactive, modern web UIs entirely in Python.
-*   **OpenCV & Tesseract**: The powerhouse behind the scanner. OpenCV handles image processing (contour detection, cropping), while Tesseract performs Optical Character Recognition to read card codes.
-*   **Pydantic**: Ensures rigorous data validation. Every card, deck, and collection entry is a typed object, preventing data corruption.
+### 🧩 Additional Tools
+
+**Import / Export**
+*   **Cardmarket Import**: Upload a Cardmarket stock export file (`.txt` or `.pdf`) to instantly populate your collection.
+*   **JSON Backups**: Full export of your data to JSON format for safekeeping or migration.
+*   **CSV Export**: Export your collection list to CSV for use in spreadsheets.
+
+**Database Editor**
+*   **Custom Cards**: Add local-only cards or proxies to your database.
+*   **Errata & Fixes**: Locally correct card stats or text without waiting for an upstream API update.
+
+**Advanced Banlists**
+*   **Historical Formats**: Includes built-in support for Goat Format.
+*   **Auto-Update**: Fetches the latest lists directly from the web.
+
+### 📸 AI-Powered Webcam Scanner (Experimental)
+![Status](https://img.shields.io/badge/Status-Not%20Working%20Yet-red)
+
+*Note: This feature is currently a work in progress and is not yet functional for daily use.*
+
+The goal of this feature is to allow real-time card recognition via webcam using OpenCV and Tesseract OCR.
+- **Planned**: Auto-detection of set codes.
+- **Planned**: Hands-free rapid entry.
 
 ---
 
@@ -137,29 +108,14 @@ OpenYuGi follows a clean, modular architecture separating business logic from th
 
 ### 1. "The Scanner button is grayed out"
 **Cause:** The application failed to load `opencv` or `pytesseract`.
-**Fix:**
-*   Ensure Tesseract is installed on your OS.
-*   On Windows, double-check that Tesseract is in your System PATH.
-*   Restart the application after installing Tesseract.
-*   Check the console logs for "Scanner dependencies missing".
+**Fix:** This is normal if you haven't installed the optional Tesseract software. The rest of the app works fine without it.
 
 ### 2. "Images aren't loading"
 **Behavior:** OpenYuGi uses a **Lazy Loading** strategy. It only downloads images when you first view them to save bandwidth and disk space.
-**Fix:**
-*   Ensure you have an active internet connection for the first load.
-*   Go to **Settings > Download All Images** if you prefer to cache everything at once (Warning: Requires ~2GB+ disk space).
+**Fix:** Ensure you have an active internet connection for the first load.
 
 ### 3. "My changes aren't saving"
 **Note:** The application disables "Hot Reload" (`reload=False` in `main.py`) because it writes to the `data/` directory. If you are developing and editing code, you must manually restart the server to see code changes.
-
----
-
-## 🗺 Roadmap
-
-*   [ ] **Price Trending**: Historical price graphs using Cardmarket/TCGPlayer data.
-*   [ ] **Cloud Sync**: Optional integration with Google Drive/Dropbox for backup.
-*   [ ] **Mobile Optimization**: improved touch controls for the Deck Builder.
-*   [ ] **Advanced Scanner**: GPU acceleration for faster detection.
 
 ---
 
@@ -168,8 +124,8 @@ OpenYuGi follows a clean, modular architecture separating business logic from th
 **Q: Where is my data stored?**
 A: Everything is in the `data/` folder in the project root. You can back up this folder to save your entire state.
 
-**Q: Can I import my collection from other apps?**
-A: Yes! Use the **Import** page to upload CSV or JSON files. We support standard formats exported by most collection managers.
+**Q: Can I use Edison Format?**
+A: Currently, the app defaults to TCG, OCG, and Goat banlists. Edison is not yet explicitly supported in the auto-fetcher.
 
 **Q: Is this legal?**
 A: OpenYuGi is a fan-made project. Card images and data are provided by the YGOPRODeck API. This tool is for personal collection management only.
