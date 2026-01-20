@@ -350,37 +350,39 @@ class ScanPage:
             logger.error(f"Error saving collection: {e}")
             ui.notify(f"Error saving collection: {e}", type='negative')
 
+    def refresh_debug_ui(self):
+        self.render_debug_results.refresh()
+        self.render_debug_analysis.refresh()
+        self.render_debug_pipeline_results.refresh()
+
     async def handle_debug_upload(self, e: events.UploadEventArguments):
         self.debug_loading = True
         self.latest_capture_src = None # Clear previous capture on upload
-        self.render_debug_lab.refresh()
+        self.refresh_debug_ui()
         try:
             content = await e.file.read()
-            # For upload, we rely on the report's input_image_url or we could base64 encode content here.
-            # Using report URL is cleaner if backend saves it.
             report = await scanner_manager.analyze_static_image(content)
             self.debug_report = report
-            # If report has input url, use it as preview too if needed, but the UI logic handles priority.
         except Exception as err:
             ui.notify(f"Analysis failed: {err}", type='negative')
         self.debug_loading = False
-        self.render_debug_lab.refresh()
+        self.refresh_debug_ui()
 
     async def handle_debug_capture(self):
         self.debug_loading = True
-        self.render_debug_lab.refresh()
+        self.refresh_debug_ui()
         try:
             # Capture frame from client
             data_url = await ui.run_javascript('captureSingleFrame()')
             if not data_url:
                 ui.notify("Camera not active or ready", type='warning')
                 self.debug_loading = False
-                self.render_debug_lab.refresh()
+                self.refresh_debug_ui()
                 return
 
             # Show immediate preview
             self.latest_capture_src = data_url
-            self.render_debug_lab.refresh()
+            self.refresh_debug_ui()
 
             # Convert Data URL to bytes
             import base64
@@ -393,7 +395,7 @@ class ScanPage:
             ui.notify(f"Capture failed: {err}", type='negative')
 
         self.debug_loading = False
-        self.render_debug_lab.refresh()
+        self.refresh_debug_ui()
 
     async def update_loop(self):
         if not self.is_active: return
@@ -436,11 +438,83 @@ class ScanPage:
                           on_click=lambda idx=i: self.remove_card(idx))
 
     @ui.refreshable
-    def render_debug_lab(self):
+    def render_debug_results(self):
         if self.debug_loading:
             ui.spinner(size='lg')
             return
 
+        # Preview Section
+        preview_src = self.latest_capture_src or self.debug_report.get('input_image_url')
+        if preview_src:
+            ui.label("Latest Input:").classes('font-bold mt-2 text-lg')
+            ui.image(preview_src).classes('w-full h-auto border rounded shadow-md')
+        elif self.debug_loading:
+            ui.label("Processing...").classes('italic text-accent mt-2')
+
+    @ui.refreshable
+    def render_debug_analysis(self):
+        if self.debug_report.get('warped_image_url'):
+            ui.label("Perspective Warp:").classes('font-bold text-lg')
+            ui.image(self.debug_report['warped_image_url']).classes('w-full h-auto border rounded mb-2')
+        else:
+            ui.label("Waiting for input...").classes('text-gray-500 italic')
+
+        if self.debug_report.get('roi_viz_url'):
+            ui.label("Regions of Interest:").classes('font-bold text-lg')
+            ui.image(self.debug_report['roi_viz_url']).classes('w-full h-auto border rounded mb-2')
+
+        crops = self.debug_report.get('crops', {})
+        if crops:
+            ui.label("Extracted Crops:").classes('font-bold text-lg')
+            with ui.row().classes('gap-4'):
+                if crops.get('set_id'):
+                     with ui.column():
+                        ui.label("Set ID").classes('text-xs')
+                        ui.image(crops['set_id']).classes('h-12 border rounded')
+                if crops.get('art'):
+                     with ui.column():
+                        ui.label("Artwork").classes('text-xs')
+                        ui.image(crops['art']).classes('h-32 w-32 object-contain border rounded')
+
+    @ui.refreshable
+    def render_debug_pipeline_results(self):
+        results = self.debug_report.get('results', {})
+        if results:
+            with ui.column().classes('w-full gap-2 bg-gray-800 p-4 rounded'):
+                with ui.row().classes('w-full justify-between items-center'):
+                     ui.label("Set ID:").classes('font-bold text-gray-300')
+                     ui.label(f"{results.get('set_id', 'N/A')}").classes('font-mono text-xl text-white')
+
+                with ui.row().classes('w-full justify-between items-center'):
+                     ui.label("OCR Conf:").classes('font-bold text-gray-300')
+                     conf = results.get('set_id_conf', 0)
+                     color = 'text-green-400' if conf > 60 else 'text-red-400'
+                     ui.label(f"{conf:.1f}%").classes(f'font-mono text-lg {color}')
+
+                with ui.row().classes('w-full justify-between items-center'):
+                     ui.label("Language:").classes('font-bold text-gray-300')
+                     ui.label(f"{results.get('language', 'N/A')}").classes('text-lg text-white')
+
+                with ui.row().classes('w-full justify-between items-center'):
+                     ui.label("Art Match Score:").classes('font-bold text-gray-300')
+                     ui.label(f"{results.get('match_score', 0)}").classes('text-lg text-white')
+
+            ui.separator().classes('my-2 bg-gray-600')
+            ui.label(f"{results.get('card_name', 'Unknown')}").classes('text-2xl font-bold text-accent text-center w-full')
+        else:
+            ui.label("No results yet.").classes('text-gray-500 italic')
+
+        ui.label("Execution Log:").classes('font-bold text-lg mt-4')
+        steps = self.debug_report.get('steps', [])
+        with ui.scroll_area().classes('h-64 border border-gray-600 p-2 bg-black rounded'):
+            for step in steps:
+                icon = 'check_circle' if step['status'] == 'OK' else 'error'
+                color = 'text-green-500' if step['status'] == 'OK' else 'text-red-500'
+                with ui.row().classes('items-center gap-2 mb-1 flex-nowrap'):
+                    ui.icon(icon).classes(color)
+                    ui.label(f"{step['name']}: {step['details']}").classes('text-sm text-gray-300 font-mono')
+
+    def render_debug_lab(self):
         # Changed to Grid with Card containers for "Larger Boxes" and Modern Look
         with ui.grid().classes('grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full'):
 
@@ -448,7 +522,7 @@ class ScanPage:
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
                 ui.label("1. Input Source").classes('text-2xl font-bold text-primary')
 
-                # Camera Preview Area
+                # Camera Preview Area - Static!
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
                     ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
 
@@ -459,81 +533,18 @@ class ScanPage:
                 ui.separator().classes('bg-gray-600')
                 ui.upload(label="Or Upload Image", on_upload=self.handle_debug_upload, auto_upload=True).props('accept=.jpg,.png color=secondary').classes('w-full')
 
-                # Preview Section
-                preview_src = self.latest_capture_src or self.debug_report.get('input_image_url')
-                if preview_src:
-                    ui.label("Latest Input:").classes('font-bold mt-2 text-lg')
-                    ui.image(preview_src).classes('w-full h-auto border rounded shadow-md')
-                elif self.debug_loading:
-                    ui.label("Processing...").classes('italic text-accent mt-2')
+                # Results
+                self.render_debug_results()
 
             # --- CARD 2: VISUAL PIPELINE ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
                 ui.label("2. Visual Analysis").classes('text-2xl font-bold text-primary')
-
-                if self.debug_report.get('warped_image_url'):
-                    ui.label("Perspective Warp:").classes('font-bold text-lg')
-                    ui.image(self.debug_report['warped_image_url']).classes('w-full h-auto border rounded mb-2')
-                else:
-                    ui.label("Waiting for input...").classes('text-gray-500 italic')
-
-                if self.debug_report.get('roi_viz_url'):
-                    ui.label("Regions of Interest:").classes('font-bold text-lg')
-                    ui.image(self.debug_report['roi_viz_url']).classes('w-full h-auto border rounded mb-2')
-
-                crops = self.debug_report.get('crops', {})
-                if crops:
-                    ui.label("Extracted Crops:").classes('font-bold text-lg')
-                    with ui.row().classes('gap-4'):
-                        if crops.get('set_id'):
-                             with ui.column():
-                                ui.label("Set ID").classes('text-xs')
-                                ui.image(crops['set_id']).classes('h-12 border rounded')
-                        if crops.get('art'):
-                             with ui.column():
-                                ui.label("Artwork").classes('text-xs')
-                                ui.image(crops['art']).classes('h-32 w-32 object-contain border rounded')
-
+                self.render_debug_analysis()
 
             # --- CARD 3: RESULTS & LOGS ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
                 ui.label("3. Pipeline Results").classes('text-2xl font-bold text-primary')
-
-                results = self.debug_report.get('results', {})
-                if results:
-                    with ui.column().classes('w-full gap-2 bg-gray-800 p-4 rounded'):
-                        with ui.row().classes('w-full justify-between items-center'):
-                             ui.label("Set ID:").classes('font-bold text-gray-300')
-                             ui.label(f"{results.get('set_id', 'N/A')}").classes('font-mono text-xl text-white')
-
-                        with ui.row().classes('w-full justify-between items-center'):
-                             ui.label("OCR Conf:").classes('font-bold text-gray-300')
-                             conf = results.get('set_id_conf', 0)
-                             color = 'text-green-400' if conf > 60 else 'text-red-400'
-                             ui.label(f"{conf:.1f}%").classes(f'font-mono text-lg {color}')
-
-                        with ui.row().classes('w-full justify-between items-center'):
-                             ui.label("Language:").classes('font-bold text-gray-300')
-                             ui.label(f"{results.get('language', 'N/A')}").classes('text-lg text-white')
-
-                        with ui.row().classes('w-full justify-between items-center'):
-                             ui.label("Art Match Score:").classes('font-bold text-gray-300')
-                             ui.label(f"{results.get('match_score', 0)}").classes('text-lg text-white')
-
-                    ui.separator().classes('my-2 bg-gray-600')
-                    ui.label(f"{results.get('card_name', 'Unknown')}").classes('text-2xl font-bold text-accent text-center w-full')
-                else:
-                    ui.label("No results yet.").classes('text-gray-500 italic')
-
-                ui.label("Execution Log:").classes('font-bold text-lg mt-4')
-                steps = self.debug_report.get('steps', [])
-                with ui.scroll_area().classes('h-64 border border-gray-600 p-2 bg-black rounded'):
-                    for step in steps:
-                        icon = 'check_circle' if step['status'] == 'OK' else 'error'
-                        color = 'text-green-500' if step['status'] == 'OK' else 'text-red-500'
-                        with ui.row().classes('items-center gap-2 mb-1 flex-nowrap'):
-                            ui.icon(icon).classes(color)
-                            ui.label(f"{step['name']}: {step['details']}").classes('text-sm text-gray-300 font-mono')
+                self.render_debug_pipeline_results()
 
         # Attach stream to debug video if available
         ui.run_javascript('initDebugStream()')
