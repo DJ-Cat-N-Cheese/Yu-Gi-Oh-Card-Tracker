@@ -331,6 +331,63 @@ class UnifiedImportController:
 
                 compatible_matches.append(m)
 
+            # 3.5 Name Lookup Fallback (If no compatible matches found via Code)
+            # This handles cases where Code Lookup matched nothing valid (e.g. Legacy Mismatch rejected),
+            # but we can find the correct card by Name (e.g. "Hinotama Soul" in EN DB).
+            if not compatible_matches and row.name:
+                found_by_name = None
+                # Search loaded DBs for fuzzy name match
+                # Prioritize EN DB as it is most complete
+                langs_to_search = sorted(list(required_langs), key=lambda l: 0 if l == 'en' else 1)
+
+                for lang in langs_to_search:
+                     # Access cache safely or reload (cached)
+                     # Since we are in async function, we can await
+                     cards = await ygo_service.load_card_database(lang)
+                     if not cards: continue
+
+                     # Simple scan (Optimization: ygo_service could have a name index, but iteration is acceptable for error recovery)
+                     # Note: row.name might be in DE ("Hinotama Seele"). Searching in EN DB ("Hinotama Soul") requires fuzzy match.
+                     # Searching in DE DB ("Hinotama Seele") requires exact/fuzzy.
+
+                     # Exact Match first
+                     for c in cards:
+                         if c.name.lower() == row.name.lower():
+                             found_by_name = (c, lang)
+                             break
+                     if found_by_name: break
+
+                     # Fuzzy Match (if exact failed)
+                     # Only if we are desperate. Let's try high threshold.
+                     best_ratio = 0
+                     best_card = None
+                     for c in cards:
+                         r = difflib.SequenceMatcher(None, row.name, c.name).ratio()
+                         if r > 0.85 and r > best_ratio:
+                             best_ratio = r
+                             best_card = c
+
+                     if best_card:
+                         found_by_name = (best_card, lang)
+                         break
+
+                if found_by_name:
+                    card, lang = found_by_name
+                    # We found the correct CARD Identity.
+                    # Add its variants to matches so user can select them.
+                    # This allows linking LOB-G020 (Input) to LOB-EN026 (DB Variant).
+                    for s in card.card_sets:
+                        entry = {
+                                'card': card,
+                                'variant': s,
+                                'code': s.set_code,
+                                'rarity': s.set_rarity,
+                                'lang': lang
+                        }
+                        compatible_matches.append(entry)
+                        all_siblings.append(entry)
+                    logger.info(f"Resolved by Name Fallback: {row.name} -> {card.name}")
+
             # 4. Determine Valid Set Code Options
             # Union of Compatible Matches (from DB) and Target Codes (Virtual)
             valid_code_options = set()
