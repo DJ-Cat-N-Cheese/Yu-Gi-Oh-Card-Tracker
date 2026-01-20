@@ -2,6 +2,7 @@ from nicegui import ui, app, run
 import logging
 import os
 import asyncio
+import time
 from typing import List, Dict, Any
 from fastapi import UploadFile
 
@@ -223,6 +224,7 @@ class ScanPage:
         self.debug_log_label = None
         self.last_capture_timestamp = 0.0
         self.last_updated_src = None
+        self.pending_request_ts = 0.0
 
         # Load available collections
         self.collections = persistence.list_collections()
@@ -299,8 +301,10 @@ class ScanPage:
                  self.debug_drawer_el.classes(remove='translate-x-0', add='translate-x-full')
 
     def trigger_manual_scan(self):
-        logger.info("Button pressed: Manual Scan requested")
-        scanner_manager.trigger_manual_scan()
+        ts = time.time()
+        self.pending_request_ts = ts
+        logger.info(f"Button pressed: Manual Scan requested (TS: {ts})")
+        scanner_manager.trigger_manual_scan(ts)
         ui.notify("Manual Scan Triggered", type='info')
 
     def resume_auto_scan(self):
@@ -328,13 +332,25 @@ class ScanPage:
                 # Update Captured Image (Raw with annotations)
                 if self.captured_img:
                     current_ts = snapshot.get("capture_timestamp", 0.0)
+                    trigger_ts = snapshot.get("trigger_timestamp", 0.0)
                     src = snapshot.get("captured_image")
 
-                    # Invalidation: Update if timestamp is newer OR if content changed
-                    # This ensures we don't miss updates even if timestamp logic is quirky
+                    # Invalidation:
+                    # 1. Update if timestamp is newer
+                    # 2. Update if content changed (backup)
+                    # 3. Update if this is the response to our specific manual request
                     should_update = False
+
                     if src:
-                        if current_ts > self.last_capture_timestamp:
+                        # Check if this snapshot corresponds to our pending request
+                        if self.pending_request_ts > 0 and trigger_ts == self.pending_request_ts:
+                             should_update = True
+                             logger.info(f"UI: Received response for pending request {trigger_ts}")
+                             # Reset pending so we don't re-trigger needlessly,
+                             # though standard timestamp check would handle subsequent loops
+                             self.pending_request_ts = 0.0
+
+                        elif current_ts > self.last_capture_timestamp:
                             should_update = True
                         elif src != self.last_updated_src:
                             should_update = True

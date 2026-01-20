@@ -58,10 +58,12 @@ class ScannerManager:
 
         # Debug State
         self.manual_scan_requested = False
+        self.manual_request_timestamp = 0.0
         self.debug_state = {
             "logs": [],
             "captured_image": None,
             "capture_timestamp": 0.0,
+            "trigger_timestamp": 0.0,
             "scan_result": "N/A",
             "warped_image": None,
             "ocr_text": None,
@@ -119,11 +121,14 @@ class ScannerManager:
         except queue.Full:
             pass
 
-    def trigger_manual_scan(self):
-        """Triggers a manual scan on the next frame, bypassing checks."""
+    def trigger_manual_scan(self, timestamp: float = 0.0):
+        """Triggers a manual scan on the next frame, bypassing checks.
+           timestamp: The time the button was pressed in the UI.
+        """
         self.auto_scan_paused = True
         self.manual_scan_requested = True
-        self._log_debug("Manual Scan Triggered")
+        self.manual_request_timestamp = timestamp
+        self._log_debug(f"Manual Scan Triggered (TS: {timestamp})")
 
     def resume_automatic_scan(self):
         """Resumes automatic scanning and clears debug captured image."""
@@ -295,6 +300,7 @@ class ScannerManager:
                     b64_debug = base64.b64encode(buffer).decode('utf-8')
                     self.debug_state["captured_image"] = f"data:image/jpeg;base64,{b64_debug}"
                     self.debug_state["capture_timestamp"] = time.time()
+                    self.debug_state["trigger_timestamp"] = self.manual_request_timestamp
                     logger.info(f"Worker: Manual scan image captured and stored in debug state (Length: {len(self.debug_state['captured_image'])})")
 
                     if is_black_image:
