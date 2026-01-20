@@ -245,8 +245,9 @@ class SingleCardView:
                 with ui.button('ADD', on_click=do_add).props('color=secondary'):
                     ui.tooltip('Add the specified quantity to your collection').classes('bg-black text-white')
 
-                with ui.button('SUBTRACT', on_click=do_subtract).props('color=warning text-color=dark'):
-                    ui.tooltip('Subtract the specified quantity from your collection').classes('bg-black text-white')
+                if view_mode == 'collectors':
+                    with ui.button('SUBTRACT', on_click=do_subtract).props('color=warning text-color=dark'):
+                        ui.tooltip('Subtract the specified quantity from your collection').classes('bg-black text-white')
 
                 if show_remove_button:
                     async def confirm_remove():
