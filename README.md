@@ -92,9 +92,9 @@ OpenYuGi supports multiple separate collection files (e.g., "Main Binder", "Trad
 Populate your database using one of these methods:
 
 *   **Method A: Manual Search (Best for single cards)**
-    1.  Use the **Search Bar** in the header. Type a card name (e.g., "Blue-Eyes").
+    1.  Use the **Search Bar** in the header of the **Collection** tab. Type a card name (e.g., "Blue-Eyes").
     2.  Click the card to open the **Detail View**.
-    3.  Select your specific Set Code (e.g., `LOB-EN001`) and Rarity.
+    3.  Select your specific Set Code (e.g., `LOB-EN001`), Rarity, language and condition.
     4.  Click **Add**.
 
 *   **Method B: Bulk Add (Best for lists)**
