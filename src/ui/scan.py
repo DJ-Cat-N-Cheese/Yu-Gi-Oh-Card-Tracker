@@ -41,6 +41,7 @@ function initScanner() {
     if (window.overlayCanvas) {
         window.overlayCtx = window.overlayCanvas.getContext('2d');
     }
+    console.warn("Scanner JS Loaded - If you see this, console logs are working.");
 }
 
 async function startCamera(deviceId, uploadUrl) {
@@ -127,19 +128,14 @@ function startStreamingLoop(uploadUrl) {
             }
         }, 'image/jpeg', 0.6);
 
-    }, 100); // 100ms interval
-}
-
-function stopCamera() {
-    window.isStreaming = false;
-    if (window.streamInterval) {
-        clearInterval(window.streamInterval);
-        window.streamInterval = null;
-    }
-
-    if (window.scannerStream) {
-        window.scannerStream.getTracks().forEach(track => track.stop());
-        window.scannerStream = null;
+        // Return lower quality JPEG to reduce size
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.6);
+        // Using console.info to better survive log filters
+        console.info("Client: captureFrame success, size: " + dataUrl.length);
+        return dataUrl;
+    } catch (err) {
+        console.error("Client: captureFrame exception:", err);
+        return "ERR:JS_EXCEPTION:" + err.message;
     }
     if (window.scannerVideo) {
         window.scannerVideo.srcObject = null;
