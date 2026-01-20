@@ -84,6 +84,21 @@ function attachDebugStream() {
     }
 }
 
+function initDebugStream() {
+    // Retry finding the element a few times if it's not immediately available
+    let attempts = 0;
+    const interval = setInterval(() => {
+        window.debugVideo = document.getElementById('debug-video');
+        if (window.debugVideo) {
+            clearInterval(interval);
+            attachDebugStream();
+        } else if (attempts > 10) {
+            clearInterval(interval);
+        }
+        attempts++;
+    }, 100);
+}
+
 function stopCamera() {
     window.isStreaming = false;
     if (window.streamInterval) {
@@ -521,7 +536,7 @@ class ScanPage:
                             ui.label(f"{step['name']}: {step['details']}").classes('text-sm text-gray-300 font-mono')
 
         # Attach stream to debug video if available
-        ui.run_javascript('attachDebugStream()')
+        ui.run_javascript('initDebugStream()')
 
 def scan_page():
     def cleanup():
@@ -541,6 +556,8 @@ def scan_page():
     def handle_tab_change(e):
         if e.value == 'Live Scan':
             ui.run_javascript('reattachScannerVideo()')
+        elif e.value == 'Debug Lab':
+            ui.run_javascript('initDebugStream()')
 
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
