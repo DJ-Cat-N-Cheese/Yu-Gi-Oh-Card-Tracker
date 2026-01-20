@@ -318,19 +318,21 @@ class UnifiedImportController:
                 if not is_set_code_compatible(m['code'], row.language):
                     continue
 
-                # Name Similarity Check (Global)
-                # We enforce this to catch Legacy Code Collisions (e.g. LOB-G020 Hinotama vs LOB-020 Dark King)
-                # even if languages technically match (e.g. if DB has bad mapping) or if we fell back to Base Code.
-                # Threshold 0.30:
-                # - Rejects "Hinotama Seele" vs "Dark King" (~0.27)
-                # - Rejects "Hinotama Seele" vs "Raigeki" (~0.19)
-                # - Accepts "Hinotama Seele" vs "Hinotama Soul" (~0.81)
-                # - Accepts "Blauäugiger..." vs "Blue-Eyes..." (~0.42)
-                # - Rejects "Verräterische Schwerter" vs "Swords..." (~0.08) -> Correctly triggers Name Fallback to find German card.
+                # Name Similarity Check
+                # We check names to catch Legacy Code Collisions (e.g. LOB-G020 vs LOB-020).
+                # Logic:
+                # 1. Same Language: Expect NEAR EXACT match (Threshold 0.85).
+                #    If Cardmarket PDF says "Hinotama Seele" (DE) and DB has "Raigeki" (DE?), reject.
+                # 2. Cross Language: Expect LOOSE match (Threshold 0.25).
+                #    Allow translations (Blue-Eyes vs Blauäugiger ~0.4), reject gross errors (Seele vs Raigeki ~0.19).
 
-                ratio = difflib.SequenceMatcher(None, row.name, m['card'].name).ratio()
-                if ratio < 0.30:
-                     logger.warning(f"Rejected mismatch: {row.name} vs {m['card'].name} ({ratio:.2f})")
+                threshold = 0.25
+                if row.language.lower() == m['lang'].lower():
+                    threshold = 0.85
+
+                ratio = difflib.SequenceMatcher(None, row.name.lower().strip(), m['card'].name.lower().strip()).ratio()
+                if ratio < threshold:
+                     logger.warning(f"Rejected mismatch ({row.language}/{m['lang']}): {row.name} vs {m['card'].name} ({ratio:.2f} < {threshold})")
                      continue
 
                 compatible_matches.append(m)
@@ -401,9 +403,9 @@ class UnifiedImportController:
                     sibling_match = next((s for s in all_siblings if s['rarity'] == row.set_rarity), None)
 
                     if sibling_match:
-                        # Determine best Set Code
-                        # Prefer legacy candidate if available (e.g. LOB-G020)
-                        best_code = legacy_candidate if legacy_candidate else std_target
+                        # Determine best Set Code dynamically
+                        # Using Number Pattern Analysis to distinguish Legacy shifts (e.g. LOB-G020 vs LOB-EN026)
+                        best_code = self._deduce_best_set_code(row, all_siblings, std_target, legacy_candidate)
 
                         # Add to Pending
                         self._add_pending_from_match(row, sibling_match, override_set_code=best_code)
@@ -501,6 +503,58 @@ class UnifiedImportController:
             image_id=match['variant'].image_id,
             source_row=row
         ))
+
+    def _deduce_best_set_code(self, row, siblings, std_target, legacy_candidate):
+        """
+        Deduces the best set code based on Number Pattern Analysis.
+        Checks if the input number matches known patterns for 2-Letter or 1-Letter regions.
+        """
+        formats = {} # '2-Letter', '1-Letter', '0-Letter' -> Number
+
+        for s in siblings:
+            code = s['code']
+            # Analyze format
+            m = re.match(r'^([A-Za-z0-9]+)-([A-Za-z]+)(\d+)$', code)
+            if m:
+                region = m.group(2)
+                number = m.group(3)
+                fmt = '1-Letter' if len(region) == 1 else '2-Letter'
+                formats[fmt] = number
+            else:
+                m = re.match(r'^([A-Za-z0-9]+)-(\d+)$', code)
+                if m:
+                    number = m.group(2)
+                    formats['0-Letter'] = number
+
+        # Compare Input Number
+        input_num = row.number
+
+        # 1. Check 2-Letter Match (Standard)
+        if '2-Letter' in formats:
+            if formats['2-Letter'] == input_num:
+                return std_target # Matches Standard Pattern
+            else:
+                # Mismatch! Standard target is invalid.
+                # If legacy candidate exists, prefer it.
+                if legacy_candidate: return legacy_candidate
+
+        # 2. Check 1-Letter Match (Legacy)
+        if '1-Letter' in formats:
+            if formats['1-Letter'] == input_num:
+                return legacy_candidate # Matches Legacy Pattern
+
+        # 3. Check 0-Letter Match (Base/Neutral)
+        if '0-Letter' in formats:
+            if formats['0-Letter'] == input_num:
+                # Ambiguous if Standard also exists? But we handled that above.
+                # If only 0-Letter exists and matches, Standard is usually safe fallback.
+                return std_target
+
+        # 4. No direct match found, but we have a mismatch with known formats?
+        # If input_num didn't match 2-Letter (and 2-Letter existed), we returned legacy above.
+        # If input_num didn't match anything we know?
+        # Fallback to legacy if available (conservative for older sets), else standard.
+        return legacy_candidate if legacy_candidate else std_target
 
     async def apply_import(self):
         if not self.selected_collection:
