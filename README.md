@@ -99,7 +99,7 @@ Populate your database using one of these methods:
 
 *   **Method B: Bulk Add (Best for lists)**
     1.  Navigate to **Bulk Add**.
-    2.  Paste a list of card names.
+    2.  Search your cards and edit your collection with right click. You can also add whole structure decks.
     3.  Click **Process**.
 
 *   **Method C: Import (Best for migration)**
