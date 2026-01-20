@@ -3,6 +3,7 @@ from nicegui import ui
 from src.services.yugipedia_service import yugipedia_service, DeckCard
 from typing import Callable, List, Dict, Optional, Any
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -27,14 +28,14 @@ class StructureDeckDialog:
         self.dialog.clear()
         self.dialog.open()
         with self.dialog, ui.card().classes('w-[600px] h-[80vh] flex flex-col bg-gray-900 text-white border border-gray-700'):
-            ui.label('Add Structure Deck').classes('text-h6 font-bold mb-4')
+            ui.label('Add Structure / Starter Deck').classes('text-h6 font-bold mb-4')
             ui.label('Note: Promo / Bonus cards have to be added manually.').classes('text-sm text-gray-400 italic mb-2')
 
             with ui.column().classes('w-full flex-grow gap-4'):
                 # 1. Deck Selector
                 self.deck_select = ui.select(
                     options={},
-                    label='Select Structure Deck',
+                    label='Select Deck',
                     on_change=self._on_deck_selected
                 ).classes('w-full').props('use-input input-debounce="0" dark behavior="menu"')
 
@@ -57,10 +58,26 @@ class StructureDeckDialog:
         self.deck_select.disable()
         self.deck_loading.classes(remove='hidden')
 
-        decks = await yugipedia_service.get_structure_decks()
+        decks = await yugipedia_service.get_all_decks()
         self.decks = decks
 
-        options = {d.title: d.title for d in decks}
+        options = {}
+        for d in decks:
+            display = d.title
+
+            # Determine prefix based on type
+            # Safe defaults if deck_type missing (legacy/fallback)
+            d_type = getattr(d, 'deck_type', 'STRUCTURE')
+            prefix = "Structure Deck: " if d_type == 'STRUCTURE' else "Starter Deck: "
+            phrase = "Structure Deck" if d_type == 'STRUCTURE' else "Starter Deck"
+
+            # Remove existing phrase (case insensitive) to avoid duplication
+            cleaned = re.sub(re.escape(phrase), '', display, flags=re.IGNORECASE).strip()
+            # Remove leading/trailing colons, hyphens, spaces
+            cleaned = re.sub(r'^[:\-\s]+', '', cleaned).strip()
+
+            options[d.title] = f"{prefix}{cleaned}"
+
         self.deck_select.options = options
         self.deck_select.enable()
         self.deck_loading.classes(add='hidden')

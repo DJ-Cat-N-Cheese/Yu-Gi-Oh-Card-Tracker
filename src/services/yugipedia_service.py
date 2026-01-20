@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class StructureDeck:
     page_id: int
     title: str
+    deck_type: str = 'STRUCTURE' # 'STRUCTURE' or 'STARTER'
 
 @dataclass
 class DeckCard:
@@ -48,38 +49,52 @@ class YugipediaService:
         "Secret Rare": "Secret Rare",
     }
 
-    async def get_structure_decks(self) -> List[StructureDeck]:
-        """Fetches list of TCG Structure Decks."""
-        params = {
-            "action": "query",
-            "list": "categorymembers",
-            "cmtitle": "Category:TCG_Structure_Decks",
-            "cmlimit": "500",
-            "format": "json"
-        }
+    async def get_all_decks(self) -> List[StructureDeck]:
+        """Fetches list of TCG Structure Decks and Starter Decks."""
+        async def fetch_category(category: str, deck_type: str) -> List[StructureDeck]:
+            params = {
+                "action": "query",
+                "list": "categorymembers",
+                "cmtitle": category,
+                "cmlimit": "500",
+                "format": "json"
+            }
+            try:
+                if hasattr(run, 'io_bound'):
+                    response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+                else:
+                    response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
 
-        try:
-            # Use run.io_bound for blocking requests
-            if hasattr(run, 'io_bound'):
-                response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
-            else:
-                response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
-
-            if response.status_code == 200:
-                data = response.json()
-                members = data.get("query", {}).get("categorymembers", [])
-                # Filter out "Category:" subcategories if any, keep pages (ns=0)
-                decks = [
-                    StructureDeck(page_id=m['pageid'], title=m['title'])
-                    for m in members if m['ns'] == 0
-                ]
-                return sorted(decks, key=lambda x: x.title)
-            else:
-                logger.error(f"Yugipedia API error: {response.status_code}")
+                if response.status_code == 200:
+                    data = response.json()
+                    members = data.get("query", {}).get("categorymembers", [])
+                    # Filter out "Category:" subcategories if any, keep pages (ns=0)
+                    return [
+                        StructureDeck(page_id=m['pageid'], title=m['title'], deck_type=deck_type)
+                        for m in members if m['ns'] == 0
+                    ]
+                else:
+                    logger.error(f"Yugipedia API error for {category}: {response.status_code}")
+                    return []
+            except Exception as e:
+                logger.error(f"Failed to fetch {category}: {e}")
                 return []
-        except Exception as e:
-            logger.error(f"Failed to fetch structure decks: {e}")
-            return []
+
+        # Fetch both categories concurrently
+        results = await asyncio.gather(
+            fetch_category("Category:TCG_Structure_Decks", 'STRUCTURE'),
+            fetch_category("Category:TCG_Starter_Decks", 'STARTER')
+        )
+
+        # Flatten list
+        all_decks = results[0] + results[1]
+
+        # Sort by title
+        return sorted(all_decks, key=lambda x: x.title)
+
+    # Legacy alias for compatibility
+    async def get_structure_decks(self) -> List[StructureDeck]:
+        return await self.get_all_decks()
 
     async def get_deck_list(self, page_title: str) -> Dict[str, List[DeckCard]]:
         """
