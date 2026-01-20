@@ -388,6 +388,24 @@ class UnifiedImportController:
                         all_siblings.append(entry)
                     logger.info(f"Resolved by Name Fallback: {row.name} -> {card.name}")
 
+                    # Attempt Auto-Resolve if Rarity Matches
+                    # If we found the correct card by name, and the input rarity matches one of its variants,
+                    # we can safely import it using the input Set Code (e.g. LOB-G020) as a custom variant.
+                    # This avoids the Ambiguity Dialog for clear-cut Legacy imports.
+
+                    # Find sibling matching rarity
+                    sibling_match = next((s for s in all_siblings if s['rarity'] == row.set_rarity), None)
+
+                    if sibling_match:
+                        # Determine best Set Code
+                        # Prefer legacy candidate if available (e.g. LOB-G020)
+                        best_code = legacy_candidate if legacy_candidate else std_target
+
+                        # Add to Pending
+                        self._add_pending_from_match(row, sibling_match, override_set_code=best_code)
+                        logger.info(f"Auto-Resolved Name Fallback: {row.name} ({best_code})")
+                        continue
+
             # 4. Determine Valid Set Code Options
             # Union of Compatible Matches (from DB) and Target Codes (Virtual)
             valid_code_options = set()
