@@ -403,7 +403,7 @@ class ScanPage:
 
                 # Camera Preview Area
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
-                    ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>')
+                    ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
 
                 # Controls
                 with ui.row().classes('w-full gap-2'):
