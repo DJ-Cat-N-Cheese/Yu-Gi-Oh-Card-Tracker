@@ -3,6 +3,7 @@ import json
 import logging
 import asyncio
 import uuid
+import difflib
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
@@ -236,7 +237,7 @@ class UnifiedImportController:
              for card in cards:
                  for s in card.card_sets:
                      code = s.set_code
-                     entry = {'rarity': s.set_rarity, 'card': card, 'variant': s}
+                     entry = {'rarity': s.set_rarity, 'card': card, 'variant': s, 'lang': db_lang}
 
                      # Key 1: Exact Code
                      if code not in self.db_lookup: self.db_lookup[code] = []
@@ -311,10 +312,24 @@ class UnifiedImportController:
                     target_codes.append(legacy_candidate)
 
             # 3. Filter Compatible Matches (for Set Code selection)
-            compatible_matches = [
-                m for m in all_siblings
-                if is_set_code_compatible(m['code'], row.language)
-            ]
+            compatible_matches = []
+            for m in all_siblings:
+                if not is_set_code_compatible(m['code'], row.language):
+                    continue
+
+                # Name Similarity Check for Cross-Language Imports
+                # Prevents Legacy Code Collisions (e.g. LOB-G021 Hinotama vs LOB-021 Raigeki)
+                # If row language differs from DB entry language AND we matched on a region-less code
+                if row.language.lower() != m['lang'].lower():
+                    # Check if code is regionless (implies Base/English fallback)
+                    if re.match(r'^[A-Za-z0-9]+-\d+$', m['code']):
+                        # Calculate similarity
+                        ratio = difflib.SequenceMatcher(None, row.name, m['card'].name).ratio()
+                        if ratio < 0.25:
+                             logger.warning(f"Rejected legacy mismatch: {row.name} vs {m['card'].name} ({ratio:.2f})")
+                             continue
+
+                compatible_matches.append(m)
 
             # 4. Determine Valid Set Code Options
             # Union of Compatible Matches (from DB) and Target Codes (Virtual)
