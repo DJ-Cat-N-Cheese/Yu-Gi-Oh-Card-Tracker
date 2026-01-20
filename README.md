@@ -10,6 +10,17 @@
 
 ---
 
+## ✨ Key Features at a Glance
+
+*   **🔒 Local-First Architecture**: Your data lives on your disk. No accounts, no cloud, no tracking.
+*   **📦 Smart Collection Management**: Track thousands of cards with support for specific printings (Set, Rarity, Edition).
+*   **🛠 Professional Deck Builder**: Full support for `.ydk` files, banlist validation, and side-decking.
+*   **🔍 Advanced Filtering**: Filter by any metric (ATK, DEF, Set, Rarity, Price, etc.).
+*   **🔄 Data Import**: Seamlessly migrate from Cardmarket stock files or JSON backups.
+*   **📊 Market Integration**: Automatic price fetching to track your collection's value.
+
+---
+
 ## 🚀 Getting Started
 
 Follow this guide to get your first collection up and running in minutes.
@@ -58,16 +69,15 @@ There are three ways to populate your collection:
 
 ---
 
-## ✨ Features Guide
+## 📖 In-Depth Feature Guide
 
 ### 📦 Smart Collection Management
-OpenYuGi offers a powerful interface to manage inventories of any size.
+OpenYuGi offers a powerful interface to manage inventories of any size, catering to both players and investors.
 
 *   **Dual View Modes**:
     *   **Consolidated View**: Best for players. Groups all printings of a card together, showing you your total playable copies regardless of rarity.
     *   **Collectors View**: Best for traders and collectors. Lists every specific printing (Set Code + Rarity + Edition) as a separate row, allowing you to track exactly which version you own (e.g., *LOB-EN001 Ultra Rare vs. LOB-EN001 Unlimited*).
 *   **Advanced Filtering**: Drill down into your collection with precision. Filter by **Set Code**, **Rarity**, **Price Range**, **Quantity**, or Card Stats (ATK/DEF/Level).
-*   **Market Data**: Automatically fetches price data (Cardmarket/TCGPlayer) to give you an estimated value of your collection.
 *   **Undo System**: Made a mistake? The global Undo button allows you to revert your last action instantly.
 
 ### 🛠 Professional Deck Builder
@@ -86,8 +96,9 @@ A dedicated environment for theory-crafting and tournament prep.
 *   **CSV Export**: Export your collection list to CSV for use in spreadsheets.
 
 **Database Editor**
-*   **Custom Cards**: Add local-only cards or proxies to your database.
+*   **Custom Cards**: Add homebrew cards or proxies to your database.
 *   **Errata & Fixes**: Locally correct card stats or text without waiting for an upstream API update.
+*   **Set Management**: Manually add or modify sets and rarities to keep your collection accurate.
 
 **Advanced Banlists**
 *   **Historical Formats**: Includes built-in support for Goat Format.
@@ -104,6 +115,29 @@ The goal of this feature is to allow real-time card recognition via webcam using
 
 ---
 
+## 🏗 Architecture & Technical Guide
+
+OpenYuGi follows a clean, modular architecture separating business logic from the UI, making it easy to extend and maintain.
+
+### Directory Structure
+
+*   **`src/core`**: The brain of the application. Contains Pydantic models (`models.py`) and file persistence logic (`persistence.py`). This layer has **no** dependencies on the UI.
+*   **`src/services`**: Integration layer. Handles external APIs (YGOPRODeck), the Scanner logic (`scanner/`), and Image management.
+*   **`src/ui`**: The frontend layer built with **NiceGUI**. Each page (e.g., `deck_builder.py`, `scan.py`) is a self-contained module.
+*   **`data/`**: Your data storage.
+    *   `collections/`: JSON files for your card inventory.
+    *   `decks/`: `.ydk` files for your decks.
+    *   `images/`: Cached card artwork.
+    *   `db/`: Local copy of the Card Database.
+
+### Tech Stack
+
+*   **NiceGUI**: A Python-based UI framework that wraps Vue.js and Quasar. It allows us to write reactive, modern web UIs entirely in Python.
+*   **OpenCV & Tesseract**: The powerhouse behind the scanner. OpenCV handles image processing, while Tesseract performs Optical Character Recognition.
+*   **Pydantic**: Ensures rigorous data validation. Every card, deck, and collection entry is a typed object, preventing data corruption.
+
+---
+
 ## ⚠️ Troubleshooting & "Watch Out For"
 
 ### 1. "The Scanner button is grayed out"
@@ -116,6 +150,15 @@ The goal of this feature is to allow real-time card recognition via webcam using
 
 ### 3. "My changes aren't saving"
 **Note:** The application disables "Hot Reload" (`reload=False` in `main.py`) because it writes to the `data/` directory. If you are developing and editing code, you must manually restart the server to see code changes.
+
+---
+
+## 🗺 Roadmap
+
+*   [ ] **Price Trending**: Historical price graphs using Cardmarket/TCGPlayer data.
+*   [ ] **Cloud Sync**: Optional integration with Google Drive/Dropbox for backup.
+*   [ ] **Mobile Optimization**: improved touch controls for the Deck Builder.
+*   [ ] **Advanced Scanner**: GPU acceleration for faster detection.
 
 ---
 
