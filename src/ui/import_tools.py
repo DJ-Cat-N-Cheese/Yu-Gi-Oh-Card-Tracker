@@ -319,16 +319,13 @@ class UnifiedImportController:
                     continue
 
                 # Name Similarity Check
-                # We check names to catch Legacy Code Collisions (e.g. LOB-G020 vs LOB-020).
-                # Logic:
-                # 1. Same Language: Expect NEAR EXACT match (Threshold 0.85).
-                #    If Cardmarket PDF says "Hinotama Seele" (DE) and DB has "Raigeki" (DE?), reject.
-                # 2. Cross Language: Expect LOOSE match (Threshold 0.25).
-                #    Allow translations (Blue-Eyes vs Blauäugiger ~0.4), reject gross errors (Seele vs Raigeki ~0.19).
+                # We enforce strict name matching to prevent Legacy Code Collisions and False Positives.
+                # Threshold set to 0.95 (effectively exact match ignoring case/spacing).
+                # This ensures we only accept a code match if the card identity (Name) is verified.
+                # If this strict check fails (e.g. valid translation mismatch), we rely on Name Lookup Fallback
+                # to find the correct card in the localized database.
 
-                threshold = 0.25
-                if row.language.lower() == m['lang'].lower():
-                    threshold = 0.85
+                threshold = 0.95
 
                 ratio = difflib.SequenceMatcher(None, row.name.lower().strip(), m['card'].name.lower().strip()).ratio()
                 if ratio < threshold:
