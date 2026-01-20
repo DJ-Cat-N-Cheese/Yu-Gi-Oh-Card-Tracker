@@ -102,6 +102,10 @@ class ScannerManager:
             # Keep only latest frame
             if self.input_queue.full():
                 self.input_queue.get_nowait()
+
+            if self.manual_scan_requested:
+                 logger.info(f"Server received frame for manual scan (Size: {len(b64_frame)} bytes)")
+
             self.input_queue.put_nowait(b64_frame)
         except queue.Full:
             pass
@@ -200,6 +204,7 @@ class ScannerManager:
                 capture_snapshot = False
 
                 if self.manual_scan_requested:
+                    logger.info("Worker processing manual scan frame...")
                     self.manual_scan_requested = False
                     capture_snapshot = True  # Always capture on manual
 
