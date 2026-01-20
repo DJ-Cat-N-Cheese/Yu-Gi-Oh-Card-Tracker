@@ -12,7 +12,9 @@
 
 ## ✨ Key Features
 
-### 📸 AI-Powered Webcam Scanner
+### 📸 AI-Powered Webcam Scanner ![Work In Progress](https://img.shields.io/badge/Status-Work%20In%20Progress-orange)
+*Note: This feature is currently in active development. Performance may vary depending on lighting and camera quality.*
+
 Forget manual data entry. OpenYuGi utilizes **OpenCV** and **Tesseract OCR** to detect cards in real-time via your webcam.
 - **Auto-Detection**: Instantly identifies card borders and extracts set codes (e.g., `LOB-EN001`).
 - **Live Preview**: Visual feedback with green/red contours to ensure perfect scans.
@@ -36,6 +38,33 @@ Manage thousands of cards with ease.
 - **You Own Your Data**: All collections, decks, and settings are stored in human-readable JSON/YAML files in the `data/` directory.
 - **Offline Capable**: Once images are downloaded, the app works entirely offline.
 - **No Accounts**: No login, no tracking, no cloud dependencies.
+
+---
+
+## 🧩 Additional Features
+
+### 📅 Advanced Banlist Management
+Stay tournament-ready with our integrated banlist service.
+- **Auto-Update**: Fetches the latest TCG/OCG lists directly from the web.
+- **Historical Lists**: Switch between different banlist eras to test legacy formats (e.g., Goat, Edison).
+- **Compliance Check**: Instantly see if your deck is legal for your chosen format.
+
+### 🗄️ Database Editor
+Take control of the card definitions themselves.
+- **Custom Cards**: Add homebrew cards or proxies to your database.
+- **Correction**: Fix errors in card text or stats locally without waiting for upstream API updates.
+- **Set Management**: Manually add or modify sets and rarities to keep your collection accurate.
+
+### 🖼️ Intelligent Image Caching
+OpenYuGi respects your disk space and bandwidth.
+- **Lazy Loading**: Downloads images only when they are displayed on screen.
+- **Bulk Download**: Optional "Download All" feature for completely offline usage.
+- **Optimization**: Images are stored in optimized formats to ensure the UI remains snappy even with thousands of cards.
+
+### 🔄 Import/Export & Migration
+- **Cardmarket Integration**: Paste your Cardmarket want-list or stock export to instantly populate your collection.
+- **CSV Support**: Export your entire collection to CSV for spreadsheet analysis or insurance purposes.
+- **JSON Backups**: Full JSON export for easy backup and restoration.
 
 ---
 
