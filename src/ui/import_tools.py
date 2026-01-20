@@ -3,6 +3,7 @@ import json
 import logging
 import asyncio
 import uuid
+import difflib
 from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
@@ -44,6 +45,7 @@ class UnifiedImportController:
         # Staging
         self.pending_changes: List[PendingChange] = []
         self.successful_imports: List[str] = []
+        self.import_failures: List[str] = [] # Failures during apply phase
 
         # Cardmarket specific
         self.ambiguous_rows: List[Dict[str, Any]] = [] # {row, matches, selected_index}
@@ -136,6 +138,7 @@ class UnifiedImportController:
         self.pending_changes = []
         self.ambiguous_rows = []
         self.failed_rows = []
+        self.import_failures = []
         self.refresh_status_ui()
 
         # Ensure DB is loaded
@@ -234,7 +237,7 @@ class UnifiedImportController:
              for card in cards:
                  for s in card.card_sets:
                      code = s.set_code
-                     entry = {'rarity': s.set_rarity, 'card': card, 'variant': s}
+                     entry = {'rarity': s.set_rarity, 'card': card, 'variant': s, 'lang': db_lang}
 
                      # Key 1: Exact Code
                      if code not in self.db_lookup: self.db_lookup[code] = []
@@ -283,7 +286,8 @@ class UnifiedImportController:
                                 'card': entry['card'],
                                 'variant': entry['variant'],
                                 'code': entry['variant'].set_code, # Keep actual DB code
-                                'rarity': entry['rarity']
+                                'rarity': entry['rarity'],
+                                'lang': entry.get('lang', 'en')
                             })
                             seen_variant_ids.add(vid)
 
@@ -309,10 +313,126 @@ class UnifiedImportController:
                     target_codes.append(legacy_candidate)
 
             # 3. Filter Compatible Matches (for Set Code selection)
-            compatible_matches = [
-                m for m in all_siblings
-                if is_set_code_compatible(m['code'], row.language)
-            ]
+            compatible_matches = []
+            for m in all_siblings:
+                if not is_set_code_compatible(m['code'], row.language):
+                    continue
+
+                # Name Similarity Check
+                # We enforce strict name matching (Threshold 0.95) to prevent Legacy Code Collisions.
+                # To handle Cross-Language matches (e.g. German Input vs English DB Match), we:
+                # 1. Check strict match against the DB card name.
+                # 2. If that fails, check strict match against the LOCALIZED card name (by ID lookup).
+                # This ensures we accept valid translations (verified by ID) but reject collisions (Raigeki vs Hinotama).
+
+                threshold = 0.95
+                input_name = row.name.lower().strip()
+                db_name = m['card'].name.lower().strip()
+
+                # 1. Primary Check (Direct Match)
+                ratio = difflib.SequenceMatcher(None, input_name, db_name).ratio()
+                is_match = ratio >= threshold
+
+                # 2. Secondary Check (ID-Based English Verification)
+                # Since Cardmarket PDF exports always use English names (even for non-English cards),
+                # we must verify against the English DB name if the match came from a non-English DB.
+                if not is_match and m['lang'] != 'en':
+                    try:
+                        # Load English DB to verify identity
+                        english_card = await ygo_service.load_card_database('en')
+                        # Find by ID (Optimization: this scan is repeated, could be faster with dict, but acceptable for import)
+                        # Actually ygo_service.get_card uses cached list scan.
+                        en_card = ygo_service.get_card(m['card'].id, 'en')
+
+                        if en_card:
+                            en_name = en_card.name.lower().strip()
+                            ratio_en = difflib.SequenceMatcher(None, input_name, en_name).ratio()
+                            if ratio_en >= threshold:
+                                is_match = True
+                                # logger.info(f"Verified English match via ID: {row.name} == {en_card.name} (ID {m['card'].id})")
+                    except Exception as e:
+                        logger.warning(f"Failed to lookup English card: {e}")
+
+                if not is_match:
+                     logger.warning(f"Rejected mismatch ({row.language}/{m['lang']}): {row.name} vs {m['card'].name} ({ratio:.2f} < {threshold})")
+                     continue
+
+                compatible_matches.append(m)
+
+            # 3.5 Name Lookup Fallback (If no compatible matches found via Code)
+            # This handles cases where Code Lookup matched nothing valid (e.g. Legacy Mismatch rejected),
+            # but we can find the correct card by Name (e.g. "Hinotama Soul" in EN DB).
+            if not compatible_matches and row.name:
+                found_by_name = None
+                # Search loaded DBs for fuzzy name match
+                # Prioritize EN DB as it is most complete
+                langs_to_search = sorted(list(required_langs), key=lambda l: 0 if l == 'en' else 1)
+
+                for lang in langs_to_search:
+                     # Access cache safely or reload (cached)
+                     # Since we are in async function, we can await
+                     cards = await ygo_service.load_card_database(lang)
+                     if not cards: continue
+
+                     # Simple scan (Optimization: ygo_service could have a name index, but iteration is acceptable for error recovery)
+                     # Note: row.name might be in DE ("Hinotama Seele"). Searching in EN DB ("Hinotama Soul") requires fuzzy match.
+                     # Searching in DE DB ("Hinotama Seele") requires exact/fuzzy.
+
+                     # Exact Match first
+                     for c in cards:
+                         if c.name.lower() == row.name.lower():
+                             found_by_name = (c, lang)
+                             break
+                     if found_by_name: break
+
+                     # Fuzzy Match (if exact failed)
+                     # Only if we are desperate. Let's try high threshold.
+                     best_ratio = 0
+                     best_card = None
+                     for c in cards:
+                         r = difflib.SequenceMatcher(None, row.name, c.name).ratio()
+                         if r > 0.85 and r > best_ratio:
+                             best_ratio = r
+                             best_card = c
+
+                     if best_card:
+                         found_by_name = (best_card, lang)
+                         break
+
+                if found_by_name:
+                    card, lang = found_by_name
+                    # We found the correct CARD Identity.
+                    # Add its variants to matches so user can select them.
+                    # This allows linking LOB-G020 (Input) to LOB-EN026 (DB Variant).
+                    for s in card.card_sets:
+                        entry = {
+                                'card': card,
+                                'variant': s,
+                                'code': s.set_code,
+                                'rarity': s.set_rarity,
+                                'lang': lang
+                        }
+                        compatible_matches.append(entry)
+                        all_siblings.append(entry)
+                    logger.info(f"Resolved by Name Fallback: {row.name} -> {card.name}")
+
+                    # Attempt Auto-Resolve if Rarity Matches
+                    # If we found the correct card by name, and the input rarity matches one of its variants,
+                    # we can safely import it using the input Set Code (e.g. LOB-G020) as a custom variant.
+                    # This avoids the Ambiguity Dialog for clear-cut Legacy imports.
+
+                    # Find sibling matching rarity
+                    sibling_match = next((s for s in all_siblings if s['rarity'] == row.set_rarity), None)
+
+                    if sibling_match:
+                        # Determine best Set Code dynamically
+                        # Using Number Pattern Analysis to distinguish Legacy shifts (e.g. LOB-G020 vs LOB-EN026)
+                        best_code = self._deduce_best_set_code(row, all_siblings, std_target, legacy_candidate)
+
+                        # Add to Pending
+                        self._add_pending_from_match(row, sibling_match, override_set_code=best_code)
+                        logger.info(f"Auto-Resolved Name Fallback: {row.name} ({best_code})")
+                        continue
 
             # 4. Determine Valid Set Code Options
             # Union of Compatible Matches (from DB) and Target Codes (Virtual)
@@ -406,6 +526,58 @@ class UnifiedImportController:
             source_row=row
         ))
 
+    def _deduce_best_set_code(self, row, siblings, std_target, legacy_candidate):
+        """
+        Deduces the best set code based on Number Pattern Analysis.
+        Checks if the input number matches known patterns for 2-Letter or 1-Letter regions.
+        """
+        formats = {} # '2-Letter', '1-Letter', '0-Letter' -> Number
+
+        for s in siblings:
+            code = s['code']
+            # Analyze format
+            m = re.match(r'^([A-Za-z0-9]+)-([A-Za-z]+)(\d+)$', code)
+            if m:
+                region = m.group(2)
+                number = m.group(3)
+                fmt = '1-Letter' if len(region) == 1 else '2-Letter'
+                formats[fmt] = number
+            else:
+                m = re.match(r'^([A-Za-z0-9]+)-(\d+)$', code)
+                if m:
+                    number = m.group(2)
+                    formats['0-Letter'] = number
+
+        # Compare Input Number
+        input_num = row.number
+
+        # 1. Check 2-Letter Match (Standard)
+        if '2-Letter' in formats:
+            if formats['2-Letter'] == input_num:
+                return std_target # Matches Standard Pattern
+            else:
+                # Mismatch! Standard target is invalid.
+                # If legacy candidate exists, prefer it.
+                if legacy_candidate: return legacy_candidate
+
+        # 2. Check 1-Letter Match (Legacy)
+        if '1-Letter' in formats:
+            if formats['1-Letter'] == input_num:
+                return legacy_candidate # Matches Legacy Pattern
+
+        # 3. Check 0-Letter Match (Base/Neutral)
+        if '0-Letter' in formats:
+            if formats['0-Letter'] == input_num:
+                # Ambiguous if Standard also exists? But we handled that above.
+                # If only 0-Letter exists and matches, Standard is usually safe fallback.
+                return std_target
+
+        # 4. No direct match found, but we have a mismatch with known formats?
+        # If input_num didn't match 2-Letter (and 2-Letter existed), we returned legacy above.
+        # If input_num didn't match anything we know?
+        # Fallback to legacy if available (conservative for older sets), else standard.
+        return legacy_candidate if legacy_candidate else std_target
+
     async def apply_import(self):
         if not self.selected_collection:
             ui.notify("No collection selected", type='warning')
@@ -432,78 +604,88 @@ class UnifiedImportController:
 
         changes = 0
         self.successful_imports = []
+        self.import_failures = []
         modified_card_ids = set()
 
         for item in self.pending_changes:
-            # 1. Database Update Check
-            # Check if variant exists in ApiCard; if not, add it
-            # We do this to ensure DB consistency for new custom/ambiguous variants
-            variant_exists = False
-            for s in item.api_card.card_sets:
-                if s.set_code == item.set_code and s.set_rarity == item.rarity:
-                    variant_exists = True
-                    # Ensure image_id is preserved if we found an existing match but the item didn't have it set (e.g. from ambiguity resolution)
-                    if item.image_id is None:
-                        item.image_id = s.image_id
-                    break
-
-            if not variant_exists:
-                # Create new variant
-                new_id = str(uuid.uuid4())
-                rarity_abbr = RARITY_ABBREVIATIONS.get(item.rarity, "")
-                rarity_code = f"({rarity_abbr})" if rarity_abbr else ""
-
-                # Try to infer set name/image from other variants in same set
-                set_name = "Custom Set"
-                image_id = item.image_id
-
-                # Look for siblings
-                prefix = item.set_code.split('-')[0]
+            try:
+                # 1. Database Update Check
+                # Check if variant exists in ApiCard; if not, add it
+                # We do this to ensure DB consistency for new custom/ambiguous variants
+                variant_exists = False
                 for s in item.api_card.card_sets:
-                    if s.set_code.startswith(prefix):
-                        set_name = s.set_name
-                        if image_id is None: image_id = s.image_id
+                    if s.set_code == item.set_code and s.set_rarity == item.rarity:
+                        variant_exists = True
+                        # Ensure image_id is preserved if we found an existing match but the item didn't have it set (e.g. from ambiguity resolution)
+                        if item.image_id is None:
+                            item.image_id = s.image_id
                         break
 
-                if image_id is None and item.api_card.card_images:
-                    image_id = item.api_card.card_images[0].id
+                if not variant_exists:
+                    # Create new variant
+                    new_id = str(uuid.uuid4())
+                    rarity_abbr = RARITY_ABBREVIATIONS.get(item.rarity, "")
+                    rarity_code = f"({rarity_abbr})" if rarity_abbr else ""
 
-                new_set = ApiCardSet(
-                    variant_id=new_id,
-                    set_name=set_name,
+                    # Try to infer set name/image from other variants in same set
+                    set_name = "Custom Set"
+                    image_id = item.image_id
+
+                    # Look for siblings
+                    prefix = item.set_code.split('-')[0]
+                    for s in item.api_card.card_sets:
+                        if s.set_code.startswith(prefix):
+                            set_name = s.set_name
+                            if image_id is None: image_id = s.image_id
+                            break
+
+                    if image_id is None and item.api_card.card_images:
+                        image_id = item.api_card.card_images[0].id
+
+                    new_set = ApiCardSet(
+                        variant_id=new_id,
+                        set_name=set_name,
+                        set_code=item.set_code,
+                        set_rarity=item.rarity,
+                        set_rarity_code=rarity_code,
+                        set_price="0.00",
+                        image_id=image_id
+                    )
+                    item.api_card.card_sets.append(new_set)
+                    modified_card_ids.add(item.api_card.id)
+                    # Update item image_id if it was missing
+                    if item.image_id is None:
+                        item.image_id = image_id
+
+                # 2. Collection Update
+                # Determine Quantity Delta
+                delta = item.quantity
+                if self.import_mode == 'SUBTRACT':
+                    delta = -delta
+
+                modified = CollectionEditor.apply_change(
+                    collection=collection,
+                    api_card=item.api_card,
                     set_code=item.set_code,
-                    set_rarity=item.rarity,
-                    set_rarity_code=rarity_code,
-                    set_price="0.00",
-                    image_id=image_id
+                    rarity=item.rarity,
+                    language=item.language,
+                    quantity=delta,
+                    condition=item.condition,
+                    first_edition=item.first_edition,
+                    image_id=item.image_id,
+                    mode='ADD' # We always use ADD mode with pos/neg delta
                 )
-                item.api_card.card_sets.append(new_set)
-                modified_card_ids.add(item.api_card.id)
-                # Update item image_id if it was missing
-                if item.image_id is None:
-                    item.image_id = image_id
-
-            # 2. Collection Update
-            # Determine Quantity Delta
-            delta = item.quantity
-            if self.import_mode == 'SUBTRACT':
-                delta = -delta
-
-            modified = CollectionEditor.apply_change(
-                collection=collection,
-                api_card=item.api_card,
-                set_code=item.set_code,
-                rarity=item.rarity,
-                language=item.language,
-                quantity=delta,
-                condition=item.condition,
-                first_edition=item.first_edition,
-                image_id=item.image_id,
-                mode='ADD' # We always use ADD mode with pos/neg delta
-            )
-            if modified:
-                changes += 1
-                self.successful_imports.append(f"{item.quantity}x {item.api_card.name} ({item.set_code} - {item.rarity})")
+                if modified:
+                    changes += 1
+                    self.successful_imports.append(f"{item.quantity}x {item.api_card.name} ({item.set_code} - {item.rarity})")
+                else:
+                    reason = "No changes applied"
+                    if self.import_mode == 'SUBTRACT':
+                         reason = "Card not found for removal"
+                    self.import_failures.append(f"{item.quantity}x {item.api_card.name} ({item.set_code}): {reason}")
+            except Exception as e:
+                logger.error(f"Import Error for item {item.set_code}: {e}")
+                self.import_failures.append(f"{item.quantity}x {item.api_card.name} ({item.set_code}): {str(e)}")
 
         # Save DB Updates if any
         if modified_card_ids:
@@ -568,6 +750,11 @@ class UnifiedImportController:
         lines = ["Quantity Name (Set - Rarity)"] + self.successful_imports
         ui.download("\n".join(lines).encode('utf-8'), "import_success.txt")
 
+    def download_import_failures(self):
+        if not self.import_failures: return
+        lines = ["Original Line | Reason"] + self.import_failures
+        ui.download("\n".join(lines).encode('utf-8'), "import_errors.txt")
+
     def open_ambiguity_dialog(self):
         if not self.ambiguous_rows: return
 
@@ -608,12 +795,21 @@ class UnifiedImportController:
                             render_rows()
                             ui.notify(f"Updated {count} rows", type='info')
 
-                    ui.button("Set 2-Letter (-EN)", on_click=lambda: apply_bulk_region(r'-[A-Za-z]{2}\d+')).props('outline dense size=sm')
-                    ui.button("Set 1-Letter (-E)", on_click=lambda: apply_bulk_region(r'-[A-Za-z]\d+')).props('outline dense size=sm')
-                    ui.button("Set No-Letter (-001)", on_click=lambda: apply_bulk_region(r'-\d+')).props('outline dense size=sm')
+                    ui.button("Set 2-Letter (-EN)", on_click=lambda: apply_bulk_region(r'-[A-Za-z]{2}\d+')).props('outline dense size=sm color=white')
+                    ui.button("Set 1-Letter (-E)", on_click=lambda: apply_bulk_region(r'-[A-Za-z]\d+')).props('outline dense size=sm color=white')
+                    ui.button("Set No-Letter (-001)", on_click=lambda: apply_bulk_region(r'-\d+')).props('outline dense size=sm color=white')
 
             # Declare container ref
             rows_container = None
+
+            def render_printings_content(siblings):
+                with ui.column().classes('p-2 gap-1'):
+                    ui.label("Known Printings").classes('text-xs font-bold text-gray-400 uppercase mb-1')
+                    if siblings:
+                         for s in siblings:
+                              ui.label(f"{s['code']} - {s['rarity']}").classes('text-sm whitespace-nowrap')
+                    else:
+                        ui.label("No known siblings").classes('text-sm italic text-gray-500')
 
             def get_valid_rarities(item):
                 """
@@ -677,16 +873,16 @@ class UnifiedImportController:
                                 ui.label(f"Orig: {row.set_prefix} | {row.language} | {row.rarity_abbr}").classes('text-xs text-grey-5')
 
                             # 3. Set Code Dropdown
-                            def update_code(e, it=item):
+                            def update_code(e, it):
                                 it['selected_set_code'] = e.value
                                 render_rows() # Re-render to update rarity options
 
                             ui.select(options=code_opts, value=item['selected_set_code'],
-                                      on_change=lambda e: update_code(e)) \
+                                      on_change=lambda e, i=item: update_code(e, i)) \
                                       .classes('w-1/4').props('dark dense options-dense')
 
                             # 4. Rarity Control (Dropdown or Static)
-                            def update_rarity(e, it=item):
+                            def update_rarity(e, it):
                                 it['selected_rarity'] = e.value
 
                             if len(valid_rarities) <= 1:
@@ -695,20 +891,15 @@ class UnifiedImportController:
                                     ui.label(item['selected_rarity']).classes('text-sm font-bold bg-gray-700 px-2 py-1 rounded text-gray-300')
                             else:
                                 ui.select(options=valid_rarities, value=item['selected_rarity'],
-                                          on_change=lambda e: update_rarity(e)) \
+                                          on_change=lambda e, i=item: update_rarity(e, i)) \
                                           .classes('w-1/4').props('dark dense options-dense')
 
                             # 5. Info Icon (Expandable Overview)
                             with ui.button(icon='info').props('flat round dense size=sm color=info'):
-                                ui.tooltip('Show all printings')
+                                with ui.tooltip().classes('bg-gray-900 border border-gray-700'):
+                                    render_printings_content(item['all_siblings'])
                                 with ui.menu().classes('bg-gray-900 border border-gray-700'):
-                                    with ui.column().classes('p-2 gap-1'):
-                                        ui.label("Known Printings").classes('text-xs font-bold text-gray-400 uppercase mb-1')
-                                        if item['all_siblings']:
-                                            for s in item['all_siblings']:
-                                                 ui.label(f"{s['code']} - {s['rarity']}").classes('text-sm whitespace-nowrap')
-                                        else:
-                                            ui.label("No known siblings").classes('text-sm italic text-gray-500')
+                                    render_printings_content(item['all_siblings'])
 
 
             def toggle_all(e):
@@ -895,8 +1086,13 @@ class UnifiedImportController:
 
             if self.failed_rows:
                 with ui.row().classes('items-center gap-2'):
-                    ui.label(f"Failed Items: {len(self.failed_rows)}").classes('text-negative font-bold text-lg')
+                    ui.label(f"Parsing Failures: {len(self.failed_rows)}").classes('text-negative font-bold text-lg')
                     ui.button("Download Report", on_click=self.download_failures).props('flat color=negative')
+
+            if self.import_failures:
+                with ui.row().classes('items-center gap-2'):
+                    ui.label(f"Import Errors: {len(self.import_failures)}").classes('text-negative font-bold text-lg')
+                    ui.button("Download Report", on_click=self.download_import_failures).props('flat color=negative')
 
             # Update Import Button
             if self.import_btn:
