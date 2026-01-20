@@ -244,6 +244,7 @@ class ScanPage:
                  self.debug_drawer_el.classes(remove='translate-x-0', add='translate-x-full')
 
     def trigger_manual_scan(self):
+        logger.info("Button pressed: Manual Scan requested")
         scanner_manager.trigger_manual_scan()
         ui.notify("Manual Scan Triggered", type='info')
 
@@ -276,6 +277,8 @@ class ScanPage:
                     # Increased timeout to 4.0s to avoid dropping frames on slower connections
                     b64 = await ui.run_javascript('captureFrame()', timeout=4.0)
                     if b64:
+                        if scanner_manager.manual_scan_requested:
+                            logger.info("Client sending frame for manual scan...")
                         scanner_manager.push_frame(b64)
                     else:
                         # If JS returns null (no video stream yet), we just wait.
