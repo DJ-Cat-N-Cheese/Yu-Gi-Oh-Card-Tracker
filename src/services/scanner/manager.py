@@ -248,95 +248,102 @@ class ScannerManager:
     def _worker(self, run_id: str):
         logger.info(f"Scanner worker thread started (Run ID: {run_id})")
         while self.running:
-            # Zombie Check: If run_id changed, we are a zombie. Die.
+            # 1. Intra-instance Zombie Check
             if self.worker_run_id != run_id:
                 logger.info(f"Worker {run_id} replaced by {self.worker_run_id}. Exiting.")
                 return
 
+            # 2. Inter-instance Orphan Check (Module Reload Handling)
             try:
-                if self.paused:
-                    self._set_status("Paused")
-                    time.sleep(0.1)
-                    continue
+                # Import dynamically to check against the CURRENT global singleton
+                from src.services.scanner.manager import scanner_manager as active_mgr
+                if self != active_mgr:
+                     logger.info(f"Worker {run_id} detected it is an orphan (module reloaded). Exiting.")
+                     return
+            except Exception:
+                pass # Fallback if import fails
 
-                task = None
-                with self.queue_lock:
-                    if self.scan_queue:
-                        task = self.scan_queue.pop(0)
+            # 3. Paused Check
+            if self.paused:
+                self._set_status("Paused")
+                time.sleep(0.1)
+                continue
 
-                if not task:
-                    self._set_status("Idle")
-                    time.sleep(0.1)
-                    continue
+            # 4. Queue Check
+            task = None
+            with self.queue_lock:
+                if self.scan_queue:
+                    task = self.scan_queue.pop(0)
 
-                # Processing Block
-                try:
-                    filename = task.get("filename", "unknown")
-                    self.is_processing = True
-                    self._set_status(f"Processing: {filename}")
-                    logger.info(f"[Mgr:{self.instance_id}] Starting scan for: {filename}")
-                    self._log_debug(f"Started: {filename}")
+            if not task:
+                self._set_status("Idle")
+                time.sleep(0.1)
+                continue
 
-                    frame_data = task["image"]
-                    options = task["options"]
+            # 5. Processing Block
+            try:
+                filename = task.get("filename", "unknown")
+                self.is_processing = True
+                self._set_status(f"Processing: {filename}")
+                logger.info(f"[Mgr:{self.instance_id}] Starting scan for: {filename}")
+                self._log_debug(f"Started: {filename}")
 
-                    # Decode
-                    nparr = np.frombuffer(frame_data, np.uint8)
-                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                frame_data = task["image"]
+                options = task["options"]
 
-                    if frame is not None:
-                        # Update debug state basics
-                        cap_url = self._save_debug_image(frame, "manual_cap")
-                        self.debug_state["captured_image_url"] = cap_url
-                        self.debug_state["preprocessing"] = options.get("preprocessing", "classic")
-                        self.debug_state["active_tracks"] = options.get("tracks", [])
+                # Decode
+                nparr = np.frombuffer(frame_data, np.uint8)
+                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                        # Define status updater
-                        def update_step(step_name):
-                            self.debug_state["current_step"] = step_name
-                            self._set_status(f"Processing: {filename} ({step_name})")
+                if frame is not None:
+                    # Update debug state basics
+                    cap_url = self._save_debug_image(frame, "manual_cap")
+                    self.debug_state["captured_image_url"] = cap_url
+                    self.debug_state["preprocessing"] = options.get("preprocessing", "classic")
+                    self.debug_state["active_tracks"] = options.get("tracks", [])
 
-                        # Run Pipeline
-                        report = self._process_scan(frame, options, status_cb=update_step)
+                    # Define status updater
+                    def update_step(step_name):
+                        self.debug_state["current_step"] = step_name
+                        self._set_status(f"Processing: {filename} ({step_name})")
 
-                        # Merge report into debug state
-                        self.debug_state.update(report)
+                    # Run Pipeline
+                    report = self._process_scan(frame, options, status_cb=update_step)
 
-                        # If we found a card, push to result queue
-                        # We pick the best result.
-                        best_res = self._pick_best_result(report)
-                        if best_res:
-                            # Enhance with visual traits if warped image exists
-                            warped = None
-                            # Construct lookup data
-                            lookup_data = {
-                                "set_code": best_res['set_id'],
-                                "language": best_res['language'],
-                                "ocr_conf": best_res['set_id_conf'],
-                                "rarity": "Unknown",
-                                "visual_rarity": report.get('visual_rarity', 'Common'),
-                                "first_edition": report.get('first_edition', False),
-                                "warped_image": report.get('warped_image_data')
-                            }
-                            self.lookup_queue.put(lookup_data)
+                    # Merge report into debug state
+                    self.debug_state.update(report)
 
-                        logger.info(f"[Mgr:{self.instance_id}] Finished scan for: {filename}")
-                        self._log_debug(f"Finished: {filename}")
-                    else:
-                        self._log_debug("Frame decode failed")
+                    # If we found a card, push to result queue
+                    # We pick the best result.
+                    best_res = self._pick_best_result(report)
+                    if best_res:
+                        # Enhance with visual traits if warped image exists
+                        warped = None
+                        # Construct lookup data
+                        lookup_data = {
+                            "set_code": best_res['set_id'],
+                            "language": best_res['language'],
+                            "ocr_conf": best_res['set_id_conf'],
+                            "rarity": "Unknown",
+                            "visual_rarity": report.get('visual_rarity', 'Common'),
+                            "first_edition": report.get('first_edition', False),
+                            "warped_image": report.get('warped_image_data')
+                        }
+                        self.lookup_queue.put(lookup_data)
 
-                except Exception as e:
-                    logger.error(f"[Mgr:{self.instance_id}] Task Execution Error: {e}", exc_info=True)
-                    self._log_debug(f"Error: {str(e)}")
-                finally:
-                    self.is_processing = False
-                    self.debug_state["current_step"] = "Idle"
-                    self._set_status("Idle")
+                    logger.info(f"[Mgr:{self.instance_id}] Finished scan for: {filename}")
+                    self._log_debug(f"Finished: {filename}")
+                else:
+                    self._log_debug("Frame decode failed")
 
             except Exception as e:
-                logger.error(f"[Mgr:{self.instance_id}] Worker Loop Fatal Error: {e}", exc_info=True)
-                self._set_status("Error")
-                time.sleep(1.0) # Prevent tight loop on crash
+                logger.error(f"[Mgr:{self.instance_id}] Task Execution Error: {e}", exc_info=True)
+                self._log_debug(f"Error: {str(e)}")
+            finally:
+                # Reset status only after processing attempt
+                self.is_processing = False
+                self.debug_state["current_step"] = "Idle"
+                self._set_status("Idle")
 
     def _process_scan(self, frame, options, status_cb=None) -> Dict[str, Any]:
         """Runs the configured tracks on the frame."""
