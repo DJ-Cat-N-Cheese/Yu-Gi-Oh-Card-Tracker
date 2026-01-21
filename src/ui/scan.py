@@ -647,11 +647,15 @@ class ScanPage:
 
 def scan_page():
     def cleanup():
-        scanner_manager.stop()
+        # Do not stop scanner_manager here, as it's a global service
+        # scanner_manager.stop()
         page.is_active = False
 
     app.on_disconnect(cleanup)
     page = ScanPage()
+
+    # Ensure scanner service is running (idempotent)
+    scanner_manager.start()
     page.is_active = True
 
     if not SCANNER_AVAILABLE:
