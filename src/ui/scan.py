@@ -269,35 +269,34 @@ class ScanPage:
 
     async def event_consumer(self):
         """Consumes events from the local queue and updates UI."""
-        while not self.event_queue.empty():
-            event = self.event_queue.get()
+        try:
+            while not self.event_queue.empty():
+                event = self.event_queue.get()
 
-            # Apply snapshot
-            if event.snapshot:
-                self.debug_report = event.snapshot.model_dump()
+                # Apply snapshot
+                if event.snapshot:
+                    self.debug_report = event.snapshot.model_dump()
 
-            # Refresh logic based on event type
-            if event.type in ['status_update', 'scan_queued', 'scan_started', 'step_complete', 'scan_finished']:
-                self.refresh_debug_ui()
+                # Refresh logic based on event type
+                if event.type in ['status_update', 'scan_queued', 'scan_started', 'step_complete', 'scan_finished']:
+                    self.refresh_debug_ui()
 
-            if event.type == 'result_ready':
-                # Fetch result? Or was it passed?
-                # The event payload has set_code. The result is in manager.result_queue.
-                # We still need to pop from result_queue.
-                # Let's check result queue here.
-                pass
+                if event.type == 'result_ready':
+                    pass
 
-            if event.type == 'error':
-                ui.notify(event.data.get('message', 'Error'), type='negative')
+                if event.type == 'error':
+                    ui.notify(event.data.get('message', 'Error'), type='negative')
 
-        # Also check result queue independently or as part of the loop?
-        # The manager.result_queue is thread-safe.
-        res = scanner_service.scanner_manager.get_latest_result()
-        if res:
-            self.scanned_cards.insert(0, res)
-            self.render_live_list.refresh()
-            ui.notify(f"Scanned: {res.get('name')}", type='positive')
-            self.refresh_debug_ui() # Ensure final result is shown
+            # Check result queue
+            res = scanner_service.scanner_manager.get_latest_result()
+            if res:
+                self.scanned_cards.insert(0, res)
+                self.render_live_list.refresh()
+                ui.notify(f"Scanned: {res.get('name')}", type='positive')
+                self.refresh_debug_ui() # Ensure final result is shown
+
+        except Exception as e:
+            logger.error(f"Error in event_consumer: {e}")
 
     async def start_camera(self):
         device_id = self.camera_select.value if self.camera_select else None
@@ -316,8 +315,8 @@ class ScanPage:
 
     async def stop_camera(self):
         await ui.run_javascript('stopCamera()')
-        # Use dynamic import access
-        scanner_service.scanner_manager.stop()
+        # We no longer stop the manager when camera stops. It runs in background.
+        # scanner_service.scanner_manager.stop()
         self.start_btn.visible = True
         self.stop_btn.visible = False
 
@@ -587,15 +586,21 @@ class ScanPage:
                 if status == "Processing...":
                     ui.spinner(size='sm')
                 elif is_paused:
-                    ui.icon('stop_circle', color='warning').classes('text-xl')
+                    ui.icon('pause_circle', color='warning').classes('text-xl')
                 else:
-                    ui.icon('check_circle', color='positive').classes('text-xl')
+                    ui.icon('play_circle', color='positive').classes('text-xl')
 
                 label_text = status
                 if is_paused and status == "Stopped":
                      label_text = "Ready to Start"
                 elif is_paused:
                      label_text = "Paused"
+
+                # Transient states
+                if not is_paused and status == "Paused":
+                    label_text = "Resuming..."
+                elif is_paused and status not in ["Paused", "Stopped"]:
+                    label_text = "Pausing..."
 
                 with ui.column().classes('gap-0'):
                     ui.label(f"Status: {label_text}").classes('font-bold')
