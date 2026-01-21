@@ -427,37 +427,51 @@ class ScanPage:
             ui.notify(f"Capture failed: {err}", type='negative')
             self.refresh_debug_ui()
 
-    async def update_loop(self):
+    async def status_loop(self):
+        """Fast loop for UI status updates."""
         if not self.is_active: return
 
-        # Poll Debug State
-        self.debug_report = scanner_manager.get_debug_snapshot()
+        try:
+            # Poll Debug State
+            self.debug_report = scanner_manager.get_debug_snapshot()
 
-        # Always refresh status controls to stay in sync
-        self.render_status_controls.refresh()
+            # Always refresh status controls to stay in sync
+            self.render_status_controls.refresh()
 
-        # Conditionally refresh full debug UI
-        if scanner_manager.is_processing:
-             self.refresh_debug_ui()
-        elif self.debug_loading:
-             self.debug_loading = False
-             self.refresh_debug_ui()
+            # Conditionally refresh full debug UI
+            if scanner_manager.is_processing:
+                 self.refresh_debug_ui()
+            elif self.debug_loading:
+                 self.debug_loading = False
+                 self.refresh_debug_ui()
 
-        # Process Pending Lookups (Async Resolver)
-        # This is where we act as the consumer of lookup_queue
-        await scanner_manager.process_pending_lookups()
+            # Notifications (quick)
+            note = scanner_manager.get_latest_notification()
+            if note:
+                 ui.notify(note[1], type=note[0])
 
-        # Live Results
-        result = scanner_manager.get_latest_result()
-        if result:
-            self.scanned_cards.insert(0, result)
-            self.render_live_list.refresh()
-            ui.notify(f"Scanned: {result.get('name')}", type='positive')
+        except Exception as e:
+            logger.error(f"Status Loop Error: {e}")
 
-        # Notifications
-        note = scanner_manager.get_latest_notification()
-        if note:
-             ui.notify(note[1], type=note[0])
+    async def processing_loop(self):
+        """Slower loop for result processing and lookups."""
+        if not self.is_active: return
+
+        try:
+            # Process Pending Lookups (Async Resolver - Potentially Blocking)
+            await scanner_manager.process_pending_lookups()
+
+            # Live Results
+            result = scanner_manager.get_latest_result()
+            if result:
+                self.scanned_cards.insert(0, result)
+                self.render_live_list.refresh()
+                ui.notify(f"Scanned: {result.get('name')}", type='positive')
+                # Refresh debug results once to show the final outcome
+                self.refresh_debug_ui()
+
+        except Exception as e:
+            logger.error(f"Processing Loop Error: {e}")
 
     @ui.refreshable
     def render_live_list(self):
