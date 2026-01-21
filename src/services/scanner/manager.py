@@ -137,15 +137,22 @@ class ScannerManager:
             })
         self._log_debug(f"Scan Queued: {label}")
 
+    def _set_status(self, new_status: str):
+        if self.status_message != new_status:
+             self.status_message = new_status
+             logger.info(f"[Mgr:{self.instance_id}] Status change: {new_status}")
+
     def pause(self):
         self.paused = True
         self.debug_state["paused"] = True
         self._log_debug("Scanner Paused")
+        logger.info(f"[Mgr:{self.instance_id}] Paused request received")
 
     def resume(self):
         self.paused = False
         self.debug_state["paused"] = False
         self._log_debug("Scanner Resumed")
+        logger.info(f"[Mgr:{self.instance_id}] Resume request received")
 
     def toggle_pause(self):
         if self.paused:
@@ -240,7 +247,7 @@ class ScannerManager:
         while self.running:
             try:
                 if self.paused:
-                    self.status_message = "Paused"
+                    self._set_status("Paused")
                     time.sleep(0.1)
                     continue
 
@@ -250,14 +257,14 @@ class ScannerManager:
                         task = self.scan_queue.pop(0)
 
                 if not task:
-                    self.status_message = "Idle"
+                    self._set_status("Idle")
                     time.sleep(0.1)
                     continue
 
                 filename = task.get("filename", "unknown")
                 self.is_processing = True
-                self.status_message = f"Processing: {filename}"
-                logger.info(f"Starting scan for: {filename}")
+                self._set_status(f"Processing: {filename}")
+                logger.info(f"[Mgr:{self.instance_id}] Starting scan for: {filename}")
                 self._log_debug(f"Started: {filename}")
 
                 try:
@@ -278,7 +285,7 @@ class ScannerManager:
                         # Define status updater
                         def update_step(step_name):
                             self.debug_state["current_step"] = step_name
-                            self.status_message = f"Processing: {filename} ({step_name})"
+                            self._set_status(f"Processing: {filename} ({step_name})")
 
                         # Run Pipeline
                         report = self._process_scan(frame, options, status_cb=update_step)
@@ -304,24 +311,24 @@ class ScannerManager:
                             }
                             self.lookup_queue.put(lookup_data)
 
-                        logger.info(f"Finished scan for: {filename}")
+                        logger.info(f"[Mgr:{self.instance_id}] Finished scan for: {filename}")
                         self._log_debug(f"Finished: {filename}")
                     else:
                         self._log_debug("Frame decode failed")
 
                 except Exception as e:
-                    logger.error(f"Task Execution Error: {e}", exc_info=True)
+                    logger.error(f"[Mgr:{self.instance_id}] Task Execution Error: {e}", exc_info=True)
                     self._log_debug(f"Error: {str(e)}")
 
             except Exception as e:
-                logger.error(f"Worker Loop Fatal Error: {e}", exc_info=True)
-                self.status_message = "Error"
+                logger.error(f"[Mgr:{self.instance_id}] Worker Loop Fatal Error: {e}", exc_info=True)
+                self._set_status("Error")
                 time.sleep(1.0) # Prevent tight loop on crash
             finally:
                 self.is_processing = False
                 self.debug_state["current_step"] = "Idle"
-                if not self.paused:
-                     self.status_message = "Idle"
+                # Always set Idle when done. Loop will set Paused if needed.
+                self._set_status("Idle")
 
     def _process_scan(self, frame, options, status_cb=None) -> Dict[str, Any]:
         """Runs the configured tracks on the frame."""

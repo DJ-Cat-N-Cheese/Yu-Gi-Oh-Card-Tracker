@@ -257,6 +257,7 @@ class ScanPage:
         self.debug_report = {}
         self.debug_loading = False
         self.latest_capture_src = None
+        self.was_processing = False
 
     async def init_cameras(self):
         try:
@@ -434,16 +435,20 @@ class ScanPage:
         try:
             # Poll Debug State
             self.debug_report = scanner_manager.get_debug_snapshot()
+            is_proc = scanner_manager.is_processing
 
             # Always refresh status controls to stay in sync
             self.render_status_controls.refresh()
 
             # Conditionally refresh full debug UI
-            if scanner_manager.is_processing:
+            # Force refresh if processing just finished to show results
+            if is_proc or (self.was_processing and not is_proc):
                  self.refresh_debug_ui()
             elif self.debug_loading:
                  self.debug_loading = False
                  self.refresh_debug_ui()
+
+            self.was_processing = is_proc
 
             # Notifications (quick)
             note = scanner_manager.get_latest_notification()
