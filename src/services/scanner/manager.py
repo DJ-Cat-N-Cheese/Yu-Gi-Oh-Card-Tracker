@@ -281,29 +281,37 @@ class ScannerManager:
         # 2. Run Tracks
         # Track 1: EasyOCR
         if "easyocr" in tracks:
-             # Full Frame
-             t1_full = self.scanner.ocr_scan(frame, engine='easyocr')
-             t1_full['scope'] = 'full'
-             report["t1_full"] = t1_full
+            try:
+                # Full Frame
+                t1_full = self.scanner.ocr_scan(frame, engine='easyocr')
+                t1_full['scope'] = 'full'
+                report["t1_full"] = t1_full
 
-             # Crop
-             if warped is not None:
-                 t1_crop = self.scanner.ocr_scan(warped, engine='easyocr')
-                 t1_crop['scope'] = 'crop'
-                 report["t1_crop"] = t1_crop
+                # Crop
+                if warped is not None:
+                    t1_crop = self.scanner.ocr_scan(warped, engine='easyocr')
+                    t1_crop['scope'] = 'crop'
+                    report["t1_crop"] = t1_crop
+            except Exception as e:
+                logger.error(f"Track 1 (EasyOCR) Failed: {e}")
+                report["steps"].append({"name": "Track 1", "status": "FAIL", "details": str(e)})
 
         # Track 2: PaddleOCR
         if "paddle" in tracks:
-             # Full Frame
-             t2_full = self.scanner.ocr_scan(frame, engine='paddle')
-             t2_full['scope'] = 'full'
-             report["t2_full"] = t2_full
+            try:
+                # Full Frame
+                t2_full = self.scanner.ocr_scan(frame, engine='paddle')
+                t2_full['scope'] = 'full'
+                report["t2_full"] = t2_full
 
-             # Crop
-             if warped is not None:
-                 t2_crop = self.scanner.ocr_scan(warped, engine='paddle')
-                 t2_crop['scope'] = 'crop'
-                 report["t2_crop"] = t2_crop
+                # Crop
+                if warped is not None:
+                    t2_crop = self.scanner.ocr_scan(warped, engine='paddle')
+                    t2_crop['scope'] = 'crop'
+                    report["t2_crop"] = t2_crop
+            except Exception as e:
+                logger.error(f"Track 2 (PaddleOCR) Failed: {e}")
+                report["steps"].append({"name": "Track 2", "status": "FAIL", "details": str(e)})
 
         # Extra Analysis on Warped (if available)
         if warped is not None:
