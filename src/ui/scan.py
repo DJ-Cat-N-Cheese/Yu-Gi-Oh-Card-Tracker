@@ -374,65 +374,42 @@ class ScanPage:
         self.render_status_controls.refresh()
 
     async def handle_debug_upload(self, e: events.UploadEventArguments):
-        self.debug_loading = True
         self.latest_capture_src = None
-        self.refresh_debug_ui()
         try:
             content = await e.file.read()
-            # We use analyze_static_image for upload, which is async but wrapped in io_bound in manager
             options = {
                 "tracks": self.ocr_tracks,
                 "preprocessing": self.preprocessing_mode
             }
-            report = await scanner_manager.analyze_static_image(content, options)
-            # Update local debug state from the report
-            self.debug_report = report
-            # Also update manager debug state so it persists?
-            # analyze_static_image in manager returns a report but doesn't necessarily update global state
-            # unless we tell it to. In this case, we use the returned report.
+            scanner_manager.submit_scan(content, options, label="Image Upload")
+            ui.notify("Upload queued for analysis", type='positive')
         except Exception as err:
-            ui.notify(f"Analysis failed: {err}", type='negative')
-        self.debug_loading = False
+            ui.notify(f"Upload failed: {err}", type='negative')
         self.refresh_debug_ui()
 
     async def handle_debug_capture(self):
-        self.debug_loading = True
         self.refresh_debug_ui()
         try:
             data_url = await ui.run_javascript('captureSingleFrame()')
             if not data_url:
                 ui.notify("Camera not active or ready", type='warning')
-                self.debug_loading = False
                 self.refresh_debug_ui()
                 return
 
             self.latest_capture_src = data_url
             self.refresh_debug_ui()
 
-            # Trigger Scan via Manager (Worker)
-            # We need to send bytes.
             header, encoded = data_url.split(",", 1)
             content = base64.b64decode(encoded)
-
-            # Since we have the content, we can manually trigger the queue via trigger_scan
-            # but trigger_scan uses 'latest_frame'.
-            # We should probably update latest_frame or just use analyze_static_image?
-            # The prompt says: "Output ALL 4 OCR RAW TEXT RESULTS... IN THE DEBUG LAB".
-            # The manager's trigger_scan flow updates the debug_state which the UI polls.
-            # So calling trigger_scan (which uses latest_frame) is preferred if we trust latest_frame.
-            # But here we captured a frame explicitly.
-            # Let's push this frame then trigger.
-            scanner_manager.push_frame(content)
 
             options = {
                 "tracks": self.ocr_tracks,
                 "preprocessing": self.preprocessing_mode
             }
-            scanner_manager.trigger_scan(options)
+            scanner_manager.submit_scan(content, options, label="Camera Capture")
 
         except Exception as err:
             ui.notify(f"Capture failed: {err}", type='negative')
-            self.debug_loading = False
             self.refresh_debug_ui()
 
     async def update_loop(self):

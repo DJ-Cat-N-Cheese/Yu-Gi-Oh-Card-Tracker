@@ -119,15 +119,19 @@ class ScannerManager:
                 return
             frame_data = self.latest_frame
 
+        self.submit_scan(frame_data, options, label="Manual Capture")
+
+    def submit_scan(self, image_data: bytes, options: Dict[str, Any], label: str = "Manual Scan"):
+        """Submits a scan task to the queue."""
         with self.queue_lock:
             self.scan_queue.append({
                 "id": str(uuid.uuid4())[:8],
                 "timestamp": time.time(),
-                "image": frame_data,
+                "image": image_data,
                 "options": options,
-                "type": "Manual Capture"
+                "type": label
             })
-        self._log_debug("Scan Queued")
+        self._log_debug(f"Scan Queued: {label}")
 
     def pause(self):
         self.paused = True
