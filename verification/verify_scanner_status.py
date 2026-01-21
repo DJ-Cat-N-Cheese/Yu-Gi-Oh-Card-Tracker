@@ -70,11 +70,13 @@ def verify_status_flow():
         print("PASS: Scanner processed the task.")
 
     # 6. Check Idle Status
-    # Wait for it to finish
-    for _ in range(10):
-        if scanner_manager.get_status() == "Idle":
+    # Wait for it to finish (increase timeout for model downloads)
+    print("Waiting for scan to complete...")
+    for _ in range(60):
+        status = scanner_manager.get_status()
+        if status == "Idle":
             break
-        time.sleep(0.1)
+        time.sleep(1.0)
 
     final_status = scanner_manager.get_status()
     print(f"Final Status: {final_status}")

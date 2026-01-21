@@ -713,4 +713,7 @@ def scan_page():
              page.render_debug_lab()
 
     ui.timer(1.0, page.init_cameras, once=True)
-    ui.timer(0.2, page.update_loop) # Slightly slower loop
+
+    # Split loops to prevent blocking UI updates
+    ui.timer(0.1, page.status_loop)      # Fast UI updates
+    ui.timer(0.5, page.processing_loop)  # Heavy processing
