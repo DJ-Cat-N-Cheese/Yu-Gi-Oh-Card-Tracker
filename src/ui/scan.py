@@ -4,6 +4,7 @@ import os
 import asyncio
 import time
 import base64
+import inspect
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile
 
@@ -257,6 +258,9 @@ class ScanPage:
                  raise ValueError("No file content found in upload event")
 
             content = file_obj.read()
+            if inspect.iscoroutine(content):
+                content = await content
+
             fname = getattr(e, 'name', None) or getattr(file_obj, 'name', None) or "upload.jpg"
             await self.run_scan_task(content, fname)
         except Exception as err:
