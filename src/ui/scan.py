@@ -257,6 +257,7 @@ class ScanPage:
         self.debug_report = {}
         self.debug_loading = False
         self.latest_capture_src = None
+        self.was_processing = False
 
     async def init_cameras(self):
         try:
@@ -439,11 +440,13 @@ class ScanPage:
             self.render_status_controls.refresh()
 
             # Conditionally refresh full debug UI
-            if scanner_manager.is_processing:
+            # We refresh if currently processing OR if we just finished processing (falling edge)
+            is_proc = scanner_manager.is_processing
+            if is_proc or self.was_processing or self.debug_loading:
+                 if self.debug_loading: self.debug_loading = False
                  self.refresh_debug_ui()
-            elif self.debug_loading:
-                 self.debug_loading = False
-                 self.refresh_debug_ui()
+
+            self.was_processing = is_proc
 
             # Notifications (quick)
             note = scanner_manager.get_latest_notification()

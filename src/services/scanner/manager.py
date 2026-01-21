@@ -140,11 +140,13 @@ class ScannerManager:
     def pause(self):
         self.paused = True
         self.debug_state["paused"] = True
+        self.status_message = "Paused"
         self._log_debug("Scanner Paused")
 
     def resume(self):
         self.paused = False
         self.debug_state["paused"] = False
+        self.status_message = "Idle"
         self._log_debug("Scanner Resumed")
 
     def toggle_pause(self):
@@ -207,6 +209,8 @@ class ScannerManager:
         self.debug_state["logs"] = [entry] + self.debug_state["logs"][:19]
 
     def get_status(self) -> str:
+        if self.running and self.thread and not self.thread.is_alive():
+            return "Error: Worker Dead"
         return self.status_message
 
     def get_latest_result(self) -> Optional[Dict[str, Any]]:
