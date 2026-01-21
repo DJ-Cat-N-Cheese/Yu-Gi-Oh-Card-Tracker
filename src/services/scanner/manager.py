@@ -233,83 +233,86 @@ class ScannerManager:
         return f"/debug/scans/{filename}"
 
     def _worker(self):
+        logger.info("Scanner worker thread started")
         while self.running:
-            if self.paused:
-                self.status_message = "Paused"
-                time.sleep(0.1)
-                continue
-
-            task = None
-            with self.queue_lock:
-                if self.scan_queue:
-                    task = self.scan_queue.pop(0)
-
-            if not task:
-                self.status_message = "Idle"
-                time.sleep(0.1)
-                continue
-
-            self.is_processing = True
-            self.status_message = "Processing..."
-
             try:
-                frame_data = task["image"]
-                options = task["options"]
+                if self.paused:
+                    self.status_message = "Paused"
+                    time.sleep(0.1)
+                    continue
 
-                # Decode
-                nparr = np.frombuffer(frame_data, np.uint8)
-                frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                task = None
+                with self.queue_lock:
+                    if self.scan_queue:
+                        task = self.scan_queue.pop(0)
 
-                if frame is not None:
-                    # Update debug state basics
-                    cap_url = self._save_debug_image(frame, "manual_cap")
-                    self.debug_state["captured_image_url"] = cap_url
-                    self.debug_state["preprocessing"] = options.get("preprocessing", "classic")
-                    self.debug_state["active_tracks"] = options.get("tracks", [])
+                if not task:
+                    self.status_message = "Idle"
+                    time.sleep(0.1)
+                    continue
 
-                    # Run Pipeline
-                    report = self._process_scan(frame, options)
+                self.is_processing = True
+                self.status_message = "Processing..."
 
-                    # Merge report into debug state
-                    self.debug_state.update(report)
+                # Log task start
+                filename = task.get("filename", "unknown")
+                self._log_debug(f"Processing: {filename}")
 
-                    # If we found a card, push to result queue
-                    # We pick the best result.
-                    best_res = self._pick_best_result(report)
-                    if best_res:
-                         # Enhance with visual traits if warped image exists
-                         warped = None
-                         if frame is not None and task.get('warped_in_state'):
-                             # We didn't save warped in task, but we saved it in report["warped_image_url"]
-                             # Wait, we need the actual numpy array for visual analysis if we assume it wasn't done.
-                             # But _process_scan does run warping.
-                             # Let's pass the warped image back in report or just re-warp/store in _process_scan
-                             pass
+                try:
+                    frame_data = task["image"]
+                    options = task["options"]
 
-                         # Construct lookup data
-                         # We need to retrieve the warped image if we want to do art matching or visual rarity
-                         # But _process_scan is where that happens.
-                         # Let's ensure _process_scan returns the extra metadata.
+                    # Decode
+                    nparr = np.frombuffer(frame_data, np.uint8)
+                    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-                         lookup_data = {
-                             "set_code": best_res['set_id'],
-                             "language": best_res['language'],
-                             "ocr_conf": best_res['set_id_conf'],
-                             "rarity": "Unknown",
-                             "visual_rarity": report.get('visual_rarity', 'Common'),
-                             "first_edition": report.get('first_edition', False),
-                             "warped_image": report.get('warped_image_data')
-                         }
-                         self.lookup_queue.put(lookup_data)
+                    if frame is not None:
+                        # Update debug state basics
+                        cap_url = self._save_debug_image(frame, "manual_cap")
+                        self.debug_state["captured_image_url"] = cap_url
+                        self.debug_state["preprocessing"] = options.get("preprocessing", "classic")
+                        self.debug_state["active_tracks"] = options.get("tracks", [])
 
-                    self._log_debug("Scan Complete")
+                        # Run Pipeline
+                        report = self._process_scan(frame, options)
+
+                        # Merge report into debug state
+                        self.debug_state.update(report)
+
+                        # If we found a card, push to result queue
+                        # We pick the best result.
+                        best_res = self._pick_best_result(report)
+                        if best_res:
+                            # Enhance with visual traits if warped image exists
+                            warped = None
+                            # Construct lookup data
+                            lookup_data = {
+                                "set_code": best_res['set_id'],
+                                "language": best_res['language'],
+                                "ocr_conf": best_res['set_id_conf'],
+                                "rarity": "Unknown",
+                                "visual_rarity": report.get('visual_rarity', 'Common'),
+                                "first_edition": report.get('first_edition', False),
+                                "warped_image": report.get('warped_image_data')
+                            }
+                            self.lookup_queue.put(lookup_data)
+
+                        self._log_debug("Scan Complete")
+                    else:
+                        self._log_debug("Frame decode failed")
+
+                except Exception as e:
+                    logger.error(f"Task Execution Error: {e}", exc_info=True)
+                    self._log_debug(f"Error: {str(e)}")
 
             except Exception as e:
-                logger.error(f"Worker Error: {e}")
-                self._log_debug(f"Error: {e}")
-
-            self.is_processing = False
-            self.status_message = "Idle"
+                logger.error(f"Worker Loop Fatal Error: {e}", exc_info=True)
+                self.status_message = "Error"
+                time.sleep(1.0) # Prevent tight loop on crash
+            finally:
+                self.is_processing = False
+                if not self.paused:
+                     self.status_message = "Idle"
 
     def _process_scan(self, frame, options) -> Dict[str, Any]:
         """Runs the configured tracks on the frame."""
