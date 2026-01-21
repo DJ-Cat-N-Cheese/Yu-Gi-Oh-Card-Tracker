@@ -239,6 +239,15 @@ class ScannerManager:
                     if frame is not None:
                         # Update debug state basics
                         cap_url = self._save_debug_image(frame, "manual_cap")
+
+                        # Reset previous results to avoid confusion
+                        self.debug_state.t1_full = None
+                        self.debug_state.t1_crop = None
+                        self.debug_state.t2_full = None
+                        self.debug_state.t2_crop = None
+                        self.debug_state.warped_image_url = None
+                        self.debug_state.roi_viz_url = None
+
                         self.debug_state.captured_image_url = cap_url
                         self.debug_state.preprocessing = task.options.get("preprocessing", "classic")
                         self.debug_state.active_tracks = task.options.get("tracks", [])
@@ -255,6 +264,8 @@ class ScannerManager:
                         # Manually update fields since report is partial ScanDebugReport or dict?
                         # Let's make _process_scan update self.debug_state fields directly or return dict to merge
                         # For now, let's assume _process_scan returns a dict that maps to ScanDebugReport fields
+
+                        logger.info(f"Scan Report Merged: {list(report.keys())}")
 
                         for key, value in report.items():
                              if hasattr(self.debug_state, key):
