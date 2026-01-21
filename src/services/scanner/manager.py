@@ -45,6 +45,8 @@ class ScannerManager:
         self.notification_queue = queue.Queue() # Notifications -> UI
 
         self.thread: Optional[threading.Thread] = None
+        self.instance_id = str(uuid.uuid4())[:6]
+        logger.info(f"ScannerManager initialized with ID: {self.instance_id}")
 
         # State
         self.latest_frame = None
@@ -234,7 +236,7 @@ class ScannerManager:
         return f"/debug/scans/{filename}"
 
     def _worker(self):
-        logger.info("Scanner worker thread started")
+        logger.info(f"Scanner worker thread started (Manager ID: {self.instance_id})")
         while self.running:
             try:
                 if self.paused:

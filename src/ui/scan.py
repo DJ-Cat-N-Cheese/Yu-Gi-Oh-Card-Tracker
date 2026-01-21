@@ -458,6 +458,10 @@ class ScanPage:
         if not self.is_active: return
 
         try:
+            # Log periodically to confirm loop is alive if processing
+            if scanner_manager.is_processing:
+                 logger.debug(f"UI Processing Loop running... (Mgr: {getattr(scanner_manager, 'instance_id', '?')})")
+
             # Process Pending Lookups (Async Resolver - Potentially Blocking)
             await scanner_manager.process_pending_lookups()
 
@@ -593,6 +597,7 @@ class ScanPage:
 
                 with ui.column().classes('gap-0'):
                     ui.label(f"Status: {label_text}").classes('font-bold')
+                    ui.label(f"Mgr: {getattr(scanner_manager, 'instance_id', 'N/A')}").classes('text-[10px] text-gray-600')
                     current_step = scanner_manager.debug_state.get('current_step', 'Idle')
                     if scanner_manager.is_processing:
                         ui.label(f"{current_step}").classes('text-xs text-blue-400')
