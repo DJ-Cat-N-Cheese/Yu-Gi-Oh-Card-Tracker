@@ -491,13 +491,19 @@ class UnifiedImportController:
                     # Only check base collision if base code exists in DB
                     if base_t in self.db_lookup:
                          db_entries = self.db_lookup[base_t]
-                         has_compatible_link = False
+
+                         # STRICT CHECK: If *ANY* entry associated with this Base Code is incompatible, we treat it as a collision.
+                         # This handles mixed cases (e.g. LOB-020 maps to Dark King [Incompatible] AND LOB-G020 maps to Hinotama [Compatible]).
+                         # Since LOB-020 is "polluted" by Dark King, we cannot safely generate LOB-DE020 (which normalizes to LOB-020).
+
+                         has_incompatible_link = False
                          for entry in db_entries:
-                             if entry['card'].id in compatible_card_ids:
-                                 has_compatible_link = True
+                             if entry['card'].id not in compatible_card_ids:
+                                 has_incompatible_link = True
+                                 logger.info(f"Base Code {base_t} links to incompatible card: {entry['card'].name} (Targeting: {[m['card'].name for m in compatible_matches]})")
                                  break
 
-                         if not has_compatible_link:
+                         if has_incompatible_link:
                              logger.info(f"Excluded target code {t} due to Base Code collision ({base_t}).")
                              is_collision = True
 
