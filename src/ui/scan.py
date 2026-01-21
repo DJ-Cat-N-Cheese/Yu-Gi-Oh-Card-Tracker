@@ -269,6 +269,7 @@ class ScanPage:
 
     async def event_consumer(self):
         """Consumes events from the local queue and updates UI."""
+        if not self.is_active: return
         while not self.event_queue.empty():
             event = self.event_queue.get()
 
@@ -524,7 +525,7 @@ class ScanPage:
 
         def render_zone(title, key):
             data = self.debug_report.get(key)
-            with ui.expansion(title, icon='visibility').classes('w-full bg-gray-800 border border-gray-600 mb-2'):
+            with ui.expansion(title, icon='visibility', value=True).classes('w-full bg-gray-800 border border-gray-600 mb-2'):
                 if data:
                     with ui.column().classes('p-2 w-full'):
                         ui.label(f"Set ID: {data.get('set_id', 'N/A')}").classes('font-bold text-green-400')

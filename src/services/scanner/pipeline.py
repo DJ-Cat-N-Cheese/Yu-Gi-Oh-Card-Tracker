@@ -64,7 +64,7 @@ class CardScanner:
         if self.paddle_ocr is None:
             logger.info("Initializing PaddleOCR...")
             # suppress console output
-            self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en')
+            self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en', enable_mkldnn=False)
         return self.paddle_ocr
 
     def get_yolo(self):

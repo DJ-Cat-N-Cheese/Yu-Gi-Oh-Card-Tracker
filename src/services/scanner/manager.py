@@ -264,9 +264,14 @@ class ScannerManager:
                         task = self.scan_queue[0] # Peek
 
                 if not task:
-                    if self.status_message != "Idle":
-                        self.status_message = "Idle"
-                        self._emit("status_update", {"status": "Idle"})
+                    # Auto-Pause if queue is empty
+                    if self.status_message != "Paused" and not self.paused:
+                        logger.info("Queue empty, auto-pausing scanner.")
+                        self.paused = True
+                        if self.debug_state: self.debug_state.paused = True
+                        self.status_message = "Paused"
+                        self._emit("status_update", {"status": "Paused", "paused": True})
+
                     time.sleep(0.1)
                     continue
 
