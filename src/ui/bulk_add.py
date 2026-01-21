@@ -240,6 +240,101 @@ class BulkAddPage:
         self.col_state['sort_by'] = ui_state.get('bulk_collection_sort_by', self.col_state['sort_by'])
         self.col_state['sort_desc'] = ui_state.get('bulk_collection_sort_desc', self.col_state['sort_desc'])
 
+        self.save_task = None
+
+    async def _perform_save(self):
+        try:
+            if self.current_collection_obj and self.state['selected_collection']:
+                 await run.io_bound(persistence.save_collection, self.current_collection_obj, self.state['selected_collection'])
+                 logger.info(f"Debounced save complete for {self.state['selected_collection']}")
+        except Exception as e:
+            logger.error(f"Error in debounced save: {e}")
+            ui.notify(f"Save Failed: {e}", type='negative')
+        finally:
+            self.save_task = None
+
+    def _schedule_save(self):
+        if self.save_task:
+            self.save_task.cancel()
+
+        async def delayed_save():
+            try:
+                await asyncio.sleep(2.0) # 2 seconds debounce
+                await self._perform_save()
+            except asyncio.CancelledError:
+                pass
+
+        self.save_task = asyncio.create_task(delayed_save())
+
+    async def reset_library_filters(self):
+        # Reset State
+        s = self.state
+        s['library_search_text'] = ''
+        s['filter_set'] = ''
+        s['filter_rarity'] = ''
+        s['filter_attr'] = ''
+        s['filter_card_type'] = ['Monster', 'Spell', 'Trap']
+        s['filter_monster_race'] = ''
+        s['filter_st_race'] = ''
+        s['filter_archetype'] = ''
+        s['filter_monster_category'] = []
+        s['filter_level'] = None
+        s['filter_atk_min'] = 0
+        s['filter_atk_max'] = 5000
+        s['filter_def_min'] = 0
+        s['filter_def_max'] = 5000
+        s['filter_price_min'] = 0.0
+        s['filter_price_max'] = 1000.0
+        s['filter_ownership_min'] = 0
+        s['filter_ownership_max'] = 100
+        s['filter_condition'] = []
+        s['filter_owned_lang'] = ''
+
+        # Reset UI
+        if self.library_filter_pane:
+            self.library_filter_pane.reset_ui_elements()
+
+        # Apply
+        await self.apply_library_filters()
+
+        # Force update of search input if bound
+        # Note: Since we updated s['library_search_text'], if the input is bound, it should update.
+        # However, for search inputs, we usually bind explicitly or use on_change.
+        # In build_ui: ui.input(..., on_change=on_search)
+        # It is NOT bound to value. We need to find the element and set value or force update.
+        # I'll handle this in build_ui by assigning the input to a variable.
+
+    async def reset_collection_filters(self):
+        # Reset State
+        s = self.col_state
+        s['search_text'] = ''
+        s['filter_set'] = ''
+        s['filter_rarity'] = ''
+        s['filter_attr'] = ''
+        s['filter_card_type'] = ['Monster', 'Spell', 'Trap']
+        s['filter_monster_race'] = ''
+        s['filter_st_race'] = ''
+        s['filter_archetype'] = ''
+        s['filter_monster_category'] = []
+        s['filter_level'] = None
+        s['filter_atk_min'] = 0
+        s['filter_atk_max'] = 5000
+        s['filter_def_min'] = 0
+        s['filter_def_max'] = 5000
+        s['filter_price_min'] = 0.0
+        s['filter_price_max'] = 1000.0
+        s['filter_ownership_min'] = 0
+        s['filter_ownership_max'] = 100
+        s['filter_condition'] = []
+        s['filter_owned_lang'] = ''
+
+        # Reset UI
+        if self.collection_filter_pane:
+            self.collection_filter_pane.reset_ui_elements()
+
+        # Apply
+        await self.apply_collection_filters()
+
     async def _update_collection(self, api_card, set_code, rarity, lang, qty, cond, first, img_id, mode='ADD', variant_id=None, save=True):
         if not self.current_collection_obj or not self.state['selected_collection']:
             return False
@@ -260,14 +355,86 @@ class BulkAddPage:
             )
 
             if modified:
+                # Update View Model directly
+                await self._update_view_model(api_card, set_code, rarity, lang, qty, cond, first, img_id, variant_id, mode)
+
                 if save:
-                    await run.io_bound(persistence.save_collection, self.current_collection_obj, self.state['selected_collection'])
+                    self._schedule_save()
                 return True
             return False
         except Exception as e:
             logger.error(f"Error updating collection: {e}")
             ui.notify(f"Error: {e}", type='negative')
             return False
+
+    async def _update_view_model(self, api_card, set_code, rarity, lang, qty, cond, first, img_id, variant_id, mode):
+        # We need to replicate the ID logic
+        if not variant_id:
+            variant_id = generate_variant_id(api_card.id, set_code, rarity, img_id)
+
+        unique_id = f"{variant_id}_{lang}_{cond}_{first}"
+
+        cards = self.col_state['collection_cards']
+
+        target_index = -1
+        for i, entry in enumerate(cards):
+            if entry.id == unique_id:
+                target_index = i
+                break
+
+        if target_index != -1:
+            entry = cards[target_index]
+            if mode == 'SET':
+                entry.quantity = qty
+            else:
+                entry.quantity += qty
+
+            if entry.quantity <= 0:
+                cards.pop(target_index)
+        else:
+            if mode == 'SET' and qty > 0:
+                new_qty = qty
+            elif mode == 'ADD' and qty > 0:
+                new_qty = qty
+            else:
+                new_qty = 0
+
+            if new_qty > 0:
+                # Create new entry
+                set_name = "Unknown Set"
+                if api_card.card_sets:
+                    for s in api_card.card_sets:
+                        if s.set_code == set_code:
+                            set_name = s.set_name
+                            break
+
+                # Image URL
+                img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
+                if img_id and api_card.card_images:
+                    for img in api_card.card_images:
+                        if img.id == img_id:
+                            img_url = img.image_url_small
+                            break
+
+                new_entry = BulkCollectionEntry(
+                    id=unique_id,
+                    api_card=api_card,
+                    quantity=new_qty,
+                    set_code=set_code,
+                    set_name=set_name,
+                    rarity=rarity,
+                    language=lang,
+                    condition=cond,
+                    first_edition=first,
+                    image_url=img_url,
+                    image_id=img_id,
+                    variant_id=variant_id,
+                    price=0.0
+                )
+                cards.insert(0, new_entry) # Add to top
+
+        # Refresh View
+        await self.apply_collection_filters()
 
     async def undo_last_action(self):
         col_name = self.state['selected_collection']
@@ -308,7 +475,7 @@ class BulkAddPage:
 
                 ui.notify(f"Undid batch: {last_change.get('description')} ({count} items)", type='positive')
                 self.render_header.refresh()
-                await self.load_collection_data()
+                await self.refresh_collection_view_from_memory()
                 return
 
             # Revert single logic
@@ -342,7 +509,7 @@ class BulkAddPage:
             if success:
                 ui.notify(f"Undid: {action} {qty}x {data.get('name')}", type='positive')
                 self.render_header.refresh()
-                await self.load_collection_data()
+                await self.refresh_collection_view_from_memory()
             else:
                 ui.notify("Undo failed (no changes made).", type='warning')
         else:
@@ -452,7 +619,7 @@ class BulkAddPage:
 
             ui.notify(f"Added {added_count} cards from {deck_name}", type='positive')
             self.render_header.refresh()
-            await self.load_collection_data()
+            await self.refresh_collection_view_from_memory()
         else:
             ui.notify("No valid cards found to add (check database update?)", type='warning')
 
@@ -484,7 +651,6 @@ class BulkAddPage:
                 'variant_id': var_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'ADD', card_data, qty)
-             await self.load_collection_data()
              self.render_header.refresh()
         return success
 
@@ -531,7 +697,6 @@ class BulkAddPage:
                 'variant_id': entry.variant_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'REMOVE', card_data, qty_to_remove)
-             await self.load_collection_data()
              self.render_header.refresh()
         return success
 
@@ -562,7 +727,6 @@ class BulkAddPage:
                 'variant_id': entry.variant_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'REMOVE', card_data, 1)
-             await self.load_collection_data()
              self.render_header.refresh()
         return success
 
@@ -718,7 +882,7 @@ class BulkAddPage:
 
             ui.notify(f"Updated {len(processed_changes)} entries", type='positive')
             self.render_header.refresh()
-            await self.load_collection_data()
+            await self.refresh_collection_view_from_memory()
         else:
             ui.notify("No cards required updates.", type='info')
 
@@ -820,7 +984,7 @@ class BulkAddPage:
 
             ui.notify(f"Added {added_count} cards", type='positive')
             self.render_header.refresh()
-            await self.load_collection_data()
+            await self.refresh_collection_view_from_memory()
         else:
             ui.notify("No cards to add.", type='warning')
 
@@ -878,7 +1042,7 @@ class BulkAddPage:
 
             ui.notify(f"Removed {len(processed_changes)} entries", type='positive')
             self.render_header.refresh()
-            await self.load_collection_data()
+            await self.refresh_collection_view_from_memory()
         else:
             ui.notify("No cards to remove.", type='warning')
 
@@ -1140,7 +1304,16 @@ class BulkAddPage:
 
         await self.apply_library_filters()
         if self.library_filter_pane: self.library_filter_pane.update_options()
-        await self.load_collection_data()
+        await self.refresh_collection_view_from_memory()
+
+    async def refresh_collection_view_from_memory(self):
+        if not self.current_collection_obj:
+            return
+
+        entries = await run.io_bound(_build_collection_entries, self.current_collection_obj, self.api_card_map)
+        self.col_state['collection_cards'] = entries
+        await self.apply_collection_filters()
+        if self.collection_filter_pane: self.collection_filter_pane.update_options()
 
     async def apply_library_filters(self):
         source = self.state['library_cards']
@@ -1306,7 +1479,6 @@ class BulkAddPage:
                  # For "Add new versions", usually it's ADD.
                  changelog_manager.log_change(self.state['selected_collection'], mode, card_data, quantity)
 
-                 await self.load_collection_data()
                  ui.notify('Collection updated.', type='positive')
 
         await self.single_card_view.open_collectors(
@@ -1355,7 +1527,6 @@ class BulkAddPage:
                  }
                  changelog_manager.log_change(self.state['selected_collection'], mode, card_data, quantity)
 
-                 await self.load_collection_data()
                  ui.notify('Collection updated.', type='positive')
 
         await self.single_card_view.open_collectors(
@@ -1621,13 +1792,13 @@ class BulkAddPage:
         self.library_filter_dialog = ui.dialog().props('position=right')
         with self.library_filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0 flex flex-col'):
              with ui.scroll_area().classes('flex-grow w-full'):
-                 self.library_filter_pane = FilterPane(self.state, self.apply_library_filters, lambda: [self.library_filter_pane.reset_ui_elements(), self.apply_library_filters()])
+                 self.library_filter_pane = FilterPane(self.state, self.apply_library_filters, self.reset_library_filters)
                  self.library_filter_pane.build()
 
         self.collection_filter_dialog = ui.dialog().props('position=right')
         with self.collection_filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0 flex flex-col'):
              with ui.scroll_area().classes('flex-grow w-full'):
-                 self.collection_filter_pane = FilterPane(self.col_state, self.apply_collection_filters, lambda: [self.collection_filter_pane.reset_ui_elements(), self.apply_collection_filters()])
+                 self.collection_filter_pane = FilterPane(self.col_state, self.apply_collection_filters, self.reset_collection_filters)
                  self.collection_filter_pane.build()
 
         self.warning_dialog = ui.dialog()
@@ -1644,10 +1815,11 @@ class BulkAddPage:
 
                         ui.separator().props('vertical')
 
-                        async def on_search(e):
-                            self.state['library_search_text'] = e.value
-                            await self.apply_library_filters()
-                        ui.input(placeholder='Search...', on_change=on_search).props('dense borderless dark debounce=300').classes('w-52 text-sm')
+                        ui.input(placeholder='Search...') \
+                            .bind_value(self.state, 'library_search_text') \
+                            .props('dense borderless dark debounce=300') \
+                            .on('update:model-value', self.apply_library_filters) \
+                            .classes('w-52 text-sm')
 
                         ui.separator().props('vertical')
 
@@ -1703,10 +1875,11 @@ class BulkAddPage:
 
                         ui.separator().props('vertical')
 
-                        async def on_col_search(e):
-                            self.col_state['search_text'] = e.value
-                            await self.apply_collection_filters()
-                        ui.input(placeholder='Search...', on_change=on_col_search).props('dense borderless dark debounce=300').classes('w-52 text-sm')
+                        ui.input(placeholder='Search...') \
+                            .bind_value(self.col_state, 'search_text') \
+                            .props('dense borderless dark debounce=300') \
+                            .on('update:model-value', self.apply_collection_filters) \
+                            .classes('w-52 text-sm')
 
                         ui.separator().props('vertical')
 
