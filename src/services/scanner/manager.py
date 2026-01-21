@@ -427,6 +427,8 @@ class ScannerManager:
             except queue.Empty:
                 return
 
+            logger.info(f"Processing lookup for {data.get('set_code', 'Unknown')}")
+
             set_id = data.get('set_code')
             warped = data.pop('warped_image', None)
 
@@ -435,6 +437,7 @@ class ScannerManager:
             data['image_path'] = None
 
             if set_id:
+                # Wrap heavy DB/IO in io_bound if not already async-optimized
                 card_info = await self._resolve_card_details(set_id)
 
                 if card_info:
@@ -455,9 +458,10 @@ class ScannerManager:
                 data["rarity"] = data["visual_rarity"]
 
             self.result_queue.put(data)
+            logger.info(f"Lookup complete for {data.get('set_code')}")
 
         except Exception as e:
-            logger.error(f"Error in process_pending_lookups: {e}")
+            logger.error(f"Error in process_pending_lookups: {e}", exc_info=True)
 
     async def _resolve_card_details(self, set_id: str) -> Optional[Dict[str, Any]]:
         set_id = set_id.upper()
