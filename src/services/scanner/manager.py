@@ -275,6 +275,16 @@ class ScannerManager:
                         self.debug_state["preprocessing"] = options.get("preprocessing", "classic")
                         self.debug_state["active_tracks"] = options.get("tracks", [])
 
+                        # Reset result state to prevent stale data
+                        self.debug_state.update({
+                            "warped_image_url": None,
+                            "roi_viz_url": None,
+                            "t1_full": None, "t1_crop": None,
+                            "t2_full": None, "t2_crop": None,
+                            "visual_rarity": None,
+                            "first_edition": None
+                        })
+
                         # Define status updater
                         def update_step(step_name):
                             self.debug_state["current_step"] = step_name
@@ -356,6 +366,11 @@ class ScannerManager:
         else:
              report["steps"].append({"name": "Contour", "status": "FAIL", "details": f"{prep_method} failed"})
              warped = self.scanner.get_fallback_crop(frame) # Fallback for crop tracks
+
+             # Visualize fallback to ensure Debug UI shows what is actually being processed
+             report["warped_image_url"] = self._save_debug_image(warped, "warped_fallback")
+             roi_viz = self.scanner.debug_draw_rois(warped)
+             report["roi_viz_url"] = self._save_debug_image(roi_viz, "roi_viz_fallback")
 
         tracks = options.get("tracks", ["easyocr"]) # ['easyocr', 'paddle']
 

@@ -4,10 +4,19 @@ import os
 import asyncio
 import time
 import base64
+import sys
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile
 
-from src.services.scanner.manager import scanner_manager, SCANNER_AVAILABLE
+# Dynamic Import Wrapper
+def get_scanner_manager():
+    # Attempt to get the existing instance from sys.modules if reload happened
+    if 'src.services.scanner.manager' in sys.modules:
+        return sys.modules['src.services.scanner.manager'].scanner_manager
+    from src.services.scanner.manager import scanner_manager
+    return scanner_manager
+
+from src.services.scanner.manager import SCANNER_AVAILABLE
 from src.core.persistence import persistence
 from src.core.models import CollectionCard, CollectionVariant, CollectionEntry
 from src.services.ygo_api import ygo_service
@@ -19,7 +28,7 @@ logger = logging.getLogger(__name__)
 async def upload_frame(file: UploadFile):
     try:
         content = await file.read()
-        scanner_manager.push_frame(content)
+        get_scanner_manager().push_frame(content)
         return {"status": "received", "size": len(content)}
     except Exception as e:
         logger.error(f"Error receiving frame: {e}")
@@ -256,6 +265,7 @@ class ScanPage:
         # Debug Lab State
         self.debug_report = {}
         self.debug_loading = False
+        self.was_processing = False
         self.latest_capture_src = None
 
     async def init_cameras(self):
@@ -273,7 +283,7 @@ class ScanPage:
         device_id = self.camera_select.value if self.camera_select else None
         try:
             if await ui.run_javascript(f'startCamera("{device_id}", "/api/scanner/upload_frame")', timeout=20.0):
-                scanner_manager.start()
+                get_scanner_manager().start()
                 self.start_btn.visible = False
                 self.stop_btn.visible = True
             else:
@@ -284,7 +294,7 @@ class ScanPage:
 
     async def stop_camera(self):
         await ui.run_javascript('stopCamera()')
-        scanner_manager.stop()
+        get_scanner_manager().stop()
         self.start_btn.visible = True
         self.stop_btn.visible = False
 
@@ -363,7 +373,7 @@ class ScanPage:
             "tracks": self.ocr_tracks,
             "preprocessing": self.preprocessing_mode
         }
-        scanner_manager.trigger_scan(options)
+        get_scanner_manager().trigger_scan(options)
         ui.notify("Scanning...", type='info')
 
     def refresh_debug_ui(self):
@@ -394,7 +404,7 @@ class ScanPage:
                 "tracks": self.ocr_tracks,
                 "preprocessing": self.preprocessing_mode
             }
-            scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
+            get_scanner_manager().submit_scan(content, options, label="Image Upload", filename=filename)
             ui.notify(f"Queued: {filename}", type='positive')
         except Exception as err:
             ui.notify(f"Upload failed: {err}", type='negative')
@@ -420,7 +430,7 @@ class ScanPage:
                 "preprocessing": self.preprocessing_mode
             }
             fname = f"capture_{int(time.time())}.jpg"
-            scanner_manager.submit_scan(content, options, label="Camera Capture", filename=fname)
+            get_scanner_manager().submit_scan(content, options, label="Camera Capture", filename=fname)
             ui.notify("Capture queued", type='positive')
 
         except Exception as err:
@@ -430,23 +440,29 @@ class ScanPage:
     async def status_loop(self):
         """Fast loop for UI status updates."""
         if not self.is_active: return
+        mgr = get_scanner_manager()
 
         try:
             # Poll Debug State
-            self.debug_report = scanner_manager.get_debug_snapshot()
+            self.debug_report = mgr.get_debug_snapshot()
 
             # Always refresh status controls to stay in sync
             self.render_status_controls.refresh()
 
             # Conditionally refresh full debug UI
-            if scanner_manager.is_processing:
+            if mgr.is_processing:
+                 self.refresh_debug_ui()
+            elif self.was_processing and not mgr.is_processing:
+                 # Falling edge: processing just finished, ensure final state is shown
                  self.refresh_debug_ui()
             elif self.debug_loading:
                  self.debug_loading = False
                  self.refresh_debug_ui()
 
+            self.was_processing = mgr.is_processing
+
             # Notifications (quick)
-            note = scanner_manager.get_latest_notification()
+            note = mgr.get_latest_notification()
             if note:
                  ui.notify(note[1], type=note[0])
 
@@ -456,17 +472,18 @@ class ScanPage:
     async def processing_loop(self):
         """Slower loop for result processing and lookups."""
         if not self.is_active: return
+        mgr = get_scanner_manager()
 
         try:
             # Log periodically to confirm loop is alive if processing
-            if scanner_manager.is_processing:
-                 logger.debug(f"UI Processing Loop running... (Mgr: {getattr(scanner_manager, 'instance_id', '?')})")
+            if mgr.is_processing:
+                 logger.debug(f"UI Processing Loop running... (Mgr: {getattr(mgr, 'instance_id', '?')})")
 
             # Process Pending Lookups (Async Resolver - Potentially Blocking)
-            await scanner_manager.process_pending_lookups()
+            await mgr.process_pending_lookups()
 
             # Live Results
-            result = scanner_manager.get_latest_result()
+            result = mgr.get_latest_result()
             if result:
                 self.scanned_cards.insert(0, result)
                 self.render_live_list.refresh()
@@ -504,7 +521,7 @@ class ScanPage:
         if preview_src:
             ui.label("Latest Capture:").classes('font-bold mt-2 text-lg')
             ui.image(preview_src).classes('w-full h-auto border rounded shadow-md')
-        elif scanner_manager.is_processing:
+        elif get_scanner_manager().is_processing:
              ui.spinner()
 
     @ui.refreshable
@@ -552,7 +569,7 @@ class ScanPage:
 
     @ui.refreshable
     def render_scan_queue(self):
-        queue_items = scanner_manager.get_queue_snapshot()
+        queue_items = get_scanner_manager().get_queue_snapshot()
 
         with ui.card().classes('w-full border border-gray-600 rounded p-0'):
              with ui.row().classes('w-full bg-gray-800 p-2 items-center'):
@@ -572,13 +589,14 @@ class ScanPage:
                                        on_click=lambda idx=i: self.delete_queue_item(idx)).props('flat size=sm')
 
     def delete_queue_item(self, index):
-        scanner_manager.remove_scan_request(index)
+        get_scanner_manager().remove_scan_request(index)
         self.render_scan_queue.refresh()
 
     @ui.refreshable
     def render_status_controls(self):
-        status = scanner_manager.get_status()
-        is_paused = scanner_manager.is_paused()
+        mgr = get_scanner_manager()
+        status = mgr.get_status()
+        is_paused = mgr.is_paused()
 
         with ui.row().classes('w-full items-center justify-between bg-gray-800 p-2 rounded border border-gray-700'):
             with ui.row().classes('items-center gap-2'):
@@ -597,9 +615,9 @@ class ScanPage:
 
                 with ui.column().classes('gap-0'):
                     ui.label(f"Status: {label_text}").classes('font-bold')
-                    ui.label(f"Mgr: {getattr(scanner_manager, 'instance_id', 'N/A')}").classes('text-[10px] text-gray-600')
-                    current_step = scanner_manager.debug_state.get('current_step', 'Idle')
-                    if scanner_manager.is_processing:
+                    ui.label(f"Mgr: {getattr(mgr, 'instance_id', 'N/A')}").classes('text-[10px] text-gray-600')
+                    current_step = mgr.debug_state.get('current_step', 'Idle')
+                    if mgr.is_processing:
                         ui.label(f"{current_step}").classes('text-xs text-blue-400')
 
             # Controls
@@ -609,7 +627,7 @@ class ScanPage:
                  ui.button('Pause', icon='pause', color='warning', on_click=self.toggle_pause).props('size=sm')
 
     def toggle_pause(self):
-        scanner_manager.toggle_pause()
+        get_scanner_manager().toggle_pause()
         self.render_status_controls.refresh()
 
     def render_debug_lab(self):
@@ -674,7 +692,7 @@ def scan_page():
     page = ScanPage()
 
     # Ensure scanner service is running (idempotent)
-    scanner_manager.start()
+    get_scanner_manager().start()
     page.is_active = True
 
     if not SCANNER_AVAILABLE:
