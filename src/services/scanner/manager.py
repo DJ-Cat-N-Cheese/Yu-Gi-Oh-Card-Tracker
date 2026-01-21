@@ -23,8 +23,12 @@ except ImportError:
 
 if SCANNER_AVAILABLE:
     from src.services.scanner.pipeline import CardScanner
+    from src.services.scanner.models import (
+        ScanRequest, ScanResult, ScanDebugReport, OCRResult, ScanStep
+    )
 else:
     CardScanner = None
+    # Dummy models if needed, but we check availability first
 
 from src.services.ygo_api import ygo_service
 from src.services.image_manager import image_manager
@@ -41,11 +45,11 @@ class ScannerManager:
         self.scanner = CardScanner() if SCANNER_AVAILABLE else None
 
         # Queues
-        self.scan_queue = [] # List of pending scan requests
+        self.scan_queue: List[ScanRequest] = []
         self.queue_lock = threading.Lock()
 
         self.lookup_queue = queue.Queue() # Best result -> DB Lookup
-        self.result_queue = queue.Queue() # Finished results -> UI
+        self.result_queue = queue.Queue() # Finished results (ScanResult) -> UI
         self.notification_queue = queue.Queue() # Notifications -> UI
 
         self.thread: Optional[threading.Thread] = None
@@ -57,24 +61,8 @@ class ScannerManager:
         self.paused = True  # Default to paused (Stopped)
         self.status_message = "Stopped"
 
-        # Debug State
-        self.debug_state = {
-            "logs": [],
-            "queue_len": 0,
-            "paused": True,
-            "current_step": "Idle",
-            "captured_image_url": None,
-            "scan_result": "N/A",
-            "warped_image_url": None,
-            # Results
-            "t1_full": None,
-            "t1_crop": None,
-            "t2_full": None,
-            "t2_crop": None,
-            # Metadata
-            "preprocessing": "classic",
-            "active_tracks": []
-        }
+        # Debug State (using Model)
+        self.debug_state = ScanDebugReport()
 
         self.debug_dir = "debug/scans"
         self.queue_dir = "scans/queue"
@@ -120,25 +108,27 @@ class ScannerManager:
             self.notification_queue.put(("negative", f"Failed to save scan: {e}"))
             return
 
+        request = ScanRequest(
+            id=str(uuid.uuid4())[:8],
+            timestamp=time.time(),
+            filepath=filepath,
+            options=options,
+            type=label,
+            filename=filename
+        )
+
         with self.queue_lock:
-            self.scan_queue.append({
-                "id": str(uuid.uuid4())[:8],
-                "timestamp": time.time(),
-                "filepath": filepath,
-                "options": options,
-                "type": label,
-                "filename": filename
-            })
+            self.scan_queue.append(request)
         self._log_debug(f"Scan Queued: {label}")
 
     def pause(self):
         self.paused = True
-        self.debug_state["paused"] = True
+        self.debug_state.paused = True
         self._log_debug("Scanner Paused")
 
     def resume(self):
         self.paused = False
-        self.debug_state["paused"] = False
+        self.debug_state.paused = False
         self._log_debug("Scanner Resumed")
 
     def toggle_pause(self):
@@ -152,46 +142,43 @@ class ScannerManager:
 
     def get_queue_snapshot(self) -> List[Dict[str, Any]]:
         with self.queue_lock:
-            # Return metadata only
-            return [
-                {
-                    "id": item["id"],
-                    "timestamp": item["timestamp"],
-                    "type": item.get("type", "Unknown"),
-                    "filename": item.get("filename"),
-                    "options": item["options"]
-                }
-                for item in self.scan_queue
-            ]
+            return [req.model_dump() for req in self.scan_queue]
 
     def remove_scan_request(self, index: int):
         with self.queue_lock:
             if 0 <= index < len(self.scan_queue):
                 removed = self.scan_queue.pop(index)
-                filepath = removed.get("filepath")
+                filepath = removed.filepath
                 if filepath and os.path.exists(filepath):
                     try:
                         os.remove(filepath)
                     except OSError:
                         pass
-                self._log_debug(f"Removed item {removed['id']} from queue")
+                self._log_debug(f"Removed item {removed.id} from queue")
 
     def get_debug_snapshot(self) -> Dict[str, Any]:
         with self.queue_lock:
-            self.debug_state["queue_len"] = len(self.scan_queue)
-        return self.debug_state.copy()
+            self.debug_state.queue_len = len(self.scan_queue)
+        return self.debug_state.model_dump()
 
     def _log_debug(self, message: str):
         timestamp = time.strftime("%H:%M:%S")
         entry = f"[{timestamp}] {message}"
-        self.debug_state["logs"] = [entry] + self.debug_state["logs"][:19]
+        # Prepend log, keep last 20
+        self.debug_state.logs.insert(0, entry)
+        if len(self.debug_state.logs) > 20:
+             self.debug_state.logs = self.debug_state.logs[:20]
 
     def get_status(self) -> str:
         return self.status_message
 
     def get_latest_result(self) -> Optional[Dict[str, Any]]:
+        # Returns dict for UI consumption
         try:
-            return self.result_queue.get_nowait()
+            res = self.result_queue.get_nowait()
+            if isinstance(res, BaseModel):
+                return res.model_dump()
+            return res
         except queue.Empty:
             return None
 
@@ -200,7 +187,6 @@ class ScannerManager:
             return self.notification_queue.get_nowait()
         except queue.Empty:
             return None
-
 
     def _save_debug_image(self, image, prefix="img") -> str:
         if image is None: return None
@@ -220,18 +206,18 @@ class ScannerManager:
                     continue
 
                 # 2. Peek Queue
-                task = None
+                task: Optional[ScanRequest] = None
                 with self.queue_lock:
                     if self.scan_queue:
-                        task = self.scan_queue[0] # Peek, don't pop
+                        task = self.scan_queue[0] # Peek
 
                 if not task:
                     self.status_message = "Idle"
                     time.sleep(0.1)
                     continue
 
-                filename = task.get("filename", "unknown")
-                filepath = task.get("filepath")
+                filename = task.filename
+                filepath = task.filepath
 
                 # Check if file exists
                 if not filepath or not os.path.exists(filepath):
@@ -253,36 +239,43 @@ class ScannerManager:
                     if frame is not None:
                         # Update debug state basics
                         cap_url = self._save_debug_image(frame, "manual_cap")
-                        self.debug_state["captured_image_url"] = cap_url
-                        self.debug_state["preprocessing"] = task["options"].get("preprocessing", "classic")
-                        self.debug_state["active_tracks"] = task["options"].get("tracks", [])
+                        self.debug_state.captured_image_url = cap_url
+                        self.debug_state.preprocessing = task.options.get("preprocessing", "classic")
+                        self.debug_state.active_tracks = task.options.get("tracks", [])
 
                         # Define status updater
                         def update_step(step_name):
-                            self.debug_state["current_step"] = step_name
+                            self.debug_state.current_step = step_name
                             self.status_message = f"Processing: {filename} ({step_name})"
 
                         # Run Pipeline
-                        report = self._process_scan(frame, task["options"], status_cb=update_step)
+                        report = self._process_scan(frame, task.options, status_cb=update_step)
 
                         # Merge report into debug state
-                        self.debug_state.update(report)
+                        # Manually update fields since report is partial ScanDebugReport or dict?
+                        # Let's make _process_scan update self.debug_state fields directly or return dict to merge
+                        # For now, let's assume _process_scan returns a dict that maps to ScanDebugReport fields
+
+                        for key, value in report.items():
+                             if hasattr(self.debug_state, key):
+                                 setattr(self.debug_state, key, value)
 
                         # If we found a card, push to result queue
                         # We pick the best result.
                         best_res = self._pick_best_result(report)
                         if best_res:
                             # Enhance with visual traits if warped image exists
-                            warped = None
-                            # Construct lookup data
+                            warped = report.get('warped_image_data') # Not in model, but returned by _process_scan
+
+                            # Construct lookup data (Internal structure for LookupQueue)
                             lookup_data = {
-                                "set_code": best_res['set_id'],
-                                "language": best_res['language'],
-                                "ocr_conf": best_res['set_id_conf'],
+                                "set_code": best_res.set_id,
+                                "language": best_res.language,
+                                "ocr_conf": best_res.set_id_conf,
                                 "rarity": "Unknown",
                                 "visual_rarity": report.get('visual_rarity', 'Common'),
                                 "first_edition": report.get('first_edition', False),
-                                "warped_image": report.get('warped_image_data')
+                                "warped_image": warped
                             }
                             self.lookup_queue.put(lookup_data)
 
@@ -291,7 +284,7 @@ class ScannerManager:
 
                         # Remove from queue and delete file ON SUCCESS (or clean fail)
                         with self.queue_lock:
-                             if self.scan_queue and self.scan_queue[0]["id"] == task["id"]:
+                             if self.scan_queue and self.scan_queue[0].id == task.id:
                                  self.scan_queue.pop(0)
 
                         try:
@@ -303,7 +296,7 @@ class ScannerManager:
                         self._log_debug(f"Frame read failed for {filepath}")
                         # Remove bad file
                         with self.queue_lock:
-                             if self.scan_queue and self.scan_queue[0]["id"] == task["id"]:
+                             if self.scan_queue and self.scan_queue[0].id == task.id:
                                  self.scan_queue.pop(0)
 
                 except ScanAborted:
@@ -312,14 +305,13 @@ class ScannerManager:
                     self.status_message = "Paused"
                     # Do NOT remove from queue.
                     # Do NOT delete file.
-                    # Next loop will see paused=True and wait.
 
                 except Exception as e:
                     logger.error(f"Task Execution Error: {e}", exc_info=True)
                     self._log_debug(f"Error: {str(e)}")
                     # On error, remove to prevent infinite loop
                     with self.queue_lock:
-                        if self.scan_queue and self.scan_queue[0]["id"] == task["id"]:
+                        if self.scan_queue and self.scan_queue[0].id == task.id:
                             self.scan_queue.pop(0)
 
             except Exception as e:
@@ -328,7 +320,7 @@ class ScannerManager:
                 time.sleep(1.0) # Prevent tight loop on crash
             finally:
                 self.is_processing = False
-                self.debug_state["current_step"] = "Idle"
+                self.debug_state.current_step = "Idle"
                 if not self.paused:
                      self.status_message = "Idle"
 
@@ -345,9 +337,10 @@ class ScannerManager:
 
         check_pause()
 
+        # Temporary dict to hold results before updating debug_state
+        # We return a dict that matches fields in ScanDebugReport + extra internal data like 'warped_image_data'
         report = {
             "steps": [],
-            "results": {},
             "t1_full": None, "t1_crop": None,
             "t2_full": None, "t2_crop": None
         }
@@ -371,11 +364,9 @@ class ScannerManager:
              roi_viz = self.scanner.debug_draw_rois(warped)
              report["roi_viz_url"] = self._save_debug_image(roi_viz, "roi_viz")
         else:
-             report["steps"].append({"name": "Contour", "status": "FAIL", "details": f"{prep_method} failed"})
+             report["steps"].append(ScanStep(name="Contour", status="FAIL", details=f"{prep_method} failed"))
              warped = self.scanner.get_fallback_crop(frame) # Fallback for crop tracks
-             # Also save fallback warped image so it's visible in Debug Lab
              report["warped_image_url"] = self._save_debug_image(warped, "warped")
-             # And ROIs on fallback
              roi_viz = self.scanner.debug_draw_rois(warped)
              report["roi_viz_url"] = self._save_debug_image(roi_viz, "roi_viz")
 
@@ -389,24 +380,22 @@ class ScannerManager:
         if "easyocr" in tracks:
             try:
                 set_step("Track 1: EasyOCR (Full)")
-                # Full Frame
                 t1_full = self.scanner.ocr_scan(frame, engine='easyocr')
-                t1_full['scope'] = 'full'
+                t1_full.scope = 'full'
                 report["t1_full"] = t1_full
 
                 check_pause()
 
                 set_step("Track 1: EasyOCR (Crop)")
-                # Crop
                 if warped is not None:
                     t1_crop = self.scanner.ocr_scan(warped, engine='easyocr')
-                    t1_crop['scope'] = 'crop'
+                    t1_crop.scope = 'crop'
                     report["t1_crop"] = t1_crop
             except ScanAborted:
                 raise
             except Exception as e:
                 logger.error(f"Track 1 (EasyOCR) Failed: {e}")
-                report["steps"].append({"name": "Track 1", "status": "FAIL", "details": str(e)})
+                report["steps"].append(ScanStep(name="Track 1", status="FAIL", details=str(e)))
 
         check_pause()
 
@@ -414,24 +403,22 @@ class ScannerManager:
         if "paddle" in tracks:
             try:
                 set_step("Track 2: PaddleOCR (Full)")
-                # Full Frame
                 t2_full = self.scanner.ocr_scan(frame, engine='paddle')
-                t2_full['scope'] = 'full'
+                t2_full.scope = 'full'
                 report["t2_full"] = t2_full
 
                 check_pause()
 
                 set_step("Track 2: PaddleOCR (Crop)")
-                # Crop
                 if warped is not None:
                     t2_crop = self.scanner.ocr_scan(warped, engine='paddle')
-                    t2_crop['scope'] = 'crop'
+                    t2_crop.scope = 'crop'
                     report["t2_crop"] = t2_crop
             except ScanAborted:
                 raise
             except Exception as e:
                 logger.error(f"Track 2 (PaddleOCR) Failed: {e}")
-                report["steps"].append({"name": "Track 2", "status": "FAIL", "details": str(e)})
+                report["steps"].append(ScanStep(name="Track 2", status="FAIL", details=str(e)))
 
         # Extra Analysis on Warped (if available)
         if warped is not None:
@@ -448,12 +435,12 @@ class ScannerManager:
         candidates = []
         for key in ["t1_full", "t1_crop", "t2_full", "t2_crop"]:
             res = report.get(key)
-            if res and res.get('set_id'):
+            if res and res.set_id:
                 candidates.append(res)
 
         if not candidates: return None
         # Sort by confidence
-        candidates.sort(key=lambda x: x['set_id_conf'], reverse=True)
+        candidates.sort(key=lambda x: x.set_id_conf, reverse=True)
         return candidates[0]
 
     async def process_pending_lookups(self):
@@ -468,33 +455,38 @@ class ScannerManager:
             set_id = data.get('set_code')
             warped = data.pop('warped_image', None)
 
-            data['name'] = "Unknown Card"
-            data['card_id'] = None
-            data['image_path'] = None
+            # Create base result
+            result = ScanResult()
+            result.set_code = set_id
+            result.language = data.get('language', 'EN')
+            result.ocr_conf = data.get('ocr_conf', 0.0)
+            result.visual_rarity = data.get('visual_rarity', 'Common')
+            result.first_edition = data.get('first_edition', False)
 
             if set_id:
-                # Wrap heavy DB/IO in io_bound if not already async-optimized
                 card_info = await self._resolve_card_details(set_id)
 
                 if card_info:
-                    data.update(card_info)
+                    result.name = card_info['name']
+                    result.card_id = card_info['card_id']
+                    result.rarity = card_info['rarity']
 
                     if warped is not None and card_info.get("potential_art_paths"):
                         match_path, match_score = await run.io_bound(
                             self.scanner.match_artwork, warped, card_info["potential_art_paths"]
                         )
                         if match_path:
-                            data["image_path"] = match_path
-                            data["match_score"] = match_score
+                            result.image_path = match_path
+                            result.match_score = match_score
                         else:
-                            data["image_path"] = card_info["potential_art_paths"][0]
-                            data["match_score"] = 0
+                            result.image_path = card_info["potential_art_paths"][0]
+                            result.match_score = 0
 
-            if data["rarity"] == "Unknown":
-                data["rarity"] = data["visual_rarity"]
+            if result.rarity == "Unknown":
+                result.rarity = result.visual_rarity
 
-            self.result_queue.put(data)
-            logger.info(f"Lookup complete for {data.get('set_code')}")
+            self.result_queue.put(result)
+            logger.info(f"Lookup complete for {result.set_code}")
 
         except Exception as e:
             logger.error(f"Error in process_pending_lookups: {e}", exc_info=True)

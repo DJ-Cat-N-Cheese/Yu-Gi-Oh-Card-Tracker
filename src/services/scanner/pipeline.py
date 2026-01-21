@@ -14,6 +14,18 @@ try:
 except ImportError:
     pass  # Handled in __init__.py
 
+if 'src.services.scanner.models' in locals() or 'src.services.scanner.models' in globals():
+    from src.services.scanner.models import OCRResult
+else:
+    # Need to handle import if running this file directly or in context where models not loaded
+    # But usually this file is imported by manager which imports models.
+    # To be safe, let's try local import
+    try:
+        from src.services.scanner.models import OCRResult
+    except ImportError:
+        # Fallback for when models is not available (shouldn't happen in prod)
+        pass
+
 logger = logging.getLogger(__name__)
 
 class CardScanner:
@@ -230,10 +242,10 @@ class CardScanner:
         warped = cv2.warpPerspective(frame, M, (self.width, self.height))
         return warped
 
-    def ocr_scan(self, image: np.ndarray, engine: str = 'easyocr') -> Dict[str, Any]:
+    def ocr_scan(self, image: np.ndarray, engine: str = 'easyocr') -> 'OCRResult':
         """
         Runs OCR on the provided image using the specified engine.
-        Returns a dict with 'raw_text', 'set_id', 'set_id_conf', 'language'.
+        Returns an OCRResult Pydantic model.
         """
         raw_text_list = []
         confidences = []
@@ -281,13 +293,13 @@ class CardScanner:
             logger.error(f"OCR Scan Error ({engine}): {e}")
             full_text = " | ".join(raw_text_list) # Return whatever we got
 
-        return {
-            "engine": engine,
-            "raw_text": full_text,
-            "set_id": set_id,
-            "set_id_conf": set_id_conf * 100, # Normalize to 0-100
-            "language": lang
-        }
+        return OCRResult(
+            engine=engine,
+            raw_text=full_text,
+            set_id=set_id,
+            set_id_conf=set_id_conf * 100, # Normalize to 0-100
+            language=lang
+        )
 
     def _parse_set_id(self, texts: List[str], confs: List[float]) -> Tuple[Optional[str], float, str]:
         """Extracts Set ID and Language from text lines."""
@@ -333,7 +345,7 @@ class CardScanner:
 
         # Fast scan on ROI
         res = self.ocr_scan(roi, engine=engine)
-        text = res['raw_text'].lower()
+        text = res.raw_text.lower()
 
         if '1st' in text or 'edition' in text:
             return True
@@ -360,7 +372,7 @@ class CardScanner:
              # Run a quick OCR? Or assume the caller has full text?
              # Let's run a quick EasyOCR on description if needed.
              res = self.ocr_scan(roi, engine='easyocr')
-             text = res['raw_text']
+             text = res.raw_text
              if len(text) > 5:
                   return detect(text).upper()
         except:

@@ -210,7 +210,7 @@ class ScanPage:
         self.ocr_tracks = ['easyocr'] # ['easyocr', 'paddle']
         self.preprocessing_mode = 'classic' # 'classic' or 'yolo'
 
-        # Debug Lab State
+        # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
         self.debug_loading = False
         self.latest_capture_src = None
@@ -263,6 +263,7 @@ class ScanPage:
 
             count = 0
             for item in self.scanned_cards:
+                # item is dict from ScanResult.model_dump()
                 if not item.get('card_id'):
                     continue
 
@@ -401,6 +402,7 @@ class ScanPage:
 
         try:
             # Poll Debug State
+            # get_debug_snapshot now returns dict dump of ScanDebugReport
             self.debug_report = scanner_manager.get_debug_snapshot()
 
             # Always refresh status controls to stay in sync
@@ -534,7 +536,7 @@ class ScanPage:
                      for i, item in enumerate(queue_items):
                          with ui.row().classes('w-full items-center justify-between bg-gray-800 p-2 rounded border border-gray-700'):
                              with ui.column().classes('gap-0'):
-                                 ui.label(item.get('filename') or item['type']).classes('text-sm font-bold')
+                                 ui.label(item.get('filename') or item.get('type')).classes('text-sm font-bold')
                                  ui.label(time.strftime("%H:%M:%S", time.localtime(item['timestamp']))).classes('text-xs text-gray-400')
                              ui.button(icon='delete', color='negative',
                                        on_click=lambda idx=i: self.delete_queue_item(idx)).props('flat size=sm')
@@ -566,7 +568,8 @@ class ScanPage:
                 with ui.column().classes('gap-0'):
                     ui.label(f"Status: {label_text}").classes('font-bold')
                     ui.label(f"Mgr: {getattr(scanner_manager, 'instance_id', 'N/A')}").classes('text-[10px] text-gray-600')
-                    current_step = scanner_manager.debug_state.get('current_step', 'Idle')
+                    # Access current_step safely from debug_report (it's a dict now in UI context)
+                    current_step = self.debug_report.get('current_step', 'Idle')
                     if scanner_manager.is_processing:
                         ui.label(f"{current_step}").classes('text-xs text-blue-400')
 
