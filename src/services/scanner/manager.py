@@ -74,7 +74,7 @@ class ScannerManager:
             logger.error("Scanner dependencies missing. Cannot start.")
             return
 
-        if self.running:
+        if self.running and self.thread and self.thread.is_alive():
             return
 
         self.running = True
@@ -532,4 +532,9 @@ class ScannerManager:
             "potential_art_paths": potential_paths
         }
 
+# Singleton instantiation logic
+# To avoid multiple instances during reload, we might need a more complex strategy if this wasn't enough.
+# However, module-level variables are usually reset on reload.
+# The issue is typically that the *importing* module holds a reference to the old module's variable.
+# Since we fixed the importing side to use `scanner_service.scanner_manager`, we are good.
 scanner_manager = ScannerManager()
