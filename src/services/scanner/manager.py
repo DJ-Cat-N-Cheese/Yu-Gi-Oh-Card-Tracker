@@ -80,16 +80,17 @@ class ScannerManager:
 
     def start(self):
         if not SCANNER_AVAILABLE:
-            logger.error("Scanner dependencies missing. Cannot start.")
+            logger.error(f"[{self.instance_id}] Scanner dependencies missing. Cannot start.")
             return
 
-        if self.running:
+        # Check if already running AND alive
+        if self.running and self.thread and self.thread.is_alive():
             return
 
         self.running = True
         self.thread = threading.Thread(target=self._worker, daemon=True)
         self.thread.start()
-        logger.info(f"Scanner started (Client-Side Mode)")
+        logger.info(f"[{self.instance_id}] Scanner started (Client-Side Mode)")
 
     def stop(self):
         if not self.running:
@@ -144,8 +145,14 @@ class ScannerManager:
         self._log_debug("Scanner Paused")
 
     def resume(self):
+        # Self-Healing: Restart thread if dead
+        if self.running and (not self.thread or not self.thread.is_alive()):
+            logger.warning(f"[{self.instance_id}] Worker thread found dead on resume. Restarting...")
+            self.start()
+
         self.paused = False
         self.debug_state["paused"] = False
+        # Force status to Idle so UI reflects readiness immediately
         self.status_message = "Idle"
         self._log_debug("Scanner Resumed")
 
@@ -205,7 +212,7 @@ class ScannerManager:
 
     def _log_debug(self, message: str):
         timestamp = time.strftime("%H:%M:%S")
-        entry = f"[{timestamp}] {message}"
+        entry = f"[{timestamp}] [{self.instance_id}] {message}"
         self.debug_state["logs"] = [entry] + self.debug_state["logs"][:19]
 
     def get_status(self) -> str:
@@ -240,10 +247,12 @@ class ScannerManager:
         return f"/debug/scans/{filename}"
 
     def _worker(self):
-        logger.info(f"Scanner worker thread started (Manager ID: {self.instance_id})")
+        logger.info(f"[{self.instance_id}] Scanner worker thread started")
         while self.running:
             try:
                 if self.paused:
+                    # Update status but don't overwrite if Resume just set it to Idle/Processing
+                    # Actually, if paused is True, status SHOULD be Paused.
                     self.status_message = "Paused"
                     time.sleep(0.1)
                     continue
@@ -261,7 +270,7 @@ class ScannerManager:
                 filename = task.get("filename", "unknown")
                 self.is_processing = True
                 self.status_message = f"Processing: {filename}"
-                logger.info(f"Starting scan for: {filename}")
+                logger.info(f"[{self.instance_id}] Starting scan for: {filename}")
                 self._log_debug(f"Started: {filename}")
 
                 try:
@@ -308,17 +317,17 @@ class ScannerManager:
                             }
                             self.lookup_queue.put(lookup_data)
 
-                        logger.info(f"Finished scan for: {filename}")
+                        logger.info(f"[{self.instance_id}] Finished scan for: {filename}")
                         self._log_debug(f"Finished: {filename}")
                     else:
                         self._log_debug("Frame decode failed")
 
                 except Exception as e:
-                    logger.error(f"Task Execution Error: {e}", exc_info=True)
+                    logger.error(f"[{self.instance_id}] Task Execution Error: {e}", exc_info=True)
                     self._log_debug(f"Error: {str(e)}")
 
             except Exception as e:
-                logger.error(f"Worker Loop Fatal Error: {e}", exc_info=True)
+                logger.error(f"[{self.instance_id}] Worker Loop Fatal Error: {e}", exc_info=True)
                 self.status_message = "Error"
                 time.sleep(1.0) # Prevent tight loop on crash
             finally:
@@ -431,7 +440,7 @@ class ScannerManager:
             except queue.Empty:
                 return
 
-            logger.info(f"Processing lookup for {data.get('set_code', 'Unknown')}")
+            logger.info(f"[{self.instance_id}] Processing lookup for {data.get('set_code', 'Unknown')}")
 
             set_id = data.get('set_code')
             warped = data.pop('warped_image', None)
@@ -462,10 +471,10 @@ class ScannerManager:
                 data["rarity"] = data["visual_rarity"]
 
             self.result_queue.put(data)
-            logger.info(f"Lookup complete for {data.get('set_code')}")
+            logger.info(f"[{self.instance_id}] Lookup complete for {data.get('set_code')}")
 
         except Exception as e:
-            logger.error(f"Error in process_pending_lookups: {e}", exc_info=True)
+            logger.error(f"[{self.instance_id}] Error in process_pending_lookups: {e}", exc_info=True)
 
     async def _resolve_card_details(self, set_id: str) -> Optional[Dict[str, Any]]:
         set_id = set_id.upper()

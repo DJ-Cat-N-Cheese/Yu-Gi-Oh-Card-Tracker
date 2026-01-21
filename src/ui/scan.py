@@ -257,7 +257,6 @@ class ScanPage:
         self.debug_report = {}
         self.debug_loading = False
         self.latest_capture_src = None
-        self.was_processing = False
 
     async def init_cameras(self):
         try:
