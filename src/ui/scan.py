@@ -247,7 +247,16 @@ class ScanPage:
 
     async def handle_upload(self, e: events.UploadEventArguments):
         try:
-            content = e.content.read()
+            # Robust file object retrieval - use getattr to avoid AttributeError if 'content' is missing
+            file_obj = getattr(e, 'content', None)
+            if not file_obj:
+                 # Fallback for different NiceGUI versions or event structures
+                 file_obj = getattr(e, 'file', None)
+
+            if not file_obj:
+                 raise ValueError("No file content found in upload event")
+
+            content = file_obj.read()
             fname = e.name or "upload.jpg"
             await self.run_scan_task(content, fname)
         except Exception as err:
