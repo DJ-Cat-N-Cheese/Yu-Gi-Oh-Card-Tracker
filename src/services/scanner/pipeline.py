@@ -53,7 +53,7 @@ class CardScanner:
             logger.info("Initializing PaddleOCR...")
             use_gpu = hasattr(torch, 'cuda') and torch.cuda.is_available()
             # suppress console output
-            self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=use_gpu, show_log=False)
+            self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en', use_gpu=use_gpu)
         return self.paddle_ocr
 
     def get_yolo(self):
