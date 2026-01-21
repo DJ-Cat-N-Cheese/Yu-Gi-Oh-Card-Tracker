@@ -370,6 +370,8 @@ class ScanPage:
         self.render_debug_results.refresh()
         self.render_debug_analysis.refresh()
         self.render_debug_pipeline_results.refresh()
+        self.render_scan_queue.refresh()
+        self.render_status_controls.refresh()
 
     async def handle_debug_upload(self, e: events.UploadEventArguments):
         self.debug_loading = True
@@ -448,7 +450,7 @@ class ScanPage:
         # Ideally we'd have a dirty flag.
         # We can refresh the debug UI every loop? Might be too heavy.
         # Let's refresh only if status is "Processing..." or similar.
-        if scanner_manager.is_processing:
+        if scanner_manager.is_processing or scanner_manager.is_paused():
              self.refresh_debug_ui()
         elif self.debug_loading: # Should turn off
              self.debug_loading = False
@@ -543,12 +545,61 @@ class ScanPage:
             for log in logs:
                 ui.label(log)
 
+    @ui.refreshable
+    def render_scan_queue(self):
+        queue_items = scanner_manager.get_queue_snapshot()
+
+        with ui.expansion(f"Scan Queue ({len(queue_items)})", icon='list').classes('w-full border border-gray-600 rounded'):
+             if not queue_items:
+                 ui.label("Queue is empty.").classes('p-2 text-gray-500 italic')
+             else:
+                 with ui.column().classes('w-full gap-1 p-2'):
+                     for i, item in enumerate(queue_items):
+                         with ui.row().classes('w-full items-center justify-between bg-gray-800 p-2 rounded'):
+                             with ui.column().classes('gap-0'):
+                                 ui.label(f"#{i+1} {item['type']}").classes('text-sm font-bold')
+                                 ui.label(time.strftime("%H:%M:%S", time.localtime(item['timestamp']))).classes('text-xs text-gray-400')
+                             ui.button(icon='delete', color='negative',
+                                       on_click=lambda idx=i: self.delete_queue_item(idx)).props('flat size=sm')
+
+    def delete_queue_item(self, index):
+        scanner_manager.remove_scan_request(index)
+        self.render_scan_queue.refresh()
+
+    @ui.refreshable
+    def render_status_controls(self):
+        status = scanner_manager.get_status()
+        is_paused = scanner_manager.is_paused()
+
+        with ui.row().classes('w-full items-center justify-between bg-gray-800 p-2 rounded border border-gray-700'):
+            with ui.row().classes('items-center gap-2'):
+                if status == "Processing...":
+                    ui.spinner(size='sm')
+                elif status == "Paused":
+                    ui.icon('pause_circle', color='warning').classes('text-xl')
+                else:
+                    ui.icon('check_circle', color='positive').classes('text-xl')
+
+                ui.label(f"Status: {status}").classes('font-bold')
+
+            # Controls
+            btn_icon = 'play_arrow' if is_paused else 'pause'
+            btn_label = 'Resume' if is_paused else 'Pause'
+            btn_color = 'positive' if is_paused else 'warning'
+
+            ui.button(btn_label, icon=btn_icon, color=btn_color, on_click=self.toggle_pause).props('size=sm')
+
+    def toggle_pause(self):
+        scanner_manager.toggle_pause()
+        self.render_status_controls.refresh()
+
     def render_debug_lab(self):
         with ui.grid().classes('grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full'):
 
             # --- CARD 1: CONTROLS & INPUT ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
                 ui.label("1. Configuration & Input").classes('text-2xl font-bold text-primary')
+                self.render_status_controls()
 
                 # Preprocessing Toggle
                 ui.label("Preprocessing Strategy:").classes('font-bold text-gray-300')
@@ -573,6 +624,7 @@ class ScanPage:
                 ui.separator().classes('bg-gray-600')
                 ui.upload(label="Upload Image", on_upload=self.handle_debug_upload, auto_upload=True).props('accept=.jpg,.png color=secondary').classes('w-full')
 
+                self.render_scan_queue()
                 self.render_debug_results()
 
             # --- CARD 2: VISUAL ---

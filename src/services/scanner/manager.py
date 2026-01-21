@@ -37,7 +37,9 @@ class ScannerManager:
         self.scanner = CardScanner() if SCANNER_AVAILABLE else None
 
         # Queues
-        self.request_queue = queue.Queue() # Manual scan requests
+        self.scan_queue = [] # List of pending scan requests
+        self.queue_lock = threading.Lock()
+
         self.lookup_queue = queue.Queue() # Best result -> DB Lookup
         self.result_queue = queue.Queue() # Finished results -> UI
         self.notification_queue = queue.Queue() # Notifications -> UI
@@ -49,11 +51,14 @@ class ScannerManager:
         self.latest_frame_lock = threading.Lock()
 
         self.is_processing = False
+        self.paused = False
         self.status_message = "Idle"
 
         # Debug State
         self.debug_state = {
             "logs": [],
+            "queue_len": 0,
+            "paused": False,
             "captured_image_url": None,
             "scan_result": "N/A",
             "warped_image_url": None,
@@ -114,11 +119,53 @@ class ScannerManager:
                 return
             frame_data = self.latest_frame
 
-        self.request_queue.put({
-            "image": frame_data,
-            "options": options
-        })
+        with self.queue_lock:
+            self.scan_queue.append({
+                "id": str(uuid.uuid4())[:8],
+                "timestamp": time.time(),
+                "image": frame_data,
+                "options": options,
+                "type": "Manual Capture"
+            })
         self._log_debug("Scan Queued")
+
+    def pause(self):
+        self.paused = True
+        self.debug_state["paused"] = True
+        self._log_debug("Scanner Paused")
+
+    def resume(self):
+        self.paused = False
+        self.debug_state["paused"] = False
+        self._log_debug("Scanner Resumed")
+
+    def toggle_pause(self):
+        if self.paused:
+            self.resume()
+        else:
+            self.pause()
+
+    def is_paused(self) -> bool:
+        return self.paused
+
+    def get_queue_snapshot(self) -> List[Dict[str, Any]]:
+        with self.queue_lock:
+            # Return metadata only
+            return [
+                {
+                    "id": item["id"],
+                    "timestamp": item["timestamp"],
+                    "type": item.get("type", "Unknown"),
+                    "options": item["options"]
+                }
+                for item in self.scan_queue
+            ]
+
+    def remove_scan_request(self, index: int):
+        with self.queue_lock:
+            if 0 <= index < len(self.scan_queue):
+                removed = self.scan_queue.pop(index)
+                self._log_debug(f"Removed item {removed['id']} from queue")
 
     async def analyze_static_image(self, image_bytes: bytes, options: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -141,6 +188,8 @@ class ScannerManager:
         return self._process_scan(frame, options)
 
     def get_debug_snapshot(self) -> Dict[str, Any]:
+        with self.queue_lock:
+            self.debug_state["queue_len"] = len(self.scan_queue)
         return self.debug_state.copy()
 
     def _log_debug(self, message: str):
@@ -179,9 +228,19 @@ class ScannerManager:
 
     def _worker(self):
         while self.running:
-            try:
-                task = self.request_queue.get(timeout=0.1)
-            except queue.Empty:
+            if self.paused:
+                self.status_message = "Paused"
+                time.sleep(0.1)
+                continue
+
+            task = None
+            with self.queue_lock:
+                if self.scan_queue:
+                    task = self.scan_queue.pop(0)
+
+            if not task:
+                self.status_message = "Idle"
+                time.sleep(0.1)
                 continue
 
             self.is_processing = True
