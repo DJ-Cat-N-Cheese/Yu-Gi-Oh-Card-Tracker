@@ -298,26 +298,12 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
 
             # Setup Filters Metadata
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
+            metadata = await ygo_service.get_filter_metadata(lang)
 
-            for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        parts = s.set_code.split('-')
-                        prefix = parts[0] if len(parts) > 0 else s.set_code
-                        sets.add(f"{s.set_name} | {prefix}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.state['available_sets'] = sorted(list(sets))
-            self.state['available_monster_races'] = sorted(list(m_races))
-            self.state['available_st_races'] = sorted(list(st_races))
-            self.state['available_archetypes'] = sorted(list(archetypes))
+            self.state['available_sets'] = metadata['sets']
+            self.state['available_monster_races'] = metadata['monster_races']
+            self.state['available_st_races'] = metadata['st_races']
+            self.state['available_archetypes'] = metadata['archetypes']
             self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
 
             # Load Decks List

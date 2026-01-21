@@ -27,6 +27,7 @@ class YugiohService:
     def __init__(self):
         self._cards_cache: Dict[str, List[ApiCard]] = {}
         self._sets_cache: Dict[str, Dict[str, Any]] = {} # set_code_prefix -> {name, code, image, date, count}
+        self._metadata_cache: Dict[str, Dict[str, List[str]]] = {}
         self._migrate_old_db_files()
 
     def _migrate_old_db_files(self):
@@ -226,6 +227,8 @@ class YugiohService:
     async def save_card_database(self, cards: List[ApiCard], language: str = "en"):
         """Saves the card database to disk."""
         self._cards_cache[language] = cards
+        # Invalidate metadata cache since cards have changed
+        self._metadata_cache.pop(language, None)
 
         if not cards:
             return
@@ -423,6 +426,54 @@ class YugiohService:
         db_file = self._get_db_file(language)
         with open(db_file, 'r', encoding='utf-8') as f:
             return json.load(f)
+
+    def _compute_metadata(self, cards: List[ApiCard]) -> Dict[str, List[str]]:
+        """
+        Extracts filter metadata (sets, races, etc.) from a list of cards.
+        This is a CPU-bound operation.
+        """
+        sets = set()
+        m_races = set()
+        st_races = set()
+        archetypes = set()
+
+        for c in cards:
+            if c.card_sets:
+                for s in c.card_sets:
+                    parts = s.set_code.split('-')
+                    prefix = parts[0] if len(parts) > 0 else s.set_code
+                    sets.add(f"{s.set_name} | {prefix}")
+            if c.archetype: archetypes.add(c.archetype)
+            if "Monster" in c.type: m_races.add(c.race)
+            elif "Spell" in c.type or "Trap" in c.type:
+                if c.race: st_races.add(c.race)
+
+        return {
+            'sets': sorted(list(sets)),
+            'monster_races': sorted(list(m_races)),
+            'st_races': sorted(list(st_races)),
+            'archetypes': sorted(list(archetypes))
+        }
+
+    async def get_filter_metadata(self, language: str = "en") -> Dict[str, List[str]]:
+        """
+        Returns cached filter metadata. If not found, computes it (potentially in a separate process).
+        """
+        if language in self._metadata_cache:
+            return self._metadata_cache[language]
+
+        # Ensure cards are loaded
+        cards = await self.load_card_database(language)
+
+        try:
+            # Offload CPU-bound work
+            metadata = await run.cpu_bound(self._compute_metadata, cards)
+        except RuntimeError:
+            # Fallback for environments without event loop / process pool (e.g. tests)
+            metadata = self._compute_metadata(cards)
+
+        self._metadata_cache[language] = metadata
+        return metadata
 
     def get_card(self, card_id: int, language: str = "en") -> Optional[ApiCard]:
         cards = self._cards_cache.get(language, [])
