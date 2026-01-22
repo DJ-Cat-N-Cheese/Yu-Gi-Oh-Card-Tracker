@@ -362,8 +362,8 @@ class CardScanner:
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            # Ignore small noise/internal boxes (increased threshold compared to classic)
-            if area < 50000:
+            # Ignore small noise/internal boxes (relative to frame size)
+            if area < total_area * 0.02:
                 continue
 
             # Ignore massive blobs (e.g. lighting shadows covering whole frame)
@@ -390,8 +390,8 @@ class CardScanner:
             ar = w / h
             if ar > 1: ar = 1 / ar
 
-            # Strict AR filter for cards
-            if 0.55 < ar < 0.85:
+            # Relaxed AR filter for cards (handles stacked cards/skew)
+            if 0.55 < ar < 0.95:
                 # Store (Area, Contour)
                 candidates.append((area, rect_cnt))
 
