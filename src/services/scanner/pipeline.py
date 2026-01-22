@@ -275,6 +275,9 @@ class CardScanner:
 
                 try:
                     # Timeout 60s as requested
+                    # Detect GPU availability (proxy via torch, verified in worker)
+                    use_gpu = hasattr(torch, 'cuda') and torch.cuda.is_available()
+
                     with ProcessPoolExecutor(max_workers=1) as executor:
                         future = executor.submit(
                             run_paddle_ocr,
@@ -282,7 +285,8 @@ class CardScanner:
                             use_angle_cls,
                             False, # enable_mkldnn=False
                             'en',
-                            'PP-OCRv4' # FORCE v4
+                            'PP-OCRv4', # FORCE v4
+                            use_gpu
                         )
                         result_data = future.result(timeout=60)
 
