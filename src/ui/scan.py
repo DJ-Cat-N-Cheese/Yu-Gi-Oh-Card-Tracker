@@ -670,7 +670,7 @@ class ScanPage:
                 with ui.row().classes('items-center justify-between w-full'):
                     ui.label("Art Style Match (YOLO):").classes('font-bold text-gray-300')
                     with ui.row().classes('items-center gap-2'):
-                         ui.button(icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_art_index(force=True)).props('flat dense color=purple').tooltip("Rebuild Index")
+                         ui.button('Index Images', icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_art_index(force=True)).props('dense color=purple').tooltip("Rebuild Art Index from data/images")
                          ui.switch(value=self.art_match_yolo, on_change=lambda e: setattr(self, 'art_match_yolo', e.value)).props('color=purple')
 
                 # Tracks Selector
