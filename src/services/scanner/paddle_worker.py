@@ -64,6 +64,12 @@ def run_paddle_ocr(image_path, use_angle_cls, enable_mkldnn, lang='en', ocr_vers
         # It relies on 'use_angle_cls' passed to constructor.
         result = ocr.ocr(image)
 
+        logger.info(f"PaddleOCR raw result type: {type(result)}")
+        if result:
+            logger.info(f"PaddleOCR result len: {len(result)}")
+            if len(result) > 0:
+                 logger.info(f"First element type: {type(result[0])}")
+
         # Parse result to simple JSON-serializable format
         # structure: [ [ [[x,y]..], (text, conf) ], ... ]
         parsed_result = []

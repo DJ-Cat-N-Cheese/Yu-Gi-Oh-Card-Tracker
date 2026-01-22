@@ -291,7 +291,9 @@ class CardScanner:
                         result_data = future.result(timeout=60)
 
                     if result_data.get('status') == 'success':
-                        for item in result_data.get('data', []):
+                        data = result_data.get('data', [])
+                        logger.info(f"Paddle Worker returned {len(data)} lines. Top: {[d['text'] for d in data[:3]]}")
+                        for item in data:
                             raw_text_list.append(item['text'])
                             confidences.append(item['conf'])
                     else:
