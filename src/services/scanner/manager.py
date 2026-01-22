@@ -478,7 +478,7 @@ class ScannerManager:
             except ScanAborted:
                 raise
             except Exception as e:
-                logger.error(f"Track 1 (EasyOCR) Failed: {e}")
+                logger.error(f"Track 1 (EasyOCR) Failed: {e}", exc_info=True)
                 report["steps"].append(ScanStep(name="Track 1", status="FAIL", details=str(e)))
 
         check_pause()
@@ -503,7 +503,7 @@ class ScannerManager:
             except ScanAborted:
                 raise
             except Exception as e:
-                logger.error(f"Track 2 (PaddleOCR) Failed: {e}")
+                logger.error(f"Track 2 (PaddleOCR) Failed: {e}", exc_info=True)
                 report["steps"].append(ScanStep(name="Track 2", status="FAIL", details=str(e)))
 
         # Extra Analysis on Warped (if available)

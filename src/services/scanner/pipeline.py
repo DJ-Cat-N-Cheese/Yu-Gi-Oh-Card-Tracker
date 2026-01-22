@@ -269,6 +269,14 @@ class CardScanner:
                 # Fallback for versions where cls arg is unexpected
                 result = ocr.ocr(image)
 
+            # Debug Logging for Result Structure
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"PaddleOCR Result Type: {type(result)}")
+                if isinstance(result, list):
+                    logger.debug(f"PaddleOCR Result Len: {len(result)}")
+                    if len(result) > 0:
+                         logger.debug(f"PaddleOCR Result[0] Type: {type(result[0])}")
+
             if result and result[0]:
                 for line in result[0]:
                     text = line[1][0]
