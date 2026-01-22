@@ -46,6 +46,19 @@ else:
     except ImportError:
         pass
 
+# Import mappings from utils
+try:
+    from src.core.utils import REGION_TO_LANGUAGE_MAP, LANGUAGE_TO_LEGACY_REGION_MAP
+except ImportError:
+    # Fallback if utils not available in test context
+    REGION_TO_LANGUAGE_MAP = {
+        'E': 'EN', 'G': 'DE', 'F': 'FR', 'I': 'IT', 'S': 'ES', 'P': 'PT', 'J': 'JP', 'K': 'KR',
+        'AE': 'EN', 'EN': 'EN', 'DE': 'DE', 'FR': 'FR', 'IT': 'IT', 'ES': 'ES', 'PT': 'PT', 'JP': 'JP', 'KR': 'KR'
+    }
+    LANGUAGE_TO_LEGACY_REGION_MAP = {
+        'EN': 'E', 'DE': 'G', 'FR': 'F', 'IT': 'I', 'ES': 'S', 'PT': 'P', 'JP': 'J', 'KR': 'K'
+    }
+
 logger = logging.getLogger(__name__)
 
 class CardScanner:
@@ -84,22 +97,68 @@ class CardScanner:
 
     def _load_validation_data(self):
         try:
-            path = os.path.join(os.getcwd(), "data", "db", "card_db.json")
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                    for card in data:
-                        # Load Set Codes
-                        if 'card_sets' in card and card['card_sets']:
-                            for s in card['card_sets']:
-                                self.valid_set_codes.add(s['set_code'])
-                        # Load Card Names
-                        if 'name' in card:
-                            self.valid_card_names.add(card['name'].lower()) # Store lowercase for easier matching
+            db_dir = os.path.join(os.getcwd(), "data", "db")
+            if not os.path.exists(db_dir):
+                return
+
+            # Helper to generate localized codes
+            # Standard 2-letter regions
+            supported_2_letter = ['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR', 'AE']
+
+            files = [f for f in os.listdir(db_dir) if f.startswith("card_db") and f.endswith(".json")]
+
+            for fname in files:
+                path = os.path.join(db_dir, fname)
+                is_main_db = (fname == "card_db.json")
+
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+
+                        for card in data:
+                            # Load Card Names
+                            if 'name' in card:
+                                self.valid_card_names.add(card['name'].lower())
+
+                            # Load Set Codes
+                            if 'card_sets' in card and card['card_sets']:
+                                for s in card['card_sets']:
+                                    code = s['set_code']
+                                    self.valid_set_codes.add(code)
+
+                                    # If Main DB, generate localized variants
+                                    if is_main_db:
+                                        self._generate_localized_codes(code, supported_2_letter)
+                except Exception as e:
+                    logger.error(f"Error loading {fname}: {e}")
 
             logger.info(f"Loaded {len(self.valid_set_codes)} set codes and {len(self.valid_card_names)} card names.")
         except Exception as e:
             logger.error(f"Failed to load validation data: {e}")
+
+    def _generate_localized_codes(self, en_code: str, supported_2_letter: List[str]):
+        """Generates localized set codes based on English code format."""
+        # Regex to parse: Prefix-RegionNumber
+        m = re.match(r'^([A-Z0-9]+)-([A-Z]+)(\d+)$', en_code)
+        if not m: return
+
+        prefix, region, number = m.groups()
+
+        # Logic:
+        # If region is 2 letters (e.g. EN) -> Generate all supported 2-letter codes
+        # If region is 1 letter (e.g. E) -> Generate all supported 1-letter codes via mapping
+
+        if len(region) == 2:
+            for lang in supported_2_letter:
+                if lang != region:
+                    self.valid_set_codes.add(f"{prefix}-{lang}{number}")
+
+        elif len(region) == 1:
+            # Find which language this legacy code belongs to (usually E=EN)
+            # Use LANGUAGE_TO_LEGACY_REGION_MAP values to find other legacy codes
+            for lang_code, legacy_char in LANGUAGE_TO_LEGACY_REGION_MAP.items():
+                if legacy_char != region:
+                    self.valid_set_codes.add(f"{prefix}-{legacy_char}{number}")
 
     def get_easyocr(self):
         if self.easyocr_reader is None:
@@ -572,16 +631,36 @@ class CardScanner:
                 res += typo_map.get(char, char)
             return res
 
-        def validate_and_score(raw_code, region_part, base_conf):
+        def validate_and_score(raw_code, region_part, base_conf, list_index):
             is_valid = raw_code in self.valid_set_codes
 
             score = base_conf
-            if is_valid:
-                score += 0.5 # Boost for valid DB match
 
-            # Region boost
-            if region_part in ['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP']:
+            # 1. DB Validity Boost (Highest Importance)
+            if is_valid:
+                score += 0.5
+
+            # 2. Region Format Validation & Boost
+            # Standard 2-letter or Legacy 1-letter
+            if region_part in REGION_TO_LANGUAGE_MAP or region_part in LANGUAGE_TO_LEGACY_REGION_MAP.values():
                 score += 0.2
+            elif len(region_part) > 0:
+                 # Penalty for unknown region codes (e.g. random letters)
+                 score -= 0.1
+
+            # 3. Penalize All-Number Prefixes (e.g. 8552-0851)
+            parts = raw_code.split('-')
+            if parts and parts[0].isdigit():
+                score -= 0.5
+
+            # 4. Position Weighting (Prefer earlier candidates)
+            # Assumption: Set ID is usually in the first few lines or bottom (if not cropped properly).
+            # But prompt says "more in the beginning of the output text".
+            # Penalty increases with index.
+            if list_index < 5:
+                score += 0.1
+            else:
+                score -= (list_index * 0.01)
 
             return raw_code, score
 
@@ -618,7 +697,7 @@ class CardScanner:
             for code, region, num_part in line_candidates:
                 # Basic sanity check: Number part must be digits after fix
                 if num_part.isdigit():
-                    v_code, v_score = validate_and_score(code, region, base_conf)
+                    v_code, v_score = validate_and_score(code, region, base_conf, i)
                     candidates.append((v_code, v_score, region))
 
         # B. Fallback: Full Text Regex
@@ -635,7 +714,8 @@ class CardScanner:
 
                 if number_fixed.isdigit():
                     code_cand = f"{prefix}-{region_fixed}{number_fixed}" if region_fixed else f"{prefix}-{number_fixed}"
-                    v_code, v_score = validate_and_score(code_cand, region_fixed, 0.4)
+                    # Use a moderate index for fallback (e.g., 5) to avoid huge penalties but not boost as "early"
+                    v_code, v_score = validate_and_score(code_cand, region_fixed, 0.4, 5)
                     candidates.append((v_code, v_score, region_fixed))
 
         if not candidates:
