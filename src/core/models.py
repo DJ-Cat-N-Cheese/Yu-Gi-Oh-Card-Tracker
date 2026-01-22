@@ -1,5 +1,5 @@
-from typing import List, Optional, Literal
-from pydantic import BaseModel, Field
+from typing import List, Optional, Literal, Any
+from pydantic import BaseModel, Field, model_validator
 import uuid
 
 # --- Collection Models ---
@@ -7,12 +7,22 @@ import uuid
 class CollectionEntry(BaseModel):
     condition: Literal["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor", "Damaged"] = "Near Mint"
     language: str = "EN"
-    first_edition: bool = False
+    edition: str = "Unlimited"
     quantity: int = 1
     storage_location: Optional[str] = Field(None, description="e.g., Box A, Row 2")
     purchase_price: Optional[float] = 0.0
     market_value: Optional[float] = 0.0
     purchase_date: Optional[str] = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def migrate_first_edition(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if 'first_edition' in data:
+                fe = data.pop('first_edition')
+                if 'edition' not in data:
+                    data['edition'] = "1st Edition" if fe else "Unlimited"
+        return data
 
 class CollectionVariant(BaseModel):
     variant_id: str
@@ -66,8 +76,18 @@ class CardMetadata(BaseModel):
     image_id: Optional[int] = None
     language: str = "EN"
     condition: str = "Near Mint"
-    first_edition: bool = False
+    edition: str = "Unlimited"
     market_value: float = 0.0
+
+    @model_validator(mode='before')
+    @classmethod
+    def migrate_first_edition(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if 'first_edition' in data:
+                fe = data.pop('first_edition')
+                if 'edition' not in data:
+                    data['edition'] = "1st Edition" if fe else "Unlimited"
+        return data
 
 class Card(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))

@@ -74,3 +74,10 @@ CONDITION_ABBREVIATIONS = {
     "Poor": "PO",
     "Damaged": "DM"
 }
+
+# Card Editions
+EDITIONS = [
+    "1st Edition",
+    "Unlimited",
+    "Limited Edition"
+]

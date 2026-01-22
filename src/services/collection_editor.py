@@ -13,7 +13,7 @@ class CollectionEditor:
         image_id: Optional[int] = None,
         language: str = 'EN',
         condition: str = 'Near Mint',
-        first_edition: bool = False
+        edition: str = 'Unlimited'
     ) -> int:
         """
         Returns the quantity of a specific card entry.
@@ -34,7 +34,7 @@ class CollectionEditor:
             return 0
 
         target_entry = next((e for e in target_variant.entries
-                             if e.language == language and e.condition == condition and e.first_edition == first_edition), None)
+                             if e.language == language and e.condition == condition and e.edition == edition), None)
 
         return target_entry.quantity if target_entry else 0
 
@@ -47,7 +47,7 @@ class CollectionEditor:
         language: str,
         quantity: int,
         condition: str,
-        first_edition: bool,
+        edition: str,
         image_id: Optional[int] = None,
         variant_id: Optional[str] = None,
         mode: str = 'SET'
@@ -105,7 +105,7 @@ class CollectionEditor:
             # 4. Find or Create CollectionEntry
             target_entry = None
             for e in target_variant.entries:
-                if e.condition == condition and e.language == language and e.first_edition == first_edition:
+                if e.condition == condition and e.language == language and e.edition == edition:
                     target_entry = e
                     break
 
@@ -128,7 +128,7 @@ class CollectionEditor:
                     target_variant.entries.append(CollectionEntry(
                         condition=condition,
                         language=language,
-                        first_edition=first_edition,
+                        edition=edition,
                         quantity=final_quantity
                     ))
                     modified = True

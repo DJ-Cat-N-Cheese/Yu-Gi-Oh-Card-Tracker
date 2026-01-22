@@ -1,6 +1,6 @@
 from nicegui import ui
 from typing import Callable, Dict, Any, List
-from src.core.constants import CARD_CONDITIONS
+from src.core.constants import CARD_CONDITIONS, EDITIONS
 
 class FilterPane:
     def __init__(self, state: Dict[str, Any], on_change: Callable, on_reset: Callable, show_set_selector: bool = True):
@@ -78,9 +78,13 @@ class FilterPane:
             ui.separator()
             ui.label('Ownership & Price').classes('text-h6')
 
-            # Condition (Moved here)
+            # Condition
             ui.select(CARD_CONDITIONS, label='Condition', multiple=True, clearable=True,
                       on_change=self.on_change).bind_value(self.state, 'filter_condition').classes('w-full').props('use-chips')
+
+            # Edition (New)
+            ui.select(EDITIONS, label='Edition', multiple=True, clearable=True,
+                      on_change=self.on_change).bind_value(self.state, 'filter_edition').classes('w-full').props('use-chips')
 
             self.setup_range_filter('Ownership Quantity Range', 'filter_ownership_min', 'filter_ownership_max', 0, self.state.get('max_owned_quantity', 100), 1, 'ownership')
             self.setup_range_filter('Price Range ($)', 'filter_price_min', 'filter_price_max', 0, 1000, 1, 'price')

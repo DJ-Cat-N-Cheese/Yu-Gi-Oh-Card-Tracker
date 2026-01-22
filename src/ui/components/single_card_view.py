@@ -3,7 +3,7 @@ from src.core.models import ApiCardSet
 from src.services.ygo_api import ApiCard, ygo_service
 from src.services.image_manager import image_manager
 from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, extract_language_code
-from src.core.constants import CARD_CONDITIONS
+from src.core.constants import CARD_CONDITIONS, EDITIONS
 from typing import List, Optional, Dict, Set, Callable, Any
 import logging
 import asyncio
@@ -144,8 +144,10 @@ class SingleCardView:
                 set_select.on_value_change(on_set_change)
                 ui.select(CARD_CONDITIONS, label='Condition', value=input_state['condition'],
                             on_change=lambda e: [input_state.update({'condition': e.value}), on_change_callback()]).classes('w-1/3').props('dark')
-                ui.checkbox('1st Edition', value=input_state['first_edition'],
-                            on_change=lambda e: [input_state.update({'first_edition': e.value}), on_change_callback()]).classes('my-auto').props('dark')
+
+                # Edition Select (Replaced Checkbox)
+                ui.select(EDITIONS, label='Edition', value=input_state['edition'],
+                            on_change=lambda e: [input_state.update({'edition': e.value}), on_change_callback()]).classes('w-1/3').props('dark')
 
             with ui.row().classes('w-full gap-4 items-center'):
                 if card.card_images and len(card.card_images) > 1:
@@ -213,7 +215,7 @@ class SingleCardView:
                              variant_id=matched_variant_id,
                              language=input_state['language'],
                              condition=input_state['condition'],
-                             first_edition=input_state['first_edition']
+                             edition=input_state['edition']
                          )
 
                          if qty > 0:
@@ -435,7 +437,7 @@ class SingleCardView:
                                 'quantity': 1,
                                 'rarity': default_rarity,
                                 'condition': 'Near Mint',
-                                'first_edition': False,
+                                'edition': 'Unlimited',
                                 'set_base_code': default_set_code,
                                 'image_id': img_id
                             }
@@ -456,7 +458,7 @@ class SingleCardView:
                                     input_state['language'],
                                     qty,
                                     input_state['condition'],
-                                    input_state['first_edition'],
+                                    input_state['edition'],
                                     input_state['image_id'],
                                     variant_id,
                                     mode # Pass mode (SET/ADD) to handle logic in save_card_change or wrapper
@@ -496,7 +498,7 @@ class SingleCardView:
         set_name: str,
         language: str,
         condition: str,
-        first_edition: bool,
+        edition: str,
         image_url: str = None,
         image_id: int = None,
         set_price: float = 0.0,
@@ -572,7 +574,7 @@ class SingleCardView:
                 'quantity': 1,
                 'rarity': rarity,
                 'condition': condition,
-                'first_edition': first_edition,
+                'edition': edition,
                 'set_base_code': initial_base_code,
                 'image_id': image_id
             }
@@ -645,7 +647,7 @@ class SingleCardView:
                                 if not hide_header_stats:
                                     lbl_lang = info_label('Language', language)
                                     lbl_cond = info_label('Condition', condition)
-                                    lbl_edition = info_label('Edition', "1st Edition" if first_edition else "Unlimited")
+                                    lbl_edition = info_label('Edition', edition)
                                 else:
                                     # Create placeholders or just skip?
                                     # Since we use variables later in update_display_stats, we must define them.
@@ -655,7 +657,7 @@ class SingleCardView:
                                     lbl_lang.parent_slot.parent.set_visibility(False)
                                     lbl_cond = info_label('Condition', condition)
                                     lbl_cond.parent_slot.parent.set_visibility(False)
-                                    lbl_edition = info_label('Edition', "1st Edition" if first_edition else "Unlimited")
+                                    lbl_edition = info_label('Edition', edition)
                                     lbl_edition.parent_slot.parent.set_visibility(False)
 
                         ui.separator().classes('q-my-md bg-gray-700')
@@ -702,7 +704,7 @@ class SingleCardView:
                             lbl_rarity.text = input_state['rarity']
                             lbl_lang.text = input_state['language']
                             lbl_cond.text = input_state['condition']
-                            lbl_edition.text = "1st Edition" if input_state['first_edition'] else "Unlimited"
+                            lbl_edition.text = input_state['edition']
 
                             lbl_set_price.text = f"${s_price:.2f}" if s_price is not None else "-"
 
@@ -713,7 +715,7 @@ class SingleCardView:
                                             for v in c.variants:
                                                 if v.set_code == final_code and v.rarity == input_state['rarity'] and v.image_id == input_state['image_id']:
                                                     for e in v.entries:
-                                                        if e.language == input_state['language'] and e.condition == input_state['condition'] and e.first_edition == input_state['first_edition']:
+                                                        if e.language == input_state['language'] and e.condition == input_state['condition'] and e.edition == input_state['edition']:
                                                             cur_owned = e.quantity
                                                             break
                                                     break
@@ -742,7 +744,7 @@ class SingleCardView:
                                         'source_variant_id': variant_id,
                                         'source_language': language,
                                         'source_condition': condition,
-                                        'source_first_edition': first_edition,
+                                        'source_edition': edition,
                                         'source_quantity': owned_count
                                     }
 
@@ -753,7 +755,7 @@ class SingleCardView:
                                     input_state['language'],
                                     qty,
                                     input_state['condition'],
-                                    input_state['first_edition'],
+                                    input_state['edition'],
                                     input_state['image_id'],
                                     target_variant_id,
                                     mode,

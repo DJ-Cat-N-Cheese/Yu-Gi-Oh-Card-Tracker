@@ -17,7 +17,7 @@ class ParsedRow:
     condition: str
     set_prefix: str
     rarity_abbr: str
-    first_edition: bool
+    edition: str
     original_line: str
 
     # Derived/Resolved fields
@@ -44,14 +44,14 @@ class CardmarketParser:
     RARITY_MAP['QSCR'] = 'Quarter Century Secret Rare'
 
     # Regex to parse the line
-    # Format: Qty Name Number Lang Condition SetPrefix Rarity [First Edition] Price Currency
+    # Format: Qty Name Number Lang Condition SetPrefix Rarity [Edition] Price Currency
     # Example: 1 Hinotama Soul (V.1 - Common) 020 DE NM LOB C 0,04 EUR
     # Example: 1 Cure Mermaid (V.2 - Common) 041 EN NM LON C First Edition 0,02 EUR
     # We use a non-greedy match for Name (.+?) and anchor the rest to the specific columns.
     # Note: Rarity can be 1-4 chars (C, R, ScR, 10000ScR).
     # Price is usually "0,04 EUR" or "1.234,00 EUR" (European format).
     LINE_REGEX = re.compile(
-        r'^(\d+)\s+(.+?)\s+(\d{3})\s+([A-Z]{2})\s+([A-Z]{2})\s+([A-Z0-9]+)\s+([A-Za-z0-9]+)(?:\s+(First Edition))?\s+[\d,.]+\s+EUR$'
+        r'^(\d+)\s+(.+?)\s+(\d{3})\s+([A-Z]{2})\s+([A-Z]{2})\s+([A-Z0-9]+)\s+([A-Za-z0-9]+)(?:\s+(First Edition|Limited Edition))?\s+[\d,.]+\s+EUR$'
     )
 
     @staticmethod
@@ -100,13 +100,17 @@ class CardmarketParser:
 
             match = CardmarketParser.LINE_REGEX.match(line)
             if match:
-                qty_str, name, number, lang, cond, prefix, rarity_abbr, first_ed_group = match.groups()
+                qty_str, name, number, lang, cond, prefix, rarity_abbr, edition_group = match.groups()
 
                 # Normalize data
                 full_condition = CardmarketParser.CONDITION_MAP.get(cond, "Near Mint") # Default fallback?
                 full_rarity = CardmarketParser.RARITY_MAP.get(rarity_abbr, rarity_abbr) # Fallback to abbr if unknown
 
-                is_first_ed = bool(first_ed_group)
+                edition = "Unlimited"
+                if edition_group == "First Edition":
+                    edition = "1st Edition"
+                elif edition_group == "Limited Edition":
+                    edition = "Limited Edition"
 
                 # Cleanup Name: remove "(V.X - Rarity)" if present, as it confuses fuzzy matching if needed
                 # Example: "Hinotama Soul (V.1 - Common)" -> "Hinotama Soul"
@@ -122,7 +126,7 @@ class CardmarketParser:
                     set_prefix=prefix,
                     rarity_abbr=rarity_abbr,
                     set_rarity=full_rarity,
-                    first_edition=is_first_ed,
+                    edition=edition,
                     original_line=line
                 ))
             else:
