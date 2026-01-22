@@ -385,17 +385,32 @@ class CardScanner:
 
         return best_box
 
+    def order_points(self, pts):
+        """
+         robustly orders points (TL, TR, BR, BL) using Euclidean distance approach
+         to avoid issues with rotated rectangles (diamond shapes).
+        """
+        # Sort based on x-coordinates
+        xSorted = pts[np.argsort(pts[:, 0]), :]
+
+        # Grab left-most and right-most
+        leftMost = xSorted[:2, :]
+        rightMost = xSorted[2:, :]
+
+        # Sort left-most by y-coordinate (TL is the one with smaller y)
+        leftMost = leftMost[np.argsort(leftMost[:, 1]), :]
+        (tl, bl) = leftMost
+
+        # Euclidean distance from tl to right-most points
+        # The point with the max distance is the bottom-right (diagonal)
+        D = np.linalg.norm(rightMost - tl, axis=1)
+        (br, tr) = rightMost[np.argsort(D)[::-1], :]
+
+        return np.array([tl, tr, br, bl], dtype="float32")
+
     def warp_card(self, frame, contour) -> np.ndarray:
         pts = contour.reshape(4, 2)
-        rect = np.zeros((4, 2), dtype="float32")
-
-        s = pts.sum(axis=1)
-        rect[0] = pts[np.argmin(s)]
-        rect[2] = pts[np.argmax(s)]
-
-        diff = np.diff(pts, axis=1)
-        rect[1] = pts[np.argmin(diff)]
-        rect[3] = pts[np.argmax(diff)]
+        rect = self.order_points(pts)
 
         dst = np.array([
             [0, 0],
