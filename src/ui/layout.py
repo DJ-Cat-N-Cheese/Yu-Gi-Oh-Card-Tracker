@@ -23,7 +23,7 @@ def create_layout(content_function):
                     # Reloading simply via JS since ui.navigate.reload might not be available or reliable in all versions
                     ui.run_javascript('window.location.reload()')
 
-            ui.select(['en', 'de', 'fr', 'it', 'pt', 'es'],
+            ui.select(['en', 'de', 'fr', 'it', 'pt'],
                       label='Language',
                       value=config_manager.get_language(),
                       on_change=change_lang).classes('w-full')
@@ -73,7 +73,7 @@ def create_layout(content_function):
                 ui.tooltip('Fetch the latest card data from the remote API')
 
             async def update_all_dbs():
-                languages = ['en', 'de', 'fr', 'it', 'pt', 'es']
+                languages = ['en', 'de', 'fr', 'it', 'pt']
                 for lang in languages:
                     n = ui.notification(f'Updating {lang}...', type='info', spinner=True, timeout=None)
                     try:
