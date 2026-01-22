@@ -60,8 +60,9 @@ def run_paddle_ocr(image_path, use_angle_cls, enable_mkldnn, lang='en', ocr_vers
             image = cv2.resize(image, (0, 0), fx=scale, fy=scale)
 
         # Run OCR
-        # cls parameter must match use_angle_cls config for best results
-        result = ocr.ocr(image, cls=use_angle_cls)
+        # Newer PaddleOCR versions do not accept 'cls' in ocr() method.
+        # It relies on 'use_angle_cls' passed to constructor.
+        result = ocr.ocr(image)
 
         # Parse result to simple JSON-serializable format
         # structure: [ [ [[x,y]..], (text, conf) ], ... ]
