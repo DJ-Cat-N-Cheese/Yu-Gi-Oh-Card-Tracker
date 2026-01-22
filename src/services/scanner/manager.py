@@ -249,24 +249,29 @@ class ScannerManager:
         return f"/debug/scans/{filename}"
 
     def _build_art_index(self):
-        """Builds or loads the Art Match index from data/img."""
+        """Builds or loads the Art Match index from data/images."""
         if not self.scanner: return
 
         index_path = os.path.join(self.debug_dir, "art_index_yolo.pkl")
-        img_dir = "data/img"
+        img_dir = "data/images"
 
         # Load Cache
         if os.path.exists(index_path) and not self.art_index:
             try:
                 with open(index_path, "rb") as f:
-                    self.art_index = pickle.load(f)
-                logger.info(f"Loaded Art Index: {len(self.art_index)} items")
-                return
+                    loaded_index = pickle.load(f)
+                    if loaded_index and len(loaded_index) > 0:
+                        self.art_index = loaded_index
+                        logger.info(f"Loaded Art Index: {len(self.art_index)} items")
+                        return
+                    else:
+                        logger.info("Cached Art Index is empty. Rebuilding...")
             except Exception as e:
                 logger.error(f"Failed to load cache: {e}")
 
         # If cache failed or didn't exist, check images
         if not os.path.exists(img_dir):
+            logger.error(f"Image directory not found: {img_dir}")
             return
 
         logger.info(f"Building Art Index (YOLO) from {img_dir}...")
@@ -605,8 +610,7 @@ class ScannerManager:
                       report["art_match_yolo"] = {
                           "filename": best_match,
                           "score": float(best_score),
-                          # Assuming data/img is accessible via some route or we just show filename
-                          "image_url": f"/data/img/{best_match}"
+                          "image_url": f"/images/{best_match}"
                       }
                       if self.debug_state: self.debug_state.art_match_yolo = report["art_match_yolo"]
                   else:
