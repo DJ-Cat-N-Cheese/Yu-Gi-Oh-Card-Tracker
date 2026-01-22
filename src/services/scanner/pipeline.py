@@ -12,12 +12,10 @@ try:
     from langdetect import detect, LangDetectException
     import easyocr
     import torch
-    from paddleocr import PaddleOCR
     from ultralytics import YOLO
 
     # New Engines
     import keras_ocr
-    import pytesseract
     from doctr.io import DocumentFile
     from doctr.models import ocr_predictor
     from mmocr.apis import MMOCRInferencer
@@ -56,12 +54,11 @@ class CardScanner:
 
         # Lazy Init
         self.easyocr_reader = None
-        self.paddle_ocr = None
         self.yolo_model = None
+        self.yolo_model_name = None
         self.keras_pipeline = None
         self.mmocr_inferencer = None
         self.doctr_model = None
-        # Tesseract is CLI based via pytesseract, no heavy object to init
 
     def get_easyocr(self):
         if self.easyocr_reader is None:
@@ -70,18 +67,19 @@ class CardScanner:
             self.easyocr_reader = easyocr.Reader(['en'], gpu=use_gpu)
         return self.easyocr_reader
 
-    def get_paddleocr(self):
-        if self.paddle_ocr is None:
-            logger.info("Initializing PaddleOCR...")
-            # Removed show_log as it causes issues in some versions
-            self.paddle_ocr = PaddleOCR(use_angle_cls=True, lang='en')
-        return self.paddle_ocr
-
-    def get_yolo(self):
-        if self.yolo_model is None:
-            logger.info("Initializing YOLO model (Small)...")
-            # Upgraded to yolov8s.pt as requested
-            self.yolo_model = YOLO('yolov8s.pt')
+    def get_yolo(self, model_name: str = 'yolov8l.pt'):
+        # If model is not loaded or loaded model is different from requested
+        if self.yolo_model is None or self.yolo_model_name != model_name:
+            logger.info(f"Initializing YOLO model ({model_name})...")
+            try:
+                self.yolo_model = YOLO(model_name)
+                self.yolo_model_name = model_name
+            except Exception as e:
+                logger.error(f"Failed to load YOLO model {model_name}: {e}. Falling back to yolov8l.pt")
+                if model_name != 'yolov8l.pt':
+                    return self.get_yolo('yolov8l.pt')
+                else:
+                    raise
         return self.yolo_model
 
     def get_keras(self):
@@ -96,7 +94,8 @@ class CardScanner:
             logger.info("Initializing MMOCR...")
             # Using DBNet for detection and SAR for recognition by default
             try:
-                self.mmocr_inferencer = MMOCRInferencer(det='DBNet', rec='SAR')
+                device = 'cuda' if hasattr(torch, 'cuda') and torch.cuda.is_available() else 'cpu'
+                self.mmocr_inferencer = MMOCRInferencer(det='DBNet', rec='SAR', device=device)
             except Exception as e:
                 logger.error(f"Failed to init MMOCR: {e}")
                 raise
@@ -209,9 +208,9 @@ class CardScanner:
 
         return None
 
-    def find_card_yolo(self, frame) -> Optional[np.ndarray]:
+    def find_card_yolo(self, frame, model_name='yolov8l.pt') -> Optional[np.ndarray]:
         """Finds card using YOLO object detection."""
-        model = self.get_yolo()
+        model = self.get_yolo(model_name)
         # Run inference
         results = model(frame, verbose=False)
 
@@ -291,21 +290,7 @@ class CardScanner:
                  scale = 1600 / w
                  image = cv2.resize(image, (0, 0), fx=scale, fy=scale)
 
-            if engine == 'paddle':
-                ocr = self.get_paddleocr()
-                try:
-                    result = ocr.ocr(image, cls=True)
-                except TypeError:
-                    result = ocr.ocr(image)
-
-                if result and result[0]:
-                    for line in result[0]:
-                        text = line[1][0]
-                        conf = line[1][1]
-                        raw_text_list.append(text)
-                        confidences.append(conf)
-
-            elif engine == 'keras':
+            if engine == 'keras':
                 pipeline = self.get_keras()
                 # Keras-OCR expects a list of images
                 # And it might expect RGB? OpenCV reads BGR.
@@ -343,25 +328,15 @@ class CardScanner:
                                 raw_text_list.append(word.value)
                                 confidences.append(word.confidence)
 
-            elif engine == 'tesseract':
-                # Pytesseract expects RGB
-                rgb_img = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-                data = pytesseract.image_to_data(rgb_img, output_type=pytesseract.Output.DICT)
-                n_boxes = len(data['text'])
-                for i in range(n_boxes):
-                    text = data['text'][i].strip()
-                    if text:
-                        conf = float(data['conf'][i])
-                        if conf > 0: # -1 is often used for empty blocks
-                            raw_text_list.append(text)
-                            confidences.append(conf / 100.0) # Tesseract uses 0-100
-
-            else: # easyocr (default)
+            elif engine == 'easyocr':
                 reader = self.get_easyocr()
                 results = reader.readtext(image, detail=1, paragraph=False, mag_ratio=1.5)
                 for (bbox, text, conf) in results:
                     raw_text_list.append(text)
                     confidences.append(conf)
+
+            else:
+                logger.warning(f"Unknown OCR engine: {engine}")
 
             full_text = " | ".join(raw_text_list)
 
