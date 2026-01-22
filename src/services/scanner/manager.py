@@ -297,7 +297,7 @@ class ScannerManager:
                         cap_url = self._save_debug_image(frame, "manual_cap")
 
                         # Reset previous results to avoid confusion
-                        for i in range(1, 7):
+                        for i in range(1, 5): # 1 to 4
                             setattr(self.debug_state, f"t{i}_full", None)
                             setattr(self.debug_state, f"t{i}_crop", None)
 
@@ -414,7 +414,7 @@ class ScannerManager:
         report = {
             "steps": [],
         }
-        for i in range(1, 7):
+        for i in range(1, 5): # 1 to 4
             report[f"t{i}_full"] = None
             report[f"t{i}_crop"] = None
 
@@ -456,16 +456,14 @@ class ScannerManager:
 
         check_pause()
 
-        tracks = options.get("tracks", ["easyocr"]) # ['easyocr', 'paddle', 'keras', 'mmocr', 'doctr', 'tesseract']
+        tracks = options.get("tracks", ["easyocr"]) # ['easyocr', 'doctr', 'keras', 'mmocr']
 
         # Config mapping: (engine_key, label_base, field_prefix)
         track_config = [
             ("easyocr", "Track 1: EasyOCR", "t1"),
-            ("paddle", "Track 2: PaddleOCR", "t2"),
+            ("doctr", "Track 2: DocTR", "t2"),
             ("keras", "Track 3: Keras-OCR", "t3"),
             ("mmocr", "Track 4: MMOCR", "t4"),
-            ("doctr", "Track 5: DocTR", "t5"),
-            ("tesseract", "Track 6: Tesseract", "t6"),
         ]
 
         for engine_key, label_base, field_prefix in track_config:
@@ -509,7 +507,7 @@ class ScannerManager:
     def _pick_best_result(self, report):
         """Heuristic to pick the best result from all zones."""
         candidates = []
-        for i in range(1, 7):
+        for i in range(1, 5): # 1 to 4
             for scope in ["full", "crop"]:
                 key = f"t{i}_{scope}"
                 res = report.get(key)

@@ -9,10 +9,7 @@ opencv-contrib-python<4.10
 langdetect
 pypdf
 easyocr
-paddleocr
-paddlepaddle
 ultralytics
-pytesseract
 keras-ocr
 tensorflow
 tf_keras

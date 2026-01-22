@@ -51,16 +51,14 @@ class ScanDebugReport(BaseModel):
     # Intermediate OCR results
     t1_full: Optional[OCRResult] = None # EasyOCR
     t1_crop: Optional[OCRResult] = None
-    t2_full: Optional[OCRResult] = None # PaddleOCR
+    t2_full: Optional[OCRResult] = None # DocTR
     t2_crop: Optional[OCRResult] = None
     t3_full: Optional[OCRResult] = None # Keras-OCR
     t3_crop: Optional[OCRResult] = None
     t4_full: Optional[OCRResult] = None # MMOCR
     t4_crop: Optional[OCRResult] = None
-    t5_full: Optional[OCRResult] = None # DocTR
-    t5_crop: Optional[OCRResult] = None
-    t6_full: Optional[OCRResult] = None # Tesseract
-    t6_crop: Optional[OCRResult] = None
+
+    # Removed t5 and t6
 
     # Metadata
     preprocessing: str = "classic"

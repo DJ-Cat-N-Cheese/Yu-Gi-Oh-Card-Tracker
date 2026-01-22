@@ -210,7 +210,7 @@ class ScanPage:
         self.is_active = False
 
         # Config
-        self.ocr_tracks = ['easyocr'] # ['easyocr', 'paddle']
+        self.ocr_tracks = ['doctr'] # Default to DocTR
         self.preprocessing_mode = 'classic' # 'classic' or 'yolo'
 
         # Debug Lab State (local cache of Pydantic model dump)
@@ -536,7 +536,8 @@ class ScanPage:
 
         def render_zone(title, key):
             data = self.debug_report.get(key)
-            with ui.expansion(title, icon='visibility').classes('w-full bg-gray-800 border border-gray-600 mb-2'):
+            # Make sure expansion is open by default: .props('default-opened') or .value=True if bound
+            with ui.expansion(title, icon='visibility').classes('w-full bg-gray-800 border border-gray-600 mb-2').props('default-opened'):
                 if data:
                     with ui.column().classes('p-2 w-full'):
                         ui.label(f"Set ID: {data.get('set_id', 'N/A')}").classes('font-bold text-green-400')
@@ -550,16 +551,12 @@ class ScanPage:
 
         render_zone("Track 1: EasyOCR (Full Frame)", "t1_full")
         render_zone("Track 1: EasyOCR (Cropped)", "t1_crop")
-        render_zone("Track 2: PaddleOCR (Full Frame)", "t2_full")
-        render_zone("Track 2: PaddleOCR (Cropped)", "t2_crop")
+        render_zone("Track 2: DocTR (Full Frame)", "t2_full")
+        render_zone("Track 2: DocTR (Cropped)", "t2_crop")
         render_zone("Track 3: Keras-OCR (Full Frame)", "t3_full")
         render_zone("Track 3: Keras-OCR (Cropped)", "t3_crop")
         render_zone("Track 4: MMOCR (Full Frame)", "t4_full")
         render_zone("Track 4: MMOCR (Cropped)", "t4_crop")
-        render_zone("Track 5: DocTR (Full Frame)", "t5_full")
-        render_zone("Track 5: DocTR (Cropped)", "t5_crop")
-        render_zone("Track 6: Tesseract (Full Frame)", "t6_full")
-        render_zone("Track 6: Tesseract (Cropped)", "t6_crop")
 
         ui.separator().classes('my-4')
 
@@ -659,11 +656,9 @@ class ScanPage:
                 # Checkboxes
                 with ui.row().classes('flex-wrap'):
                     ui.checkbox('EasyOCR', value='easyocr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('easyocr', e.value))
-                    ui.checkbox('PaddleOCR', value='paddle' in self.ocr_tracks, on_change=lambda e: self.toggle_track('paddle', e.value))
+                    ui.checkbox('DocTR', value='doctr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('doctr', e.value))
                     ui.checkbox('Keras-OCR', value='keras' in self.ocr_tracks, on_change=lambda e: self.toggle_track('keras', e.value))
                     ui.checkbox('MMOCR', value='mmocr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('mmocr', e.value))
-                    ui.checkbox('DocTR', value='doctr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('doctr', e.value))
-                    ui.checkbox('Tesseract', value='tesseract' in self.ocr_tracks, on_change=lambda e: self.toggle_track('tesseract', e.value))
 
                 # Camera Preview
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
