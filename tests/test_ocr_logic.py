@@ -59,9 +59,18 @@ class TestOCRLogic(unittest.TestCase):
             'LOB-G001', # Mocking a legacy generated code
             'RA02-DE052' # German code
         }
-        self.scanner.valid_card_names = {
-            'blue-eyes white dragon', 'dark magician', 'pot of greed', 'schwarzer magier'
+        self.scanner.valid_card_names_norm = {
+            'blue-eyeswhitedragon': 'Blue-Eyes White Dragon',
+            'darkmagician': 'Dark Magician',
+            'potofgreed': 'Pot of Greed',
+            'schwarzermagier': 'Schwarzer Magier'
         }
+        self.scanner.valid_card_names_tokens = [
+            ({'blue-eyes', 'white', 'dragon'}, 'Blue-Eyes White Dragon'),
+            ({'dark', 'magician'}, 'Dark Magician'),
+            ({'pot', 'of', 'greed'}, 'Pot of Greed'),
+            ({'schwarzer', 'magier'}, 'Schwarzer Magier')
+        ]
 
     def test_all_number_prefix_penalty(self):
         # "8552-0851" (Pure number) vs "LOB-EN001" (Valid)
@@ -104,6 +113,27 @@ class TestOCRLogic(unittest.TestCase):
         res = MockDocTRResult([block])
         name = self.scanner._parse_card_name(res, 'doctr', scope='full')
         self.assertEqual(name, "Schwarzer Magier")
+
+    def test_name_match_missing_space(self):
+        # "Blue-EyesWhite Dragon" (missing space)
+        block = MockBlock("Blue-EyesWhite Dragon")
+        res = MockDocTRResult([block])
+        name = self.scanner._parse_card_name(res, 'doctr')
+        self.assertEqual(name, "Blue-Eyes White Dragon")
+
+    def test_name_match_reordering(self):
+        # "Dragon White Blue-Eyes" (Wrong order)
+        block = MockBlock("Dragon White Blue-Eyes")
+        res = MockDocTRResult([block])
+        name = self.scanner._parse_card_name(res, 'doctr')
+        self.assertEqual(name, "Blue-Eyes White Dragon")
+
+    def test_name_match_noise(self):
+        # "Dark Magician Effect Monster"
+        block = MockBlock("Dark Magician Effect Monster")
+        res = MockDocTRResult([block])
+        name = self.scanner._parse_card_name(res, 'doctr')
+        self.assertEqual(name, "Dark Magician")
 
 if __name__ == '__main__':
     unittest.main()

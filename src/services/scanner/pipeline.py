@@ -92,7 +92,8 @@ class CardScanner:
         self.doctr_model = None
 
         self.valid_set_codes = set()
-        self.valid_card_names = set()
+        self.valid_card_names_norm = {} # normalized_str -> original_name
+        self.valid_card_names_tokens = [] # List of (set(tokens), original_name)
         self._load_validation_data()
 
     def _load_validation_data(self):
@@ -107,6 +108,9 @@ class CardScanner:
 
             files = [f for f in os.listdir(db_dir) if f.startswith("card_db") and f.endswith(".json")]
 
+            # Temporary set to avoid duplicates during processing
+            loaded_names = set()
+
             for fname in files:
                 path = os.path.join(db_dir, fname)
                 is_main_db = (fname == "card_db.json")
@@ -118,7 +122,19 @@ class CardScanner:
                         for card in data:
                             # Load Card Names
                             if 'name' in card:
-                                self.valid_card_names.add(card['name'].lower())
+                                name = card['name']
+                                if name not in loaded_names:
+                                    loaded_names.add(name)
+
+                                    # 1. Normalized Map (No spaces, lowercase)
+                                    norm = name.lower().replace(" ", "")
+                                    self.valid_card_names_norm[norm] = name
+
+                                    # 2. Token Set (Bag of Words)
+                                    # Filter small words? No, keep all for accuracy.
+                                    tokens = set(name.lower().split())
+                                    if tokens:
+                                        self.valid_card_names_tokens.append((tokens, name))
 
                             # Load Set Codes
                             if 'card_sets' in card and card['card_sets']:
@@ -132,7 +148,7 @@ class CardScanner:
                 except Exception as e:
                     logger.error(f"Error loading {fname}: {e}")
 
-            logger.info(f"Loaded {len(self.valid_set_codes)} set codes and {len(self.valid_card_names)} card names.")
+            logger.info(f"Loaded {len(self.valid_set_codes)} set codes and {len(loaded_names)} card names.")
         except Exception as e:
             logger.error(f"Failed to load validation data: {e}")
 
@@ -582,30 +598,53 @@ class CardScanner:
         )
 
     def _parse_card_name(self, raw_result: Any, engine: str, scope: str = 'full') -> Optional[str]:
-        """Extracts card name from OCR result using Database Matching."""
+        """Extracts card name from OCR result using Robust Database Matching."""
         if engine != 'doctr':
              return None
 
         try:
-            # Strategy: Database Match (Used for both Crop and Full)
-            # Iterate through all blocks/lines and check if they match a known card name
+            # Helper to check a string candidate
+            def check_candidate(candidate_str):
+                if not candidate_str or len(candidate_str) < 3: return None
+
+                # 1. Exact/Normalized Match (Handles missing spaces)
+                norm = candidate_str.lower().replace(" ", "")
+                if norm in self.valid_card_names_norm:
+                    return self.valid_card_names_norm[norm]
+
+                # 2. Bag of Words Match (Handles reordering/noise)
+                cand_tokens = set(candidate_str.lower().split())
+                if not cand_tokens: return None
+
+                for db_tokens, original_name in self.valid_card_names_tokens:
+                    # Check if DB tokens are a subset of Candidate tokens
+                    # Use >= for subset check (cand_tokens >= db_tokens)
+                    if cand_tokens.issuperset(db_tokens):
+                        # Verify that the length match is reasonable (avoid matching "Dragon" to "White Dragon")
+                        # We want to match if all words of the name are present.
+                        # What if candidate has tons of noise? "Blue Eyes White Dragon Effect Monster ..."
+                        # That's acceptable, usually the title line is mostly clean or contains full name.
+                        return original_name
+
+                return None
+
+            # Iterate blocks/lines
             for page in raw_result.pages:
                 for block in page.blocks:
-                    block_text = []
+                    # 1. Check Full Block
+                    block_text_lines = []
                     for line in block.lines:
                         line_text = " ".join([w.value for w in line.words])
-                        block_text.append(line_text)
+                        block_text_lines.append(line_text)
 
-                    full_block = " ".join(block_text).strip()
+                    full_block = " ".join(block_text_lines).strip()
+                    match = check_candidate(full_block)
+                    if match: return match
 
-                    # Exact match check (case-insensitive)
-                    if full_block.lower() in self.valid_card_names:
-                        return full_block # Return original casing
-
-                    # Fallback: Check individual lines if block contains noise
-                    for line_txt in block_text:
-                            if line_txt.strip().lower() in self.valid_card_names:
-                                return line_txt.strip()
+                    # 2. Check Individual Lines (Fallback)
+                    for line_txt in block_text_lines:
+                        match = check_candidate(line_txt.strip())
+                        if match: return match
 
         except Exception as e:
             logger.error(f"Error parsing card name (DocTR): {e}")
