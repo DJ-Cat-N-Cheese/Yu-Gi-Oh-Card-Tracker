@@ -509,7 +509,6 @@ class BulkAddPage:
             if success:
                 ui.notify(f"Undid: {action} {qty}x {data.get('name')}", type='positive')
                 self.render_header.refresh()
-                await self.refresh_collection_view_from_memory()
             else:
                 ui.notify("Undo failed (no changes made).", type='warning')
         else:
@@ -651,6 +650,7 @@ class BulkAddPage:
                 'variant_id': var_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'ADD', card_data, qty)
+             ui.notify(f"Added {entry.api_card.name}", type='positive')
              self.render_header.refresh()
         return success
 
@@ -697,6 +697,7 @@ class BulkAddPage:
                 'variant_id': entry.variant_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'REMOVE', card_data, qty_to_remove)
+             ui.notify(f"Removed {entry.api_card.name}", type='info')
              self.render_header.refresh()
         return success
 
@@ -727,6 +728,7 @@ class BulkAddPage:
                 'variant_id': entry.variant_id
              }
              changelog_manager.log_change(self.state['selected_collection'], 'REMOVE', card_data, 1)
+             ui.notify(f"Removed 1x {entry.api_card.name}", type='info')
              self.render_header.refresh()
         return success
 
@@ -748,7 +750,6 @@ class BulkAddPage:
              is_first = self.state['default_first_ed']
 
              await self.add_card_to_collection(entry, lang, cond, is_first, 1)
-             ui.notify(f"Added {entry.api_card.name}", type='positive')
 
         # REMOVE: Collection -> Library (Drag back to library to remove)
         elif from_id == 'collection-list' and to_id == 'library-list':
@@ -756,7 +757,6 @@ class BulkAddPage:
              if not entry: return
 
              await self.remove_card_from_collection(entry)
-             ui.notify(f"Removed {entry.api_card.name}", type='info')
              # Refresh library to ensure the dropped item doesn't stay as a ghost
              self.render_library_content.refresh()
 
