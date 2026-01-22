@@ -70,7 +70,7 @@ def build_set_rows(api_cards, collection, target_set_code):
                 is_owned=is_owned,
                 language="EN",
                 condition="Near Mint",
-                first_edition=False,
+                edition="Unlimited",
                 image_id=s.image_id,
                 variant_id=s.variant_id
             ))
@@ -259,7 +259,7 @@ class BrowseSetsPage:
 
         return await result
 
-    async def handle_card_save(self, c, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode, **kwargs):
+    async def handle_card_save(self, c, set_code, rarity, language, quantity, condition, edition, image_id, variant_id, mode, **kwargs):
         # Check if collection is selected
         if not self.state['current_collection']:
              # Prompt user
@@ -285,7 +285,7 @@ class BrowseSetsPage:
         from src.services.collection_editor import CollectionEditor
 
         try:
-            CollectionEditor.apply_change(col, c, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode, **kwargs)
+            CollectionEditor.apply_change(col, c, set_code, rarity, language, quantity, condition, edition, image_id, variant_id, mode, **kwargs)
             await run.io_bound(persistence.save_collection, col, self.state['selected_collection_file'])
 
             # Refresh Details
@@ -1347,7 +1347,7 @@ class BrowseSetsPage:
             set_name=row.set_name,
             language=row.language,
             condition=row.condition,
-            first_edition=row.first_edition,
+            edition=row.edition,
             image_url=row.image_url,
             image_id=row.image_id,
             set_price=row.price,

@@ -384,10 +384,17 @@ class ScanPage:
                     )
                     target_card.variants.append(target_variant)
 
+                # Determine edition string from boolean or existing string
+                edition = "Unlimited"
+                if 'edition' in item:
+                    edition = item['edition']
+                elif item.get('first_edition'):
+                    edition = "1st Edition"
+
                 entry = CollectionEntry(
                     condition="Near Mint",
                     language=item['language'],
-                    first_edition=item['first_edition'],
+                    edition=edition,
                     quantity=1
                 )
                 target_variant.entries.append(entry)
