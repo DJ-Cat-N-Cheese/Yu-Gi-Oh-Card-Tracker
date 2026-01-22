@@ -7,6 +7,7 @@ import asyncio
 import os
 import uuid
 import shutil
+import pickle
 from typing import Optional, Dict, Any, List, Tuple, Union, Callable
 
 try:
@@ -64,6 +65,8 @@ class ScannerManager:
         self.is_processing = False
         self.paused = True  # Default to paused (Stopped)
         self.status_message = "Stopped"
+
+        self.art_index = {}
 
         # Debug State (using Model)
         self.debug_state = ScanDebugReport() if SCANNER_AVAILABLE else None
@@ -244,6 +247,89 @@ class ScannerManager:
         path = os.path.join(self.debug_dir, filename)
         cv2.imwrite(path, image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         return f"/debug/scans/{filename}"
+
+    def rebuild_art_index(self, force=False):
+        """Public method to rebuild the art index, possibly forcing a refresh."""
+        if not self.scanner: return
+
+        # Run in a separate thread to avoid blocking if called from UI main thread
+        threading.Thread(target=self._build_art_index, args=(force,), daemon=True).start()
+
+    def _build_art_index(self, force=False):
+        """Builds or loads the Art Match index from data/images."""
+        if not self.scanner: return
+
+        index_path = os.path.join(self.debug_dir, "art_index_yolo.pkl")
+        img_dir = "data/images"
+
+        # Load Cache (if not forced)
+        if not force and os.path.exists(index_path) and not self.art_index:
+            try:
+                with open(index_path, "rb") as f:
+                    loaded_index = pickle.load(f)
+                    if loaded_index and len(loaded_index) > 0:
+                        self.art_index = loaded_index
+                        logger.info(f"Loaded Art Index: {len(self.art_index)} items")
+                        return
+                    else:
+                        logger.info("Cached Art Index is empty. Rebuilding...")
+            except Exception as e:
+                logger.error(f"Failed to load cache: {e}")
+
+        # If cache failed or didn't exist, check images
+        if not os.path.exists(img_dir):
+            logger.error(f"Image directory not found: {img_dir}")
+            return
+
+        logger.info(f"Building Art Index (YOLO) from {img_dir}...")
+        try:
+            files = os.listdir(img_dir)
+        except OSError as e:
+            logger.error(f"Could not list {img_dir}: {e}")
+            return
+
+        count = 0
+        new_index = {}
+
+        # Check dependencies
+        if cv2 is None:
+            logger.error("CV2 is not available. Skipping Art Index.")
+            return
+
+        for f in files:
+            if not f.lower().endswith(('.jpg', '.png', '.jpeg')): continue
+            path = os.path.join(img_dir, f)
+            try:
+                img = cv2.imread(path)
+                if img is None:
+                    logger.warning(f"Failed to read image: {f}")
+                    continue
+
+                # extract_yolo_features(image, model_name='yolo26n-cls.pt')
+                feat = self.scanner.extract_yolo_features(img)
+                if feat is not None:
+                    new_index[f] = feat
+                    count += 1
+                else:
+                    # Log failure to help debug (throttled?)
+                    if count < 5:
+                        logger.warning(f"Feature extraction failed for {f}")
+
+                if count > 0 and count % 50 == 0:
+                    logger.info(f"Indexed {count} images...")
+
+            except Exception as e:
+                logger.error(f"Error indexing {f}: {e}")
+
+        self.art_index = new_index
+        logger.info(f"Art Index complete: {len(self.art_index)} items")
+
+        # Save Cache
+        try:
+            with open(index_path, "wb") as f:
+                pickle.dump(self.art_index, f)
+        except Exception as e:
+            logger.error(f"Failed to save cache: {e}")
 
     def _worker(self):
         logger.info(f"Scanner worker thread started (Manager ID: {self.instance_id})")
@@ -427,7 +513,7 @@ class ScannerManager:
         if prep_method == "yolo":
              contour = self.scanner.find_card_yolo(frame, model_name='yolov8n-obb.pt')
         elif prep_method == "yolo26":
-             contour = self.scanner.find_card_yolo(frame, model_name='yolo26n-obb.pt')
+             contour = self.scanner.find_card_yolo(frame, model_name='yolo26l-obb.pt')
         else:
              contour = self.scanner.find_card_contour(frame)
 
@@ -503,6 +589,41 @@ class ScannerManager:
              if self.debug_state:
                  if hasattr(self.debug_state, 'visual_rarity'): self.debug_state.visual_rarity = report['visual_rarity']
                  if hasattr(self.debug_state, 'first_edition'): self.debug_state.first_edition = report['first_edition']
+
+        # Art Match (YOLO)
+        if options.get("art_match_yolo", False) and self.scanner:
+             check_pause()
+             set_step("Art Match: YOLO")
+
+             if not self.art_index:
+                  self._build_art_index()
+
+             if not self.art_index:
+                  report["steps"].append(ScanStep(name="Art Match", status="SKIP", details="Index empty (no images found)"))
+             elif warped is not None:
+                  feat = self.scanner.extract_yolo_features(warped)
+                  if feat is not None:
+                      best_score = -1.0
+                      best_match = None
+
+                      # Find best match
+                      for fname, ref_feat in self.art_index.items():
+                           score = self.scanner.calculate_similarity(feat, ref_feat)
+                           if score > best_score:
+                               best_score = score
+                               best_match = fname
+
+                      # Threshold?
+                      report["art_match_yolo"] = {
+                          "filename": best_match,
+                          "score": float(best_score),
+                          "image_url": f"/images/{best_match}"
+                      }
+                      if self.debug_state: self.debug_state.art_match_yolo = report["art_match_yolo"]
+                  else:
+                      report["steps"].append(ScanStep(name="Art Match", status="FAIL", details="Feature extraction failed"))
+             else:
+                  report["steps"].append(ScanStep(name="Art Match", status="FAIL", details="No Warped Image"))
 
         return report
 

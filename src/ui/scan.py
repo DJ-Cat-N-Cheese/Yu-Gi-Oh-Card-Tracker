@@ -212,6 +212,7 @@ class ScanPage:
         # Config
         self.ocr_tracks = ['doctr'] # Default to DocTR
         self.preprocessing_mode = 'classic' # 'classic', 'yolo', or 'yolo26'
+        self.art_match_yolo = False
 
         # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
@@ -416,7 +417,8 @@ class ScanPage:
 
             options = {
                 "tracks": self.ocr_tracks,
-                "preprocessing": self.preprocessing_mode
+                "preprocessing": self.preprocessing_mode,
+                "art_match_yolo": self.art_match_yolo
             }
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -451,7 +453,8 @@ class ScanPage:
 
             options = {
                 "tracks": self.ocr_tracks,
-                "preprocessing": self.preprocessing_mode
+                "preprocessing": self.preprocessing_mode,
+                "art_match_yolo": self.art_match_yolo
             }
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
@@ -478,7 +481,8 @@ class ScanPage:
 
             options = {
                 "tracks": self.ocr_tracks,
-                "preprocessing": self.preprocessing_mode
+                "preprocessing": self.preprocessing_mode,
+                "art_match_yolo": self.art_match_yolo
             }
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -529,6 +533,17 @@ class ScanPage:
         if self.debug_report.get('roi_viz_url'):
             ui.label("Regions of Interest:").classes('font-bold text-lg')
             ui.image(self.debug_report['roi_viz_url']).classes('w-full h-auto border rounded mb-2')
+
+        art_match = self.debug_report.get('art_match_yolo')
+        if art_match:
+             ui.separator().classes('my-2')
+             ui.label("Art Match (YOLO):").classes('font-bold text-lg text-purple-400')
+             with ui.row().classes('items-center gap-2'):
+                 ui.label(f"{art_match.get('filename')}").classes('font-bold')
+                 ui.badge(f"{art_match.get('score', 0):.3f}", color='purple')
+
+             if art_match.get('image_url'):
+                 ui.image(art_match['image_url']).classes('w-full h-auto border rounded border-purple-500 mb-2')
 
     @ui.refreshable
     def render_debug_pipeline_results(self):
@@ -650,6 +665,13 @@ class ScanPage:
                 ui.label("Preprocessing Strategy:").classes('font-bold text-gray-300')
                 with ui.row():
                     ui.radio(['classic', 'yolo', 'yolo26'], value=self.preprocessing_mode, on_change=lambda e: setattr(self, 'preprocessing_mode', e.value)).props('inline')
+
+                # Art Match
+                with ui.row().classes('items-center justify-between w-full'):
+                    ui.label("Art Style Match (YOLO):").classes('font-bold text-gray-300')
+                    with ui.row().classes('items-center gap-2'):
+                         ui.button('Index Images', icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_art_index(force=True)).props('dense color=purple').tooltip("Rebuild Art Index from data/images")
+                         ui.switch(value=self.art_match_yolo, on_change=lambda e: setattr(self, 'art_match_yolo', e.value)).props('color=purple')
 
                 # Tracks Selector
                 ui.label("Active Tracks:").classes('font-bold text-gray-300')

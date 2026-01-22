@@ -60,6 +60,9 @@ class ScanDebugReport(BaseModel):
 
     # Removed t5 and t6
 
+    # YOLO Art Match
+    art_match_yolo: Optional[Dict[str, Any]] = None
+
     # Metadata
     preprocessing: str = "classic"
     active_tracks: List[str] = []
