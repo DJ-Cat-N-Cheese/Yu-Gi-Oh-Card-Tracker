@@ -93,7 +93,6 @@ class CardScanner:
 
         self.valid_set_codes = set()
         self.valid_card_names_norm = {} # normalized_str -> original_name
-        self.valid_card_names_tokens = [] # List of (set(tokens), original_name)
         self._load_validation_data()
 
     def _load_validation_data(self):
@@ -111,6 +110,12 @@ class CardScanner:
             # Temporary set to avoid duplicates during processing
             loaded_names = set()
 
+            # Translation map for German Umlauts
+            trans_table = str.maketrans({
+                'ä': 'a', 'ö': 'o', 'ü': 'u',
+                'Ä': 'A', 'Ö': 'O', 'Ü': 'U'
+            })
+
             for fname in files:
                 path = os.path.join(db_dir, fname)
                 is_main_db = (fname == "card_db.json")
@@ -126,15 +131,9 @@ class CardScanner:
                                 if name not in loaded_names:
                                     loaded_names.add(name)
 
-                                    # 1. Normalized Map (No spaces, lowercase)
-                                    norm = name.lower().replace(" ", "")
+                                    # Normalized Map: Lowercase, No Spaces, Umlauts replaced
+                                    norm = name.translate(trans_table).lower().replace(" ", "")
                                     self.valid_card_names_norm[norm] = name
-
-                                    # 2. Token Set (Bag of Words)
-                                    # Filter small words? No, keep all for accuracy.
-                                    tokens = set(name.lower().split())
-                                    if tokens:
-                                        self.valid_card_names_tokens.append((tokens, name))
 
                             # Load Set Codes
                             if 'card_sets' in card and card['card_sets']:
@@ -607,24 +606,13 @@ class CardScanner:
             def check_candidate(candidate_str):
                 if not candidate_str or len(candidate_str) < 3: return None
 
-                # 1. Exact/Normalized Match (Handles missing spaces)
+                # Exact/Normalized Match (Handles missing spaces)
+                # Note: We rely on the fact that OCR usually gets characters right or we handle substitutions.
+                # Since we removed Bag of Words, we enforce order.
                 norm = candidate_str.lower().replace(" ", "")
+
                 if norm in self.valid_card_names_norm:
                     return self.valid_card_names_norm[norm]
-
-                # 2. Bag of Words Match (Handles reordering/noise)
-                cand_tokens = set(candidate_str.lower().split())
-                if not cand_tokens: return None
-
-                for db_tokens, original_name in self.valid_card_names_tokens:
-                    # Check if DB tokens are a subset of Candidate tokens
-                    # Use >= for subset check (cand_tokens >= db_tokens)
-                    if cand_tokens.issuperset(db_tokens):
-                        # Verify that the length match is reasonable (avoid matching "Dragon" to "White Dragon")
-                        # We want to match if all words of the name are present.
-                        # What if candidate has tons of noise? "Blue Eyes White Dragon Effect Monster ..."
-                        # That's acceptable, usually the title line is mostly clean or contains full name.
-                        return original_name
 
                 return None
 

@@ -63,14 +63,9 @@ class TestOCRLogic(unittest.TestCase):
             'blue-eyeswhitedragon': 'Blue-Eyes White Dragon',
             'darkmagician': 'Dark Magician',
             'potofgreed': 'Pot of Greed',
-            'schwarzermagier': 'Schwarzer Magier'
+            'schwarzermagier': 'Schwarzer Magier',
+            'ruckkehr': 'Rückkehr' # Umlaut normalized
         }
-        self.scanner.valid_card_names_tokens = [
-            ({'blue-eyes', 'white', 'dragon'}, 'Blue-Eyes White Dragon'),
-            ({'dark', 'magician'}, 'Dark Magician'),
-            ({'pot', 'of', 'greed'}, 'Pot of Greed'),
-            ({'schwarzer', 'magier'}, 'Schwarzer Magier')
-        ]
 
     def test_all_number_prefix_penalty(self):
         # "8552-0851" (Pure number) vs "LOB-EN001" (Valid)
@@ -121,19 +116,12 @@ class TestOCRLogic(unittest.TestCase):
         name = self.scanner._parse_card_name(res, 'doctr')
         self.assertEqual(name, "Blue-Eyes White Dragon")
 
-    def test_name_match_reordering(self):
-        # "Dragon White Blue-Eyes" (Wrong order)
-        block = MockBlock("Dragon White Blue-Eyes")
+    def test_name_match_umlaut_normalization(self):
+        # "Ruckkehr" (OCR missing umlaut) should match "Rückkehr" (DB)
+        block = MockBlock("Ruckkehr")
         res = MockDocTRResult([block])
         name = self.scanner._parse_card_name(res, 'doctr')
-        self.assertEqual(name, "Blue-Eyes White Dragon")
-
-    def test_name_match_noise(self):
-        # "Dark Magician Effect Monster"
-        block = MockBlock("Dark Magician Effect Monster")
-        res = MockDocTRResult([block])
-        name = self.scanner._parse_card_name(res, 'doctr')
-        self.assertEqual(name, "Dark Magician")
+        self.assertEqual(name, "Rückkehr")
 
 if __name__ == '__main__':
     unittest.main()
