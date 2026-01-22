@@ -254,44 +254,39 @@ class CardScanner:
         set_id_conf = 0.0
         lang = "EN"
 
-        try:
-            # Resize for better small text detection (standard strategy)
-            h, w = image.shape[:2]
-            if w < 1000:
-                 scale = 1600 / w
-                 image = cv2.resize(image, (0, 0), fx=scale, fy=scale)
+        # Resize for better small text detection (standard strategy)
+        h, w = image.shape[:2]
+        if w < 1000:
+            scale = 1600 / w
+            image = cv2.resize(image, (0, 0), fx=scale, fy=scale)
 
-            if engine == 'paddle':
-                ocr = self.get_paddleocr()
-                # result = [[[[x1,y1],...], (text, conf)], ...]
-                try:
-                    result = ocr.ocr(image, cls=True)
-                except TypeError:
-                    # Fallback for versions where cls arg is unexpected
-                    result = ocr.ocr(image)
+        if engine == 'paddle':
+            ocr = self.get_paddleocr()
+            # result = [[[[x1,y1],...], (text, conf)], ...]
+            try:
+                result = ocr.ocr(image, cls=True)
+            except TypeError:
+                # Fallback for versions where cls arg is unexpected
+                result = ocr.ocr(image)
 
-                if result and result[0]:
-                    for line in result[0]:
-                        text = line[1][0]
-                        conf = line[1][1]
-                        raw_text_list.append(text)
-                        confidences.append(conf)
-            else: # easyocr
-                reader = self.get_easyocr()
-                # mag_ratio=1.5 for better small text
-                results = reader.readtext(image, detail=1, paragraph=False, mag_ratio=1.5)
-                for (bbox, text, conf) in results:
+            if result and result[0]:
+                for line in result[0]:
+                    text = line[1][0]
+                    conf = line[1][1]
                     raw_text_list.append(text)
                     confidences.append(conf)
+        else: # easyocr
+            reader = self.get_easyocr()
+            # mag_ratio=1.5 for better small text
+            results = reader.readtext(image, detail=1, paragraph=False, mag_ratio=1.5)
+            for (bbox, text, conf) in results:
+                raw_text_list.append(text)
+                confidences.append(conf)
 
-            full_text = " | ".join(raw_text_list)
+        full_text = " | ".join(raw_text_list)
 
-            # Parse Set ID
-            set_id, set_id_conf, lang = self._parse_set_id(raw_text_list, confidences)
-
-        except Exception as e:
-            logger.error(f"OCR Scan Error ({engine}): {e}")
-            full_text = " | ".join(raw_text_list) # Return whatever we got
+        # Parse Set ID
+        set_id, set_id_conf, lang = self._parse_set_id(raw_text_list, confidences)
 
         return OCRResult(
             engine=engine,
