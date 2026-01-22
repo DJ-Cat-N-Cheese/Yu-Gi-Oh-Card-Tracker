@@ -306,6 +306,31 @@ class CollectionPage:
         self.pagination_showing_label = None
         self.pagination_total_label = None
         self.api_card_map = {}
+        self.save_task = None
+
+    async def _perform_save(self):
+        try:
+            if self.state['current_collection'] and self.state['selected_file']:
+                 await run.io_bound(persistence.save_collection, self.state['current_collection'], self.state['selected_file'])
+                 logger.info(f"Debounced save complete for {self.state['selected_file']}")
+        except Exception as e:
+            logger.error(f"Error in debounced save: {e}")
+            ui.notify(f"Save Failed: {e}", type='negative')
+        finally:
+            self.save_task = None
+
+    def _schedule_save(self):
+        if self.save_task:
+            self.save_task.cancel()
+
+        async def delayed_save():
+            try:
+                await asyncio.sleep(2.0) # 2 seconds debounce
+                await self._perform_save()
+            except asyncio.CancelledError:
+                pass
+
+        self.save_task = asyncio.create_task(delayed_save())
 
     async def load_data(self, keep_page=False):
         logger.info(f"Loading data... (Language: {self.state['language']})")
@@ -641,6 +666,187 @@ class CollectionPage:
         if self.pagination_total_label:
             self.pagination_total_label.text = f"/ {max(1, self.state['total_pages'])}"
 
+    def _update_in_memory(self, api_card: ApiCard, set_code: str, rarity: str, language: str, quantity: int, condition: str, first_edition: bool, image_id: Optional[int], variant_id: Optional[str], mode: str = 'ADD'):
+        """
+        Updates the in-memory view models (consolidated and collectors) to reflect changes immediately
+        without reloading from disk.
+        """
+        # 1. Update Consolidated View
+        vm_index = -1
+        for i, vm in enumerate(self.state['cards_consolidated']):
+             if vm.api_card.id == api_card.id:
+                 vm_index = i
+                 break
+
+        if vm_index != -1:
+            # We found the VM. Since the collection object is updated, we can re-scan it for this card.
+            c_card = None
+            if self.state['current_collection']:
+                 for c in self.state['current_collection'].cards:
+                     if c.card_id == api_card.id:
+                         c_card = c
+                         break
+
+            if c_card:
+                total_qty = c_card.total_quantity
+                owned_langs = set()
+                owned_conds = set()
+                for v in c_card.variants:
+                    for e in v.entries:
+                        owned_langs.add(e.language)
+                        owned_conds.add(e.condition)
+
+                vm = self.state['cards_consolidated'][vm_index]
+                vm.owned_quantity = total_qty
+                vm.is_owned = total_qty > 0
+                vm.owned_languages = owned_langs
+                vm.owned_conditions = owned_conds
+            else:
+                vm = self.state['cards_consolidated'][vm_index]
+                vm.owned_quantity = 0
+                vm.is_owned = False
+                vm.owned_languages = set()
+                vm.owned_conditions = set()
+
+        # 2. Update Collectors View
+        if not variant_id:
+             if self.state['current_collection']:
+                 for c in self.state['current_collection'].cards:
+                     if c.card_id == api_card.id:
+                         for v in c.variants:
+                             if v.set_code == set_code and v.rarity == rarity and (v.image_id == image_id if image_id else True):
+                                 variant_id = v.variant_id
+                                 break
+                         if variant_id: break
+
+        if not variant_id:
+             variant_id = generate_variant_id(api_card.id, set_code, rarity, image_id)
+
+        target_row_index = -1
+        empty_placeholder_index = -1
+
+        for i, row in enumerate(self.state['cards_collectors']):
+            if row.api_card.id != api_card.id:
+                continue
+
+            match_variant = False
+            if row.variant_id and variant_id:
+                if row.variant_id == variant_id:
+                    match_variant = True
+            elif row.set_code == set_code and row.rarity == rarity:
+                 match_variant = True
+
+            if match_variant:
+                if (row.language == language and
+                    row.condition == condition and
+                    row.first_edition == first_edition):
+                    target_row_index = i
+                    break
+
+                if not row.is_owned:
+                    empty_placeholder_index = i
+
+        new_qty = 0
+        if self.state['current_collection']:
+             qty = CollectionEditor.get_quantity(
+                 self.state['current_collection'],
+                 api_card.id,
+                 variant_id=variant_id,
+                 language=language,
+                 condition=condition,
+                 first_edition=first_edition
+             )
+             new_qty = qty
+
+        if target_row_index != -1:
+            row = self.state['cards_collectors'][target_row_index]
+            row.owned_count = new_qty
+            row.is_owned = new_qty > 0
+        else:
+            if new_qty > 0:
+                set_name = "Unknown Set"
+                price = 0.0
+                if api_card.card_sets:
+                    for s in api_card.card_sets:
+                        if s.set_code == set_code:
+                            set_name = s.set_name
+                            try: price = float(s.set_price)
+                            except: pass
+                            break
+
+                img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
+                if image_id and api_card.card_images:
+                    for img in api_card.card_images:
+                        if img.id == image_id:
+                            img_url = img.image_url_small
+                            break
+
+                new_row = CollectorRow(
+                    api_card=api_card,
+                    set_code=set_code,
+                    set_name=set_name,
+                    rarity=rarity,
+                    price=price,
+                    image_url=img_url,
+                    owned_count=new_qty,
+                    is_owned=True,
+                    language=language,
+                    condition=condition,
+                    first_edition=first_edition,
+                    image_id=image_id,
+                    variant_id=variant_id
+                )
+                self.state['cards_collectors'].append(new_row)
+
+        if new_qty > 0 and empty_placeholder_index != -1:
+             self.state['cards_collectors'].pop(empty_placeholder_index)
+
+        if new_qty == 0 and target_row_index != -1:
+             self.state['cards_collectors'].pop(target_row_index)
+
+             has_siblings = False
+             for row in self.state['cards_collectors']:
+                 if row.api_card.id == api_card.id and row.variant_id == variant_id:
+                     has_siblings = True
+                     break
+
+             if not has_siblings:
+                 is_standard = False
+                 if api_card.card_sets:
+                     for s in api_card.card_sets:
+                         if s.set_code == set_code:
+                             is_standard = True
+                             break
+
+                 if is_standard:
+                     set_name = "Unknown Set"
+                     price = 0.0
+                     if api_card.card_sets:
+                        for s in api_card.card_sets:
+                            if s.set_code == set_code:
+                                set_name = s.set_name
+                                try: price = float(s.set_price)
+                                except: pass
+                                break
+                     img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
+
+                     ph_row = CollectorRow(
+                        api_card=api_card,
+                        set_code=set_code,
+                        set_name=set_name,
+                        rarity=rarity,
+                        price=price,
+                        image_url=img_url,
+                        owned_count=0,
+                        is_owned=False,
+                        language="EN",
+                        condition="Near Mint",
+                        first_edition=False,
+                        image_id=image_id,
+                        variant_id=variant_id
+                     )
+                     self.state['cards_collectors'].append(ph_row)
+
     async def undo_last_action(self):
         col_name = self.state['selected_file']
         if not col_name: return
@@ -735,6 +941,7 @@ class CollectionPage:
                         language=src_lang, quantity=-src_qty, condition=src_cond, first_edition=src_first,
                         variant_id=src_var_id, mode='ADD'
                     )
+                    self._update_in_memory(api_card, "", "", src_lang, -src_qty, src_cond, src_first, None, src_var_id, mode='ADD')
 
                     # 2. Add to Target
                     CollectionEditor.apply_change(
@@ -743,6 +950,8 @@ class CollectionPage:
                         language=language, quantity=src_qty, condition=condition, first_edition=first_edition,
                         image_id=image_id, variant_id=variant_id, mode='ADD'
                     )
+                    self._update_in_memory(api_card, set_code, rarity, language, src_qty, condition, first_edition, image_id, variant_id, mode='ADD')
+
                     modified = True
 
                     if not skip_log:
@@ -772,6 +981,9 @@ class CollectionPage:
                     mode=mode
                 )
 
+                if modified:
+                    self._update_in_memory(api_card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode)
+
                 if modified and not skip_log:
                     card_data = {
                         'card_id': api_card.id,
@@ -787,10 +999,9 @@ class CollectionPage:
                     changelog_manager.log_change(self.state['selected_file'], mode, card_data, quantity)
 
             if modified:
-                await run.io_bound(persistence.save_collection, col, self.state['selected_file'])
-                logger.info(f"Collection saved: {self.state['selected_file']}")
-                ui.notify('Collection saved.', type='positive')
-                await self.load_data(keep_page=True)
+                await self.apply_filters(reset_page=False)
+                self._schedule_save()
+                ui.notify('Collection updated.', type='positive')
                 self.render_header.refresh()
             else:
                 # No change needed, but maybe refresh just in case? Or just do nothing.
