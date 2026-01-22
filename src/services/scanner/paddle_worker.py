@@ -29,16 +29,23 @@ def run_paddle_ocr(image_path, use_angle_cls, enable_mkldnn, lang='en', ocr_vers
         # Explicitly set environment for reliability?
         # os.environ["FLAGS_allocator_strategy"] = 'auto_growth'
 
+        # Set device globally (Newer PaddleOCR versions might not accept use_gpu arg)
+        try:
+            device = "gpu" if use_gpu else "cpu"
+            paddle.device.set_device(device)
+            logger.info(f"Set Paddle device to {device}")
+        except Exception as e:
+            logger.warning(f"Failed to set Paddle device: {e}")
+
         logger.info(f"Initializing PaddleOCR (GPU: {use_gpu}, Angle: {use_angle_cls}, MKLDNN: {enable_mkldnn}, Ver: {ocr_version})")
 
         # Initialize PaddleOCR with explicit version to avoid unstable defaults
+        # Removed use_gpu and show_log args which cause ValueError in newer versions
         ocr = PaddleOCR(
             use_angle_cls=use_angle_cls,
             lang=lang,
-            use_gpu=use_gpu,
             enable_mkldnn=enable_mkldnn,
-            ocr_version=ocr_version,
-            show_log=False
+            ocr_version=ocr_version
         )
 
         image = cv2.imread(image_path)
