@@ -79,19 +79,25 @@ class CardScanner:
         self.doctr_model = None
 
         self.valid_set_codes = set()
-        self._load_valid_sets()
+        self.valid_card_names = set()
+        self._load_validation_data()
 
-    def _load_valid_sets(self):
+    def _load_validation_data(self):
         try:
             path = os.path.join(os.getcwd(), "data", "db", "card_db.json")
             if os.path.exists(path):
                 with open(path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     for card in data:
+                        # Load Set Codes
                         if 'card_sets' in card and card['card_sets']:
                             for s in card['card_sets']:
                                 self.valid_set_codes.add(s['set_code'])
-            logger.info(f"Loaded {len(self.valid_set_codes)} valid set codes for validation.")
+                        # Load Card Names
+                        if 'name' in card:
+                            self.valid_card_names.add(card['name'].lower()) # Store lowercase for easier matching
+
+            logger.info(f"Loaded {len(self.valid_set_codes)} set codes and {len(self.valid_card_names)} card names.")
         except Exception as e:
             logger.error(f"Failed to load validation data: {e}")
 
@@ -484,9 +490,8 @@ class CardScanner:
                                 raw_text_list.append(word.value)
                                 confidences.append(word.confidence)
 
-                # Card Name Extraction (DocTR + Crop)
-                if scope == 'crop':
-                    card_name = self._parse_card_name(result, engine)
+                # Card Name Extraction (DocTR + Crop or Full)
+                card_name = self._parse_card_name(result, engine, scope=scope)
 
             elif engine == 'easyocr':
                 reader = self.get_easyocr()
@@ -517,31 +522,53 @@ class CardScanner:
             language=lang
         )
 
-    def _parse_card_name(self, raw_result: Any, engine: str) -> Optional[str]:
-        """Extracts card name from OCR result based on position (Top 15%)."""
-        if engine == 'doctr':
-            potential_names = []
-            try:
-                # raw_result is doctr Document
+    def _parse_card_name(self, raw_result: Any, engine: str, scope: str = 'full') -> Optional[str]:
+        """Extracts card name from OCR result."""
+        if engine != 'doctr':
+             return None
+
+        try:
+            # Strategy A: Position Based (Crop only)
+            if scope == 'crop':
+                potential_names = []
                 for page in raw_result.pages:
                     for block in page.blocks:
-                        # geometry is ((xmin, ymin), (xmax, ymax)) relative coords
                         (xmin, ymin), (xmax, ymax) = block.geometry
-                        # Check top Y. Card name is usually very top.
+                        # Check top 15%
                         if ymin < 0.15:
-                            # Join lines
                             block_text = []
                             for line in block.lines:
                                 line_text = " ".join([w.value for w in line.words])
                                 block_text.append(line_text)
                             full_block = " ".join(block_text)
                             potential_names.append(full_block)
-            except Exception as e:
-                logger.error(f"Error parsing card name (DocTR): {e}")
 
-            if potential_names:
-                # Join with space
-                return " ".join(potential_names).strip()
+                if potential_names:
+                    return " ".join(potential_names).strip()
+
+            # Strategy B: Database Match (Full Frame)
+            elif scope == 'full':
+                 for page in raw_result.pages:
+                    for block in page.blocks:
+                        block_text = []
+                        for line in block.lines:
+                            line_text = " ".join([w.value for w in line.words])
+                            block_text.append(line_text)
+
+                        full_block = " ".join(block_text).strip()
+
+                        # Exact match check (case-insensitive)
+                        if full_block.lower() in self.valid_card_names:
+                            return full_block # Return original casing
+
+                        # Fallback: Check individual lines if block contains noise
+                        for line_txt in block_text:
+                             if line_txt.strip().lower() in self.valid_card_names:
+                                 return line_txt.strip()
+
+        except Exception as e:
+            logger.error(f"Error parsing card name (DocTR): {e}")
+
         return None
 
     def _parse_set_id(self, texts: List[str], confs: List[float], full_text: str = "") -> Tuple[Optional[str], float, str]:
