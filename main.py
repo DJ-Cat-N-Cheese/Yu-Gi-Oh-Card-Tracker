@@ -52,7 +52,10 @@ def db_editor():
     create_layout(db_editor_page)
 
 # Serve images
+os.makedirs('data/images', exist_ok=True)
+os.makedirs('data/img', exist_ok=True)
 app.add_static_files('/images', 'data/images')
+app.add_static_files('/data/img', 'data/img') # Serve data/img for Art Match if used
 app.add_static_files('/sets', 'data/sets')
 app.add_static_files('/debug', 'debug')
 

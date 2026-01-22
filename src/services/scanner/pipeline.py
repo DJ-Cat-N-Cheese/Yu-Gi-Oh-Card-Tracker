@@ -56,6 +56,8 @@ class CardScanner:
         self.easyocr_reader = None
         self.yolo_model = None
         self.yolo_model_name = None
+        self.yolo_cls_model = None
+        self.yolo_cls_model_name = None
         self.keras_pipeline = None
         self.mmocr_inferencer = None
         self.doctr_model = None
@@ -81,6 +83,112 @@ class CardScanner:
                 else:
                     raise
         return self.yolo_model
+
+    def get_yolo_cls(self, model_name: str = 'yolo26n-cls.pt'):
+        # If model is not loaded or loaded model is different from requested
+        if self.yolo_cls_model is None or self.yolo_cls_model_name != model_name:
+            logger.info(f"Initializing YOLO CLS model ({model_name})...")
+            try:
+                self.yolo_cls_model = YOLO(model_name)
+                self.yolo_cls_model_name = model_name
+            except Exception as e:
+                logger.error(f"Failed to load YOLO CLS model {model_name}: {e}.")
+                # Fallback to yolov8n-cls.pt if 26 is not found?
+                # User specifically asked for YOLO 26.
+                # If it fails, we assume it might be a download issue or typo.
+                # We'll re-raise for now.
+                raise
+        return self.yolo_cls_model
+
+    def extract_yolo_features(self, image: 'np.ndarray', model_name: str = 'yolo26n-cls.pt') -> Optional['np.ndarray']:
+        """
+        Extracts feature embedding from the image using the classification model.
+        Returns a numpy array (1D vector).
+        """
+        try:
+            model = self.get_yolo_cls(model_name)
+
+            # Use 'embed' if available in this version of Ultralytics
+            # results = model.embed(image) # Not always standard
+
+            # Standard approach: Forward pass with hook or stripping head
+            # For YOLOv8/26 CLS, the model ends with a 'Classify' head.
+            # We want the output of the pooling layer (before the linear layer).
+
+            # Let's inspect the model structure dynamically if possible, or use a hook.
+            # A robust way is to use `embed=[layer_index]` in predict if supported,
+            # but usually it's `model.predict(..., embed=True)` in very new versions.
+
+            # Let's try the hook approach on the penultimate layer of the head or the backbone output.
+            # The 'Classify' head in YOLOv8 is usually:
+            #   self.conv
+            #   self.pool
+            #   self.drop
+            #   self.linear
+
+            # We want the output of `self.pool` (and flatten).
+
+            # However, `ultralytics` models wrap this.
+            # Let's try to run `model(image)` and see if we can get features.
+            # If not, we register a hook.
+
+            # Simplest for now: The output of the backbone (before head) or global pool.
+
+            # We will use a forward hook on the 'model.model[-1].linear' to capture its INPUT.
+            # The input to the linear layer is the feature vector.
+
+            features = []
+            def hook(module, input, output):
+                # input is a tuple, taking the first element
+                # Flatten it
+                feat = input[0].flatten().cpu().numpy()
+                features.append(feat)
+
+            # Find the linear layer
+            # model.model is the DetectionModel or ClassificationModel
+            # model.model.model is the Sequential
+            # model.model.model[-1] is usually the Head (Classify)
+
+            # We need to be careful about traversing.
+
+            # Let's assume standard structure:
+            head = model.model.model[-1]
+            if hasattr(head, 'linear'):
+                handle = head.linear.register_forward_hook(hook)
+            else:
+                # Fallback: maybe it's just a linear layer?
+                if isinstance(head, torch.nn.Linear):
+                    handle = head.register_forward_hook(hook)
+                else:
+                    logger.error("Could not find linear layer in YOLO CLS head")
+                    return None
+
+            # Run inference
+            try:
+                model(image, verbose=False)
+            finally:
+                handle.remove()
+
+            if features:
+                return features[0]
+            return None
+
+        except Exception as e:
+            logger.error(f"Error extracting YOLO features: {e}")
+            return None
+
+    def calculate_similarity(self, embedding1: 'np.ndarray', embedding2: 'np.ndarray') -> float:
+        """Calculates Cosine Similarity between two embeddings."""
+        if embedding1 is None or embedding2 is None:
+            return 0.0
+
+        norm_1 = np.linalg.norm(embedding1)
+        norm_2 = np.linalg.norm(embedding2)
+
+        if norm_1 == 0 or norm_2 == 0:
+            return 0.0
+
+        return np.dot(embedding1, embedding2) / (norm_1 * norm_2)
 
     def get_keras(self):
         if self.keras_pipeline is None:
