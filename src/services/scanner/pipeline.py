@@ -389,6 +389,7 @@ class CardScanner:
         """
          robustly orders points (TL, TR, BR, BL) using Euclidean distance approach
          to avoid issues with rotated rectangles (diamond shapes).
+         Enforces Portrait orientation to prevent aspect ratio distortion.
         """
         # Sort based on x-coordinates
         xSorted = pts[np.argsort(pts[:, 0]), :]
@@ -406,7 +407,20 @@ class CardScanner:
         D = np.linalg.norm(rightMost - tl, axis=1)
         (br, tr) = rightMost[np.argsort(D)[::-1], :]
 
-        return np.array([tl, tr, br, bl], dtype="float32")
+        ordered = np.array([tl, tr, br, bl], dtype="float32")
+
+        # Check Aspect Ratio and enforce Portrait (Width < Height)
+        # Width: Distance(TL, TR)
+        width = np.linalg.norm(tr - tl)
+        # Height: Distance(TL, BL)
+        height = np.linalg.norm(bl - tl)
+
+        if width > height:
+            # Shift: [TL, TR, BR, BL] -> [BL, TL, TR, BR]
+            # This makes the "Left" side the new "Top", effectively rotating 90 deg clockwise
+            ordered = np.roll(ordered, 1, axis=0)
+
+        return ordered
 
     def warp_card(self, frame, contour) -> np.ndarray:
         pts = contour.reshape(4, 2)
