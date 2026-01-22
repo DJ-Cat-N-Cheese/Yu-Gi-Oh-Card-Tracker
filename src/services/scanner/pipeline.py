@@ -356,8 +356,14 @@ class CardScanner:
                     if area > 25000:
                          if area > max_area:
                              max_area = area
+                             # Regularize with minAreaRect to match Geometric quality
+                             # This removes jitter and enforces a perfect rectangle
+                             rect = cv2.minAreaRect(cnt_temp)
+                             box = cv2.boxPoints(rect)
+                             box = np.int32(box)
+
                              # Ensure shape is (4, 1, 2)
-                             best_box = cnt_temp.reshape(4, 1, 2)
+                             best_box = box.reshape(4, 1, 2)
 
             # Fallback to Axis-Aligned Boxes if no OBB found (or mixed usage)
             elif result.boxes is not None:
