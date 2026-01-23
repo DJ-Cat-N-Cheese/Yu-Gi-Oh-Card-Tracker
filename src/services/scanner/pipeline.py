@@ -694,11 +694,12 @@ class CardScanner:
         candidates = []
 
         typo_map = {
-            'S': '5', 'I': '1', 'O': '0', 'Z': '7',
-            'B': '8', 'G': '6', 'Q': '0', 'D': '0'
+            'S': '5', 'I': '1', 'O': '0', 'Z': '2',
+            'B': '8', 'G': '6', 'Q': '0', 'D': '0',
+            'U': '0'
         }
 
-        def normalize_number_part(txt):
+        def normalize_part(txt):
             res = ""
             for char in txt:
                 res += typo_map.get(char, char)
@@ -757,12 +758,17 @@ class CardScanner:
                     code_direct = f"{prefix}-{region}{number_raw}" if region else f"{prefix}-{number_raw}"
                     line_candidates.add((code_direct, region, number_raw))
 
-                    # 2. Typo Fixes
-                    number_fixed = normalize_number_part(number_raw)
+                    # 2. Typo Fixes (Number Only)
+                    number_fixed = normalize_part(number_raw)
                     region_fixed = region.replace('0', 'O')
 
                     code_fixed = f"{prefix}-{region_fixed}{number_fixed}" if region_fixed else f"{prefix}-{number_fixed}"
                     line_candidates.add((code_fixed, region_fixed, number_fixed))
+
+                    # 3. Typo Fixes (Prefix + Number) -> Corrects RAUZ to RA02
+                    prefix_fixed = normalize_part(prefix)
+                    code_prefix_fixed = f"{prefix_fixed}-{region_fixed}{number_fixed}" if region_fixed else f"{prefix_fixed}-{number_fixed}"
+                    line_candidates.add((code_prefix_fixed, region_fixed, number_fixed))
 
             # Process candidates for this line
             base_conf = confs[i] if i < len(confs) else 0.5
@@ -782,14 +788,20 @@ class CardScanner:
                 region = m.group(2) if m.group(2) else ""
                 number_raw = m.group(3)
 
-                number_fixed = normalize_number_part(number_raw)
+                number_fixed = normalize_part(number_raw)
                 region_fixed = region.replace('0', 'O')
 
                 if number_fixed.isdigit():
+                    # Candidate A: Prefix Raw + Number Fixed
                     code_cand = f"{prefix}-{region_fixed}{number_fixed}" if region_fixed else f"{prefix}-{number_fixed}"
-                    # Use a moderate index for fallback (e.g., 5) to avoid huge penalties but not boost as "early"
                     v_code, v_score = validate_and_score(code_cand, region_fixed, 0.4, 5)
                     candidates.append((v_code, v_score, region_fixed))
+
+                    # Candidate B: Prefix Fixed + Number Fixed
+                    prefix_fixed = normalize_part(prefix)
+                    code_cand_fixed = f"{prefix_fixed}-{region_fixed}{number_fixed}" if region_fixed else f"{prefix_fixed}-{number_fixed}"
+                    v_code_f, v_score_f = validate_and_score(code_cand_fixed, region_fixed, 0.4, 5)
+                    candidates.append((v_code_f, v_score_f, region_fixed))
 
         if not candidates:
             return None, 0.0, "EN"
