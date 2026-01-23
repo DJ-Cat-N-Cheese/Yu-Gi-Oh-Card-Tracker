@@ -52,8 +52,14 @@ class AmbiguityDialog(ui.dialog):
                  ).classes('w-full')
 
                  # 2. Set Code
+                 initial_opts = self.get_set_code_options()
+                 # Ensure current value is in options to prevent crash
+                 if self.selected_set_code and self.selected_set_code not in initial_opts:
+                     initial_opts.append(self.selected_set_code)
+                     initial_opts.sort()
+
                  self.set_code_select = ui.select(
-                     options=self.get_set_code_options(),
+                     options=initial_opts,
                      value=self.selected_set_code,
                      label="Set Code",
                      on_change=self.on_set_code_change,
@@ -85,11 +91,6 @@ class AmbiguityDialog(ui.dialog):
             # Check country code logic using utility
             if is_set_code_compatible(c['set_code'], self.selected_language):
                 codes.add(c['set_code'])
-
-        # Ensure current selection is in list if compatible
-        if self.selected_set_code and is_set_code_compatible(self.selected_set_code, self.selected_language):
-            codes.add(self.selected_set_code)
-
         return sorted(list(codes))
 
     def get_rarity_options(self):
@@ -104,9 +105,19 @@ class AmbiguityDialog(ui.dialog):
         self.selected_language = e.value
         # Update set codes
         opts = self.get_set_code_options()
+
+        # Try to switch to a compatible code if available
+        if self.selected_set_code not in opts:
+            if opts:
+                self.selected_set_code = opts[0]
+            # If no compatible options, we keep the current one (will be added below)
+
+        # Ensure current value is in options to prevent crash
+        if self.selected_set_code and self.selected_set_code not in opts:
+            opts.append(self.selected_set_code)
+            opts.sort()
+
         self.set_code_select.options = opts
-        if opts and self.selected_set_code not in opts:
-            self.selected_set_code = opts[0]
         self.set_code_select.value = self.selected_set_code
         self.set_code_select.update()
 
