@@ -309,7 +309,11 @@ class ScanPage:
                     self.debug_report = snapshot
                     self.refresh_debug_ui()
 
-            # 3. Check result queue
+            # 3. Process Async Lookups (Backend)
+            # This drives the matching logic which is async and needs to run on the event loop
+            await scanner_service.scanner_manager.process_pending_lookups()
+
+            # 4. Check result queue
             res = scanner_service.scanner_manager.get_latest_result()
             if res:
                 # Append default condition
