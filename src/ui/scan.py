@@ -344,12 +344,13 @@ class ScanPage:
             # 3. Check result queue
             res = scanner_service.scanner_manager.get_latest_result()
             if res:
+                logger.info(f"UI Received Result: {res.get('set_code')}, Ambiguous: {res.get('ambiguity_flag')}")
                 if res.get('ambiguity_flag'):
-                    ui.notify("Scan Ambiguous: Please resolve.", type='warning')
+                    ui.notify("Scan Ambiguous: Please resolve.", type='warning', timeout=5000)
                     dialog = AmbiguityDialog(res, self.on_card_confirmed)
                     dialog.open()
                 else:
-                    ui.notify("Scan Successful!", type='positive')
+                    ui.notify("Scan Successful!", type='positive', timeout=3000)
                     self.on_card_confirmed(res)
 
                 self.refresh_debug_ui() # Ensure final result is shown
@@ -617,12 +618,50 @@ class ScanPage:
 
     @ui.refreshable
     def render_debug_pipeline_results(self):
-        # 4 Collapsable Zones
+        # Match Candidates (Moved to Top)
+        candidates = self.debug_report.get('match_candidates', [])
 
+        # Header Stats
+        with ui.row().classes('w-full items-center justify-between mb-2'):
+            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-primary')
+
+            # Show Detected Features prominently
+            with ui.row().classes('gap-4'):
+                # 1st Edition Status
+                is_first_ed = self.debug_report.get('first_edition', False)
+                color = 'green' if is_first_ed else 'gray'
+                ui.badge(f"1st Ed: {'YES' if is_first_ed else 'NO'}", color=color).classes('text-sm')
+
+                # Visual Rarity
+                vis_rarity = self.debug_report.get('visual_rarity', 'Unknown')
+                ui.badge(f"Visual: {vis_rarity}", color='blue').classes('text-sm')
+
+        if candidates:
+            with ui.card().classes('w-full bg-gray-900 border border-gray-600 p-2 mb-4'):
+                ui.label("Match Candidates (Top 10)").classes('font-bold text-lg mb-2')
+
+                # Header
+                with ui.grid(columns=5).classes('w-full gap-2 border-b border-gray-600 pb-1 mb-1'):
+                    ui.label("Name").classes('font-bold text-xs text-gray-400 col-span-2')
+                    ui.label("Set").classes('font-bold text-xs text-gray-400')
+                    ui.label("Rarity").classes('font-bold text-xs text-gray-400')
+                    ui.label("Score").classes('font-bold text-xs text-gray-400 text-right')
+
+                # Rows
+                for c in candidates:
+                    with ui.grid(columns=5).classes('w-full gap-2 items-center hover:bg-gray-800 p-1 rounded'):
+                        ui.label(c.get('name', '')).classes('text-xs break-all leading-tight col-span-2')
+                        ui.label(c.get('set_code', '')).classes('text-xs font-mono text-green-300')
+                        ui.label(c.get('rarity', '')).classes('text-xs truncate text-blue-300')
+                        ui.label(f"{c.get('score', 0):.1f}").classes('text-xs font-mono text-yellow-400 text-right')
+        else:
+            ui.label("No Match Candidates Found").classes('text-gray-500 italic mb-4')
+
+        # 4 Collapsable Zones
         def render_zone(title, key):
             data = self.debug_report.get(key)
             # Use persistent state for expansion
-            is_open = self.expansion_states.get(key, True)
+            is_open = self.expansion_states.get(key, False) # Default closed to reduce clutter
             with ui.expansion(title, icon='visibility', value=is_open, on_value_change=lambda e: self.expansion_states.__setitem__(key, e.value)).classes('w-full bg-gray-800 border border-gray-600 mb-2'):
                 if data:
                     with ui.column().classes('p-2 w-full'):
@@ -641,24 +680,6 @@ class ScanPage:
         render_zone("Track 1: EasyOCR (Cropped)", "t1_crop")
         render_zone("Track 2: DocTR (Full Frame)", "t2_full")
         render_zone("Track 2: DocTR (Cropped)", "t2_crop")
-
-        # Show Match Candidates
-        candidates = self.debug_report.get('match_candidates', [])
-        if candidates:
-            ui.separator().classes('my-4')
-            ui.label("Match Candidates:").classes('font-bold text-lg')
-
-            with ui.grid(columns=4).classes('w-full gap-2 border border-gray-600 p-2 bg-gray-800 rounded mb-4'):
-                ui.label("Name").classes('font-bold text-xs text-gray-400')
-                ui.label("Set").classes('font-bold text-xs text-gray-400')
-                ui.label("Rarity").classes('font-bold text-xs text-gray-400')
-                ui.label("Score").classes('font-bold text-xs text-gray-400')
-
-                for c in candidates:
-                    ui.label(c.get('name', '')[:20]).classes('text-xs truncate')
-                    ui.label(c.get('set_code', '')).classes('text-xs')
-                    ui.label(c.get('rarity', '')[:10]).classes('text-xs truncate')
-                    ui.label(f"{c.get('score', 0):.1f}").classes('text-xs font-mono text-yellow-400')
 
         ui.separator().classes('my-4')
 
@@ -798,7 +819,6 @@ class ScanPage:
 
             # --- CARD 3: RESULTS ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("3. OCR Results").classes('text-2xl font-bold text-primary')
                 self.render_debug_pipeline_results()
 
         ui.run_javascript('initDebugStream()')
