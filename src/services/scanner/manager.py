@@ -8,6 +8,7 @@ import os
 import uuid
 import shutil
 import pickle
+import json
 from typing import Optional, Dict, Any, List, Tuple, Union, Callable
 
 try:
@@ -77,8 +78,35 @@ class ScannerManager:
 
         self.debug_dir = "debug/scans"
         self.queue_dir = "scans/queue"
+        self.config_path = "data/scanner_config.json"
         os.makedirs(self.debug_dir, exist_ok=True)
         os.makedirs(self.queue_dir, exist_ok=True)
+
+        self.config = {
+            "ocr_tracks": ["doctr"],
+            "preprocessing_mode": "classic",
+            "art_match_yolo": False
+        }
+        self.load_config()
+
+    def load_config(self):
+        try:
+            if os.path.exists(self.config_path):
+                with open(self.config_path, 'r') as f:
+                    saved_config = json.load(f)
+                    self.config.update(saved_config)
+                logger.info("Scanner configuration loaded.")
+        except Exception as e:
+            logger.error(f"Failed to load scanner config: {e}")
+
+    def save_config(self, new_config: Dict[str, Any]):
+        try:
+            self.config.update(new_config)
+            with open(self.config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            logger.info("Scanner configuration saved.")
+        except Exception as e:
+            logger.error(f"Failed to save scanner config: {e}")
 
     def register_listener(self, callback: Callable[["ScanEvent"], None]):
         """Registers a callback for scanner events."""
@@ -383,7 +411,7 @@ class ScannerManager:
                         cap_url = self._save_debug_image(frame, "manual_cap")
 
                         # Reset previous results to avoid confusion
-                        for i in range(1, 5): # 1 to 4
+                        for i in range(1, 3): # 1 to 2
                             setattr(self.debug_state, f"t{i}_full", None)
                             setattr(self.debug_state, f"t{i}_crop", None)
 
@@ -500,7 +528,7 @@ class ScannerManager:
         report = {
             "steps": [],
         }
-        for i in range(1, 5): # 1 to 4
+        for i in range(1, 3): # 1 to 2
             report[f"t{i}_full"] = None
             report[f"t{i}_crop"] = None
 
@@ -546,14 +574,12 @@ class ScannerManager:
 
         check_pause()
 
-        tracks = options.get("tracks", ["easyocr"]) # ['easyocr', 'doctr', 'keras', 'mmocr']
+        tracks = options.get("tracks", ["easyocr"]) # ['easyocr', 'doctr']
 
         # Config mapping: (engine_key, label_base, field_prefix)
         track_config = [
             ("easyocr", "Track 1: EasyOCR", "t1"),
             ("doctr", "Track 2: DocTR", "t2"),
-            ("keras", "Track 3: Keras-OCR", "t3"),
-            ("mmocr", "Track 4: MMOCR", "t4"),
         ]
 
         for engine_key, label_base, field_prefix in track_config:
@@ -630,7 +656,7 @@ class ScannerManager:
     def _pick_best_result(self, report):
         """Heuristic to pick the best result from all zones."""
         candidates = []
-        for i in range(1, 5): # 1 to 4
+        for i in range(1, 3): # 1 to 2
             for scope in ["full", "crop"]:
                 key = f"t{i}_{scope}"
                 res = report.get(key)

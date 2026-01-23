@@ -209,10 +209,14 @@ class ScanPage:
         self.stop_btn = None
         self.is_active = False
 
-        # Config
-        self.ocr_tracks = ['doctr'] # Default to DocTR
-        self.preprocessing_mode = 'classic' # 'classic', 'yolo', or 'yolo26'
-        self.art_match_yolo = False
+        # Config - Init from Manager
+        config = scanner_service.scanner_manager.config
+        self.ocr_tracks = config.get("ocr_tracks", ['doctr'])
+        self.preprocessing_mode = config.get("preprocessing_mode", 'classic')
+        self.art_match_yolo = config.get("art_match_yolo", False)
+
+        # UI State Persistence
+        self.ui_expansion_state = {}
 
         # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
@@ -551,8 +555,15 @@ class ScanPage:
 
         def render_zone(title, key):
             data = self.debug_report.get(key)
-            # Make sure expansion is open by default: .props('default-opened') or .value=True if bound
-            with ui.expansion(title, icon='visibility').classes('w-full bg-gray-800 border border-gray-600 mb-2').props('default-opened'):
+
+            # Persistent expansion state
+            is_open = self.ui_expansion_state.get(key, True)
+
+            exp = ui.expansion(title, icon='visibility').classes('w-full bg-gray-800 border border-gray-600 mb-2')
+            exp.value = is_open
+            exp.on_value_change(lambda e, k=key: self.ui_expansion_state.update({k: e.value}))
+
+            with exp:
                 if data:
                     with ui.column().classes('p-2 w-full'):
                         ui.label(f"Set ID: {data.get('set_id', 'N/A')}").classes('font-bold text-green-400')
@@ -570,10 +581,6 @@ class ScanPage:
         render_zone("Track 1: EasyOCR (Cropped)", "t1_crop")
         render_zone("Track 2: DocTR (Full Frame)", "t2_full")
         render_zone("Track 2: DocTR (Cropped)", "t2_crop")
-        render_zone("Track 3: Keras-OCR (Full Frame)", "t3_full")
-        render_zone("Track 3: Keras-OCR (Cropped)", "t3_crop")
-        render_zone("Track 4: MMOCR (Full Frame)", "t4_full")
-        render_zone("Track 4: MMOCR (Cropped)", "t4_crop")
 
         ui.separator().classes('my-4')
 
@@ -655,6 +662,14 @@ class ScanPage:
         scanner_service.scanner_manager.toggle_pause()
         self.render_status_controls.refresh()
 
+    def update_config(self, key, value):
+        setattr(self, key, value)
+        scanner_service.scanner_manager.save_config({
+            "ocr_tracks": self.ocr_tracks,
+            "preprocessing_mode": self.preprocessing_mode,
+            "art_match_yolo": self.art_match_yolo
+        })
+
     def render_debug_lab(self):
         with ui.grid().classes('grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 w-full'):
 
@@ -666,14 +681,14 @@ class ScanPage:
                 # Preprocessing Toggle
                 ui.label("Preprocessing Strategy:").classes('font-bold text-gray-300')
                 with ui.row():
-                    ui.radio(['classic', 'classic_white_bg', 'yolo', 'yolo26'], value=self.preprocessing_mode, on_change=lambda e: setattr(self, 'preprocessing_mode', e.value)).props('inline')
+                    ui.radio(['classic', 'classic_white_bg', 'yolo', 'yolo26'], value=self.preprocessing_mode, on_change=lambda e: self.update_config('preprocessing_mode', e.value)).props('inline')
 
                 # Art Match
                 with ui.row().classes('items-center justify-between w-full'):
                     ui.label("Art Style Match (YOLO):").classes('font-bold text-gray-300')
                     with ui.row().classes('items-center gap-2'):
                          ui.button('Index Images', icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_art_index(force=True)).props('dense color=purple').tooltip("Rebuild Art Index from data/images")
-                         ui.switch(value=self.art_match_yolo, on_change=lambda e: setattr(self, 'art_match_yolo', e.value)).props('color=purple')
+                         ui.switch(value=self.art_match_yolo, on_change=lambda e: self.update_config('art_match_yolo', e.value)).props('color=purple')
 
                 # Tracks Selector
                 ui.label("Active Tracks:").classes('font-bold text-gray-300')
@@ -681,8 +696,6 @@ class ScanPage:
                 with ui.row().classes('flex-wrap'):
                     ui.checkbox('EasyOCR', value='easyocr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('easyocr', e.value))
                     ui.checkbox('DocTR', value='doctr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('doctr', e.value))
-                    ui.checkbox('Keras-OCR', value='keras' in self.ocr_tracks, on_change=lambda e: self.toggle_track('keras', e.value))
-                    ui.checkbox('MMOCR', value='mmocr' in self.ocr_tracks, on_change=lambda e: self.toggle_track('mmocr', e.value))
 
                 # Camera Preview
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
@@ -715,6 +728,8 @@ class ScanPage:
             if track not in self.ocr_tracks: self.ocr_tracks.append(track)
         else:
             if track in self.ocr_tracks: self.ocr_tracks.remove(track)
+
+        scanner_service.scanner_manager.save_config({"ocr_tracks": self.ocr_tracks})
 
 def scan_page():
     page = ScanPage()
