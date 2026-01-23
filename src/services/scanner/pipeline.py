@@ -633,6 +633,10 @@ class CardScanner:
             logger.error(f"OCR Scan Error ({engine}): {e}")
             full_text = " | ".join(raw_text_list)
 
+        # Extract Stats & Type
+        atk, def_val = self._extract_stats(full_text)
+        card_type = self._detect_card_type(full_text)
+
         return OCRResult(
             engine=engine,
             scope=scope,
@@ -640,8 +644,33 @@ class CardScanner:
             set_id=set_id,
             card_name=card_name,
             set_id_conf=set_id_conf * 100, # Normalize to 0-100
-            language=lang
+            language=lang,
+            atk=atk,
+            def_val=def_val,
+            card_type=card_type
         )
+
+    def _extract_stats(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extracts ATK and DEF values from text."""
+        # Simple regex for ATK/DEF
+        # Supports ATK/1800, ATK / 1800, ATK: 1800 etc.
+        # And ? for values.
+        atk_match = re.search(r'ATK\s*[:/.]?\s*([0-9?]+)', text, re.IGNORECASE)
+        def_match = re.search(r'DEF\s*[:/.]?\s*([0-9?]+)', text, re.IGNORECASE)
+
+        atk = atk_match.group(1) if atk_match else None
+        def_val = def_match.group(1) if def_match else None
+        return atk, def_val
+
+    def _detect_card_type(self, text: str) -> Optional[str]:
+        """Detects Spell/Trap keywords early in the text."""
+        upper_text = text.upper()
+        # Prioritize finding these keywords
+        if "SPELL CARD" in upper_text or "CARTE MAGIE" in upper_text or "ZAUBERKARTE" in upper_text:
+            return "Spell"
+        if "TRAP CARD" in upper_text or "CARTE PIÈGE" in upper_text or "FALLENKARTE" in upper_text:
+            return "Trap"
+        return None
 
     def _parse_card_name(self, raw_result: Any, engine: str, scope: str = 'full') -> Optional[str]:
         """Extracts card name from OCR result using Robust Database Matching."""
@@ -809,9 +838,20 @@ class CardScanner:
         roi = warped[y:y+h, x:x+w]
 
         res = self.ocr_scan(roi, engine=engine)
-        text = res.raw_text.lower()
+        text = res.raw_text.upper()
 
-        if '1st' in text or 'edition' in text:
+        # Context-aware 1st Edition Check
+        # Strict markers: "1ST", "1.", "LIMITED"
+        has_marker = any(m in text for m in ["1ST", "1.", "LIMITED"])
+
+        # Must also have "EDITION" or "AUFLAGE"
+        has_edition = "EDITION" in text or "AUFLAGE" in text
+
+        # The user requested exception: "EXEPTION If there ist the word edition... in the card effect or card name."
+        # Since we scan a dedicated ROI (bottom-left usually), we avoid Name/Effect unless crop is bad.
+        # But we enforce the combination of Marker + Edition to be safe against isolated "Edition" words.
+
+        if has_marker and has_edition:
             return True
         return False
 
@@ -886,29 +926,53 @@ class CardScanner:
         return None, 0
 
     def detect_rarity_visual(self, warped) -> str:
-        """Visual fallback for rarity detection."""
+        """
+        Visual analysis for rarity based on reflectivity (brightness variance)
+        and specific color tones (Gold/Silver).
+        """
         x, y, w, h = self.roi_name
-        roi = warped[y:y+h, x:x+w]
-        hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+        roi_name = warped[y:y+h, x:x+w]
+        hsv = cv2.cvtColor(roi_name, cv2.COLOR_BGR2HSV)
 
-        lower_gold = np.array([10, 100, 100])
+        # Tuned Color Thresholds
+        lower_gold = np.array([10, 80, 80])
         upper_gold = np.array([40, 255, 255])
         mask_gold = cv2.inRange(hsv, lower_gold, upper_gold)
 
-        lower_silver = np.array([0, 0, 150])
-        upper_silver = np.array([180, 50, 255])
+        lower_silver = np.array([0, 0, 180]) # Bright whites/silvers
+        upper_silver = np.array([180, 30, 255])
         mask_silver = cv2.inRange(hsv, lower_silver, upper_silver)
 
         gold_pixels = cv2.countNonZero(mask_gold)
         silver_pixels = cv2.countNonZero(mask_silver)
         total_pixels = w * h
 
-        if gold_pixels > total_pixels * 0.05:
-            return "Gold Rare"
-        elif silver_pixels > total_pixels * 0.05:
-            return "Secret Rare"
+        # Reflectivity (Variance) Analysis
+        gray = cv2.cvtColor(roi_name, cv2.COLOR_BGR2GRAY)
+        mean, std_dev = cv2.meanStdDev(gray)
+        std_val = std_dev[0][0]
 
-        return "Common"
+        rarity = "Common"
+        confidence = 0.0 # 0.0 to 1.0
+
+        # Thresholds
+        if gold_pixels > total_pixels * 0.10:
+            rarity = "Gold/Ultra Rare"
+            confidence = 0.85
+        elif silver_pixels > total_pixels * 0.10:
+             # Distinguish Silver Foil vs White Ink (Common Spell/Trap titles)
+             if std_val > 50: # High variance suggests foil noise
+                 rarity = "Secret Rare"
+                 confidence = 0.65
+             else:
+                 rarity = "Common" # Likely White Ink
+                 confidence = 0.5
+        else:
+            rarity = "Common"
+            confidence = 0.9
+
+        # Return formatted string with confidence
+        return f"{rarity} ({int(confidence*100)}%)"
 
     def debug_draw_rois(self, image=None):
         """Draws ROIs on the provided image."""
