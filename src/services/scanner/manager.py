@@ -719,14 +719,9 @@ class ScannerManager:
                         })
                         found_set_match = True
 
-            # FUZZY SET MATCH (Fallback if exact failed)
-            # This handles "Z" vs "2" typos if the OCR was slightly off but close to a real set code
-            if not found_set_match and len(top_set_id) > 3:
-                # We need to find the closest valid set code in the DB?
-                # That's expensive (thousands of cards).
-                # Optimization: Only check if we have other signals (Name/Art) later?
-                # OR: Check known set prefixes?
-                pass
+            # No Fuzzy Matching here.
+            # If Exact Match fails, we rely on Name/Art to find the card,
+            # and then we report that the Set Code OCR was unmatched/unknown.
 
         # 2. By Name
         if top_name:
@@ -821,34 +816,12 @@ class ScannerManager:
                       except Exception as e:
                           logger.error(f"Error in constrained art match: {e}")
 
-        # Consolidate Candidates & Fuzzy Set Correction
+        # Consolidate Candidates
         grouped = {}
-
-        # If we matched by Name/Art but Set Code was "Unknown" or Mismatched (Typo),
-        # we can use the card's valid sets to "Snap" the typo.
 
         for p in potential_cards:
             c = p['card']
             s_info = p['set_info']
-
-            # FUZZY CORRECTION LOGIC
-            # If we don't have s_info (e.g. matched by Name), but we have a top_set_id (OCR),
-            # check if any of this card's sets are close to top_set_id.
-            if not s_info and top_set_id and c.card_sets:
-                from difflib import SequenceMatcher
-                best_ratio = 0
-                best_s = None
-                for s in c.card_sets:
-                    ratio = SequenceMatcher(None, s.set_code, top_set_id).ratio()
-                    if ratio > best_ratio:
-                        best_ratio = ratio
-                        best_s = s
-
-                # Threshold for "Correction" (e.g. > 0.8 means 1-2 char diff usually)
-                if best_ratio > 0.8:
-                    s_info = best_s # Snap to valid set
-                    p['score'] += 30 # Boost for "Found valid set code via correction"
-                    p['source'] = f"{p['source']}+set_fuzzy"
 
             if s_info:
                 key = (c.id, s_info.set_code, s_info.set_rarity)
@@ -911,7 +884,11 @@ class ScannerManager:
 
         final_candidates.sort(key=lambda x: x['score'], reverse=True)
 
-        # AMBIGUITY CHECK
+        # AMBIGUITY CHECK (Revised)
+        # Distinction:
+        # 1. Matching Ambiguity: Multiple different cards/sets have similar scores.
+        # 2. Database Ambiguity: The matched Set Code + Card ID corresponds to multiple physical variants (e.g. Rarities).
+
         is_ambiguous = False
         if not final_candidates:
              logger.warning("No candidates found during matching.")
@@ -919,12 +896,33 @@ class ScannerManager:
 
         best = final_candidates[0]
 
+        # Check for Database Ambiguity (Same Set Code, Different Rarity)
+        # Filter candidates that are "Identical" to best but have different Rarity
+        # (and roughly same score, meaning we couldn't distinguish them)
+        db_variants = [c for c in final_candidates if c['set_code'] == best['set_code'] and c['card_id'] == best['card_id']]
+
+        if len(db_variants) > 1:
+            # We have multiple rarities for this exact set code.
+            # Unless one score is significantly higher (e.g. Visual Rarity boost?), it's ambiguous.
+
+            # Check score spread within variants
+            best_variant_score = db_variants[0]['score']
+            second_variant_score = db_variants[1]['score']
+
+            if (best_variant_score - second_variant_score) < 20:
+                is_ambiguous = True
+                logger.info(f"Database Ambiguity: Multiple rarities for {best['set_code']}")
+
+        # Check for Matching Ambiguity (Different Cards/Set Codes)
         if len(final_candidates) > 1:
             second = final_candidates[1]
-            if (best['score'] - second['score']) < 30:
-                is_ambiguous = True
-                logger.info(f"Ambiguity detected: Close scores ({best['score']} vs {second['score']})")
+            # If the second best is a DIFFERENT card/set and score is close
+            if second['set_code'] != best['set_code'] or second['card_id'] != best['card_id']:
+                if (best['score'] - second['score']) < 30:
+                    is_ambiguous = True
+                    logger.info(f"Matching Ambiguity: Close scores ({best['score']} vs {second['score']})")
 
+        # Critical Info Missing
         if best['set_code'] is None or best['set_code'] == "Unknown":
             is_ambiguous = True
             logger.info("Ambiguity detected: Missing Set Code")
