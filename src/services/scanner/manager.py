@@ -34,6 +34,7 @@ else:
     class ScanEvent: pass
     class ScanRequest: pass
     class ScanDebugReport: pass
+    class ScanResult: pass
 
 from src.services.ygo_api import ygo_service
 from src.services.image_manager import image_manager
@@ -625,71 +626,247 @@ class ScannerManager:
 
         return report
 
-    def _pick_best_result(self, report):
-        """Heuristic to pick the best result from all zones."""
-        candidates = []
-        for i in range(1, 3): # 1 to 2
-            for scope in ["full", "crop"]:
-                key = f"t{i}_{scope}"
-                res = report.get(key)
-                if res and res.set_id:
-                    candidates.append(res)
-
-        if not candidates: return None
-        # Sort by confidence
-        candidates.sort(key=lambda x: x.set_id_conf, reverse=True)
-        return candidates[0]
-
     async def process_pending_lookups(self):
         try:
             try:
-                data = self.lookup_queue.get_nowait()
+                report = self.lookup_queue.get_nowait()
             except queue.Empty:
                 return
 
-            logger.info(f"Processing lookup for {data.get('set_code', 'Unknown')}")
+            logger.info("Processing lookup for scan report...")
 
-            set_id = data.get('set_code')
-            warped = data.pop('warped_image', None)
+            # Run advanced matching
+            result = await self._match_card_async(report)
 
-            # Create base result
-            result = ScanResult()
-            result.set_code = set_id
-            result.language = data.get('language', 'EN')
-            result.ocr_conf = data.get('ocr_conf', 0.0)
-            result.visual_rarity = data.get('visual_rarity', 'Common')
-            result.first_edition = data.get('first_edition', False)
-
-            if set_id:
-                card_info = await self._resolve_card_details(set_id)
-
-                if card_info:
-                    result.name = card_info['name']
-                    result.card_id = card_info['card_id']
-                    result.rarity = card_info['rarity']
-
-                    if warped is not None and card_info.get("potential_art_paths"):
-                        match_path, match_score = await run.io_bound(
-                            self.scanner.match_artwork, warped, card_info["potential_art_paths"]
-                        )
-                        if match_path:
-                            result.image_path = match_path
-                            result.match_score = match_score
-                        else:
-                            result.image_path = card_info["potential_art_paths"][0]
-                            result.match_score = 0
-
-            if result.rarity == "Unknown":
-                result.rarity = result.visual_rarity
+            # Update Debug State with Final Result
+            if self.debug_state:
+                self.debug_state.final_result = result
+                self._emit("status_update", {}) # Trigger UI refresh
 
             self.result_queue.put(result)
-            logger.info(f"Lookup complete for {result.set_code}")
+            logger.info(f"Lookup complete. Result: {result.name} ({result.set_code})")
 
             # Emit event for live results
             self._emit("result_ready", {"set_code": result.set_code})
 
         except Exception as e:
             logger.error(f"Error in process_pending_lookups: {e}", exc_info=True)
+
+    async def _match_card_async(self, report: Dict[str, Any]) -> "ScanResult":
+        """
+        Advanced Weighted Matching Algorithm.
+        Combines OCR (Set Code, Name, ATK/DEF) + YOLO (Art) to find best match.
+        """
+        # 1. Gather Signals
+        ocr_results = []
+        for i in range(1, 3):
+            for scope in ["full", "crop"]:
+                res = report.get(f"t{i}_{scope}")
+                if res: ocr_results.append(res)
+
+        art_match = report.get('art_match_yolo')
+        warped = report.get('warped_image_data')
+        visual_rarity = report.get('visual_rarity', 'Common')
+        first_ed = report.get('first_edition', False)
+
+        # 2. Extract Candidates
+        set_code_counts = {} # code -> confidence
+        names = set()
+        atks = []
+        defs = []
+
+        for res in ocr_results:
+            if res.set_id:
+                # Use max confidence for duplicates
+                set_code_counts[res.set_id] = max(set_code_counts.get(res.set_id, 0), res.set_id_conf)
+            if res.card_name:
+                names.add(res.card_name)
+            if res.atk: atks.append(res.atk)
+            if res.def_val: defs.append(res.def_val)
+
+        best_atk = atks[0] if atks else None
+        best_def = defs[0] if defs else None
+
+        # 3. Candidate Generation
+        # Load DB (EN default, but we might need others if Set Code suggests)
+        # We can infer language from Set Code
+        top_set_code = None
+        if set_code_counts:
+            top_set_code = max(set_code_counts, key=set_code_counts.get)
+
+        # Determine language to load
+        lang = "en"
+        if top_set_code:
+            parts = top_set_code.split('-')
+            if len(parts) > 1:
+                r = parts[1][:2]
+                if r in ['DE', 'FR', 'IT', 'PT']: lang = r.lower()
+
+        cards = await ygo_service.load_card_database(lang)
+
+        candidates = [] # (Card, Variant, Score, Reasons)
+
+        # A. Set Code Matches (High Weight)
+        if top_set_code:
+            for card in cards:
+                if not card.card_sets: continue
+                for s in card.card_sets:
+                    if s.set_code == top_set_code:
+                        candidates.append({
+                            'card': card,
+                            'variant': s,
+                            'score': 80 + (set_code_counts[top_set_code] / 10),
+                            'reason': 'Set Code'
+                        })
+
+        # B. Name Matches (Medium Weight)
+        if names:
+            for name in names:
+                n_norm = self.scanner._normalize_card_name(name)
+                for card in cards:
+                    c_norm = self.scanner._normalize_card_name(card.name)
+                    if n_norm == c_norm:
+                        # Find best variant? Or all?
+                        # If we already have this card from Set Code, boost score
+                        found = False
+                        for cand in candidates:
+                            if cand['card'].id == card.id:
+                                cand['score'] += 15
+                                cand['reason'] += ", Name"
+                                found = True
+
+                        if not found:
+                             # Add generic candidate (use first variant or most common?)
+                             v = card.card_sets[0] if card.card_sets else None
+                             candidates.append({
+                                 'card': card,
+                                 'variant': v,
+                                 'score': 50,
+                                 'reason': 'Name'
+                             })
+
+        # C. Art Match (YOLO)
+        if art_match:
+            art_file = art_match.get('filename') # e.g. "12345.jpg"
+            if art_file:
+                # Extract ID from filename?
+                # Assuming filename is "{id}.jpg" or "{id}_{something}.jpg"
+                try:
+                    art_id = int(art_file.split('.')[0].split('_')[0])
+                    for card in cards:
+                        if card.id == art_id:
+                            found = False
+                            for cand in candidates:
+                                if cand['card'].id == card.id:
+                                    cand['score'] += 20
+                                    cand['reason'] += ", Art"
+                                    found = True
+                            if not found:
+                                v = card.card_sets[0] if card.card_sets else None
+                                candidates.append({
+                                    'card': card,
+                                    'variant': v,
+                                    'score': 40,
+                                    'reason': 'Art'
+                                })
+                except:
+                    pass
+
+        # D. ATK/DEF Validation (Tiebreak)
+        if best_atk or best_def:
+            for cand in candidates:
+                card = cand['card']
+                # ATK/DEF are strings or ints in API? Usually ints.
+                # OCR returns strings.
+                match = True
+                if best_atk and str(card.atk) != best_atk: match = False
+                if best_def and str(card.def_val) != best_def: match = False
+
+                if match:
+                    cand['score'] += 10
+                else:
+                    cand['score'] -= 30 # Mismatch penalty
+
+        # 4. Selection & Ambiguity
+        candidates.sort(key=lambda x: x['score'], reverse=True)
+
+        final_res = ScanResult()
+        final_res.raw_ocr = ocr_results
+        final_res.visual_rarity = visual_rarity
+        final_res.first_edition = first_ed
+        final_res.atk = best_atk
+        final_res.def_val = best_def
+        final_res.ambiguity_flag = False
+
+        if not candidates:
+            # Fallback
+            final_res.name = "No Match Found"
+            if names: final_res.name = list(names)[0] + " (?)"
+            if top_set_code: final_res.set_code = top_set_code
+            return final_res
+
+        best = candidates[0]
+
+        # Check for ambiguity (score gap)
+        if len(candidates) > 1:
+            diff = candidates[0]['score'] - candidates[1]['score']
+            if diff < 15: # Close match
+                final_res.ambiguity_flag = True
+
+        final_res.match_score = int(best['score'])
+
+        # Variant Resolution (Rarity)
+        # If the Best Candidate has a specific variant selected (from Set Code match), use it.
+        # But wait, Set Code matching adds ALL variants with that code (unlikely > 1 unless diff rarity).
+        # Actually, Set Code + Rarity defines the variant.
+        # We need to check if the Set Code match has multiple rarities.
+
+        selected_variant = best.get('variant')
+        card = best.get('card')
+
+        if selected_variant:
+            # Check if this set code exists with other rarities in the same card
+            siblings = [s for s in card.card_sets if s.set_code == selected_variant.set_code]
+            if len(siblings) > 1:
+                # Multiple rarities for this code. Ambiguous!
+                final_res.ambiguity_flag = True
+                # Try to resolve with Visual Rarity
+                # Map visual_rarity to text?
+                # "Gold Rare" -> "Gold Rare", "Secret Rare" -> "Secret Rare"
+                # If we find a sibling that matches visual rarity, pick it.
+                for s in siblings:
+                    # Simple fuzzy check
+                    if visual_rarity.lower() in s.set_rarity.lower():
+                        selected_variant = s
+                        final_res.ambiguity_flag = False # Resolved
+                        break
+
+        final_res.name = card.name
+        final_res.card_id = card.id
+        final_res.set_code = selected_variant.set_code if selected_variant else top_set_code
+        final_res.rarity = selected_variant.set_rarity if selected_variant else "Unknown"
+        final_res.language = lang.upper()
+
+        # Populate candidates list for UI
+        final_res.candidates = []
+        for c in candidates[:5]:
+             final_res.candidates.append({
+                 "name": c['card'].name,
+                 "set_code": c['variant'].set_code if c['variant'] else "N/A",
+                 "rarity": c['variant'].set_rarity if c['variant'] else "N/A",
+                 "score": c['score'],
+                 "reason": c['reason']
+             })
+
+        # Image Path
+        if selected_variant and selected_variant.image_id:
+             # We need to fetch/resolve path
+             # Just use placeholder or logic?
+             # manager has access to image_manager?
+             # But image_manager.ensure_image is async.
+             pass
+
+        return final_res
 
     async def _resolve_card_details(self, set_id: str) -> Optional[Dict[str, Any]]:
         set_id = set_id.upper()

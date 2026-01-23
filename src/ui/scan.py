@@ -14,6 +14,7 @@ from src.services.scanner import manager as scanner_service
 from src.services.scanner import SCANNER_AVAILABLE
 from src.core.persistence import persistence
 from src.core.models import CollectionCard, CollectionVariant, CollectionEntry
+from src.core.utils import is_set_code_compatible
 from src.services.ygo_api import ygo_service
 
 logger = logging.getLogger(__name__)
@@ -213,6 +214,7 @@ class ScanPage:
         self.ocr_tracks = ['doctr'] # Default to DocTR
         self.preprocessing_mode = 'classic' # 'classic', 'yolo', or 'yolo26'
         self.art_match_yolo = False
+        self.default_condition = "Near Mint"
 
         # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
@@ -307,9 +309,13 @@ class ScanPage:
             # 3. Check result queue
             res = scanner_service.scanner_manager.get_latest_result()
             if res:
-                self.scanned_cards.insert(0, res)
-                self.render_live_list.refresh()
-                ui.notify(f"Scanned: {res.get('name')}", type='positive')
+                if res.get('ambiguity_flag'):
+                    self.show_ambiguity_dialog(res)
+                else:
+                    self.scanned_cards.insert(0, res)
+                    self.render_live_list.refresh()
+                    ui.notify(f"Scanned: {res.get('name')}", type='positive')
+
                 self.refresh_debug_ui() # Ensure final result is shown
 
         except Exception as e:
@@ -336,6 +342,114 @@ class ScanPage:
         # scanner_service.scanner_manager.stop()
         self.start_btn.visible = True
         self.stop_btn.visible = False
+
+    def show_ambiguity_dialog(self, res: Dict[str, Any]):
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-4xl bg-gray-900 border border-gray-700'):
+            ui.label("Resolve Ambiguity").classes('text-xl font-bold text-warning')
+
+            # Data Containers
+            state = {
+                'name': res.get('name', 'Unknown'),
+                'set_code': res.get('set_code', ''),
+                'rarity': res.get('rarity', ''),
+                'language': res.get('language', 'EN'),
+                'condition': self.default_condition,
+                'first_edition': res.get('first_edition', False),
+            }
+
+            # Fetch variants for dropdowns
+            card_id = res.get('card_id')
+            variants = []
+            if card_id:
+                lang = res.get('language', 'EN').lower()
+                card = ygo_service.get_card(card_id, language=lang)
+                # Fallback to EN if specific lang not found (or try EN if likely cached)
+                if not card: card = ygo_service.get_card(card_id, language='en')
+                if card: variants = card.card_sets
+
+            # Dropdown Options
+            set_codes = sorted(list(set({v.set_code for v in variants})))
+            rarities = sorted(list(set({v.set_rarity for v in variants})))
+
+            # Add current values if missing
+            if state['set_code'] and state['set_code'] not in set_codes:
+                set_codes.append(state['set_code'])
+            if state['rarity'] and state['rarity'] not in rarities:
+                rarities.append(state['rarity'])
+
+            def update_rarities_based_on_set():
+                valid_rarities = [v.set_rarity for v in variants if v.set_code == state['set_code']]
+                if not valid_rarities: valid_rarities = rarities
+                rarity_select.options = sorted(list(set(valid_rarities)))
+                rarity_select.update()
+                # Auto-select if only one
+                if len(rarity_select.options) == 1:
+                     state['rarity'] = rarity_select.options[0]
+                     rarity_select.value = state['rarity']
+                     rarity_select.update()
+
+            with ui.row().classes('w-full gap-4'):
+                 # Left: Image
+                 img_src = self.debug_report.get('captured_image_url')
+                 if img_src:
+                     ui.image(img_src).classes('w-64 h-auto rounded border')
+
+                 # Right: Controls
+                 with ui.column().classes('flex-grow'):
+                     ui.label(f"Card: {state['name']}").classes('font-bold text-lg')
+
+                     def update_sets_based_on_lang():
+                         lang = state['language']
+                         # Filter based on compatibility
+                         valid_codes = sorted(list(set({v.set_code for v in variants if is_set_code_compatible(v.set_code, lang)})))
+                         if not valid_codes: valid_codes = set_codes
+                         set_select.options = valid_codes
+                         set_select.update()
+
+                         if state['set_code'] not in valid_codes and valid_codes:
+                             state['set_code'] = valid_codes[0]
+                             set_select.value = state['set_code']
+                             set_select.update()
+                             update_rarities_based_on_set()
+
+                     ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP'], label='Language',
+                               value=state['language'],
+                               on_change=lambda e: [state.update(language=e.value), update_sets_based_on_lang()]).classes('w-full')
+
+                     set_select = ui.select(set_codes, label='Set Code', value=state['set_code'],
+                                            on_change=lambda e: [state.update(set_code=e.value), update_rarities_based_on_set()]).classes('w-full')
+
+                     rarity_select = ui.select(rarities, label='Rarity', value=state['rarity'],
+                                               on_change=lambda e: state.update(rarity=e.value)).classes('w-full')
+
+                     ui.select(["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor"],
+                               label='Condition', value=state['condition'],
+                               on_change=lambda e: state.update(condition=e.value)).classes('w-full')
+
+                     ui.checkbox('1st Edition', value=state['first_edition'],
+                                 on_change=lambda e: state.update(first_edition=e.value))
+
+                     # Candidates Preview
+                     if res.get('candidates'):
+                         ui.separator().classes('my-2')
+                         ui.label("Candidates:").classes('font-bold text-gray-400 text-sm')
+                         for c in res['candidates']:
+                             ui.label(f"{c['score']:.1f}: {c['name']} ({c['set_code']})").classes('text-xs')
+
+            with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                ui.button('Abort', on_click=dialog.close, color='negative').props('flat')
+
+                def confirm():
+                    res.update(state)
+                    self.scanned_cards.insert(0, res)
+                    self.render_live_list.refresh()
+                    ui.notify("Added resolved card", type='positive')
+                    self.refresh_debug_ui()
+                    dialog.close()
+
+                ui.button('Confirm', on_click=confirm, color='positive')
+
+        dialog.open()
 
     def remove_card(self, index):
         if 0 <= index < len(self.scanned_cards):
@@ -389,7 +503,7 @@ class ScanPage:
                     target_card.variants.append(target_variant)
 
                 entry = CollectionEntry(
-                    condition="Near Mint",
+                    condition=self.default_condition,
                     language=item['language'],
                     first_edition=item['first_edition'],
                     quantity=1
@@ -576,6 +690,22 @@ class ScanPage:
         render_zone("Track 2: DocTR (Cropped)", "t2_crop")
 
         ui.separator().classes('my-4')
+
+        # Final Match Display
+        final = self.debug_report.get('final_result')
+        if final:
+             with ui.card().classes('w-full bg-green-900 border border-green-500 mb-4'):
+                 ui.label("Final Match Result").classes('text-xl font-bold text-white')
+                 with ui.row().classes('w-full gap-4'):
+                     with ui.column():
+                         ui.label(f"Name: {final.get('name')}").classes('font-bold')
+                         ui.label(f"Set: {final.get('set_code')}").classes('font-mono')
+                         ui.label(f"Rarity: {final.get('rarity')}")
+                     with ui.column():
+                         ui.label(f"ATK: {final.get('atk')}").classes('font-mono')
+                         ui.label(f"DEF: {final.get('def_val')}").classes('font-mono')
+                         ui.label(f"Lang: {final.get('language')}")
+                         ui.checkbox("Ambiguous", value=final.get('ambiguity_flag')).props('disable')
 
         ui.label("Execution Log:").classes('font-bold text-lg')
         logs = self.debug_report.get('logs', [])
@@ -767,6 +897,12 @@ def scan_page():
 
                 ui.separator().props('vertical')
 
+                # Condition Dropdown
+                ui.select(["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor"],
+                          label="Default Condition",
+                          value=page.default_condition,
+                          on_change=lambda e: setattr(page, 'default_condition', e.value)).classes('w-32').props('dense options-dense')
+
                 # --- NEW: Status Controls in Live Scan ---
                 page.render_status_controls()
 
@@ -796,6 +932,9 @@ def scan_page():
 
     # Use fast consumer loop instead of slow polling
     ui.timer(0.1, page.event_consumer)
+
+    # Drive the scanner manager's async matching loop
+    ui.timer(0.5, scanner_service.scanner_manager.process_pending_lookups)
 
     # Initialize from current state immediately
     page.debug_report = scanner_service.scanner_manager.get_debug_snapshot()

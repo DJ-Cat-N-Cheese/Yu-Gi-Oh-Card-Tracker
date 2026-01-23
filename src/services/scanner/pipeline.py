@@ -589,6 +589,8 @@ class CardScanner:
         set_id_conf = 0.0
         lang = "EN"
         card_name = None
+        atk = None
+        def_val = None
 
         try:
             # Resize for better small text detection (standard strategy)
@@ -629,6 +631,9 @@ class CardScanner:
             # Parse Set ID (pass full_text for global regex fallback)
             set_id, set_id_conf, lang = self._parse_set_id(raw_text_list, confidences, full_text)
 
+            # Parse Stats
+            atk, def_val = self._parse_stats(full_text)
+
         except Exception as e:
             logger.error(f"OCR Scan Error ({engine}): {e}")
             full_text = " | ".join(raw_text_list)
@@ -640,7 +645,9 @@ class CardScanner:
             set_id=set_id,
             card_name=card_name,
             set_id_conf=set_id_conf * 100, # Normalize to 0-100
-            language=lang
+            language=lang,
+            atk=atk,
+            def_val=def_val
         )
 
     def _parse_card_name(self, raw_result: Any, engine: str, scope: str = 'full') -> Optional[str]:
@@ -803,6 +810,23 @@ class CardScanner:
 
         return best_id, best_score, lang
 
+    def _parse_stats(self, text: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extracts ATK and DEF values from text."""
+        atk = None
+        def_val = None
+
+        # Regex for ATK/DEF (flexible spacing)
+        # Matches: ATK/1800, ATK / 1800, ATK/?, etc.
+        atk_match = re.search(r'ATK\s*/\s*([0-9?]+)', text, re.IGNORECASE)
+        if atk_match:
+            atk = atk_match.group(1)
+
+        def_match = re.search(r'DEF\s*/\s*([0-9?]+)', text, re.IGNORECASE)
+        if def_match:
+            def_val = def_match.group(1)
+
+        return atk, def_val
+
     def detect_first_edition(self, warped, engine='easyocr') -> bool:
         """Checks for '1st Edition' text using generic OCR on ROI."""
         x, y, w, h = self.roi_1st_ed
@@ -811,8 +835,27 @@ class CardScanner:
         res = self.ocr_scan(roi, engine=engine)
         text = res.raw_text.lower()
 
-        if '1st' in text or 'edition' in text:
+        keywords = ['edition', 'auflage', 'edizione', 'edicion', 'edição', 'edicao']
+        markers = ['1st', '1.', 'limited']
+
+        has_keyword = any(k in text for k in keywords)
+        has_marker = any(m in text for m in markers)
+
+        # Logic:
+        # 1. If marker is present ("1st", "Limited"), it is definitely 1st Edition.
+        if has_marker:
             return True
+
+        # 2. If keyword is present ("Edition"), assume True UNLESS we suspect it's part of the Effect/Name.
+        # Since we are scanning a specific ROI (roi_1st_ed), we assume any "Edition" text here belongs to the edition marker.
+        # However, if the text is very long (indicating bleed from description), we might require the marker.
+        if has_keyword:
+            # Simple heuristic: Edition text is usually short ("1st Edition").
+            # If we captured a long sentence from the description containing "edition", we should be careful.
+            if len(text) > 30 and not has_marker:
+                return False
+            return True
+
         return False
 
     def detect_language(self, warped, set_id: Optional[str]) -> str:
