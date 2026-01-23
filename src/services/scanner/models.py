@@ -9,6 +9,9 @@ class OCRResult(BaseModel):
     card_name: Optional[str] = None
     set_id_conf: float = 0.0
     language: str = "EN"
+    atk: Optional[str] = None
+    def_val: Optional[str] = Field(None, alias="def")
+    card_type: Optional[str] = None # "Spell", "Trap", "Monster" (inferred)
 
 class ScanStep(BaseModel):
     name: str
@@ -35,6 +38,8 @@ class ScanResult(BaseModel):
     ocr_conf: float = 0.0
     image_path: Optional[str] = None
     match_score: int = 0
+    ambiguity_flag: bool = False
+    candidates: List[Dict[str, Any]] = [] # List of potential matches
     # For UI display
     raw_ocr: Optional[List[OCRResult]] = None
 

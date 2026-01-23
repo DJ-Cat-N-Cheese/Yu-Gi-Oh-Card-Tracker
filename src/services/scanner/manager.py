@@ -421,10 +421,8 @@ class ScannerManager:
 
                             # Construct lookup data (Internal structure for LookupQueue)
                             lookup_data = {
-                                "set_code": best_res.set_id,
-                                "language": best_res.language,
-                                "ocr_conf": best_res.set_id_conf,
-                                "rarity": "Unknown",
+                                "ocr_result": best_res.model_dump(),
+                                "art_match": report.get('art_match_yolo'),
                                 "visual_rarity": report.get('visual_rarity', 'Common'),
                                 "first_edition": report.get('first_edition', False),
                                 "warped_image": warped
@@ -647,78 +645,194 @@ class ScannerManager:
             except queue.Empty:
                 return
 
-            logger.info(f"Processing lookup for {data.get('set_code', 'Unknown')}")
+            logger.info("Starting matching process...")
+            start_time = time.time()
 
-            set_id = data.get('set_code')
+            ocr_res = OCRResult(**data.get('ocr_result'))
+            art_match = data.get('art_match')
             warped = data.pop('warped_image', None)
 
-            # Create base result
+            # Base Result
             result = ScanResult()
-            result.set_code = set_id
-            result.language = data.get('language', 'EN')
-            result.ocr_conf = data.get('ocr_conf', 0.0)
+            result.language = ocr_res.language
+            result.ocr_conf = ocr_res.set_id_conf
             result.visual_rarity = data.get('visual_rarity', 'Common')
             result.first_edition = data.get('first_edition', False)
+            result.raw_ocr = [ocr_res]
 
-            if set_id:
-                card_info = await self._resolve_card_details(set_id)
+            # Find Best Match
+            match_res = await self.find_best_match(ocr_res, art_match)
 
-                if card_info:
-                    result.name = card_info['name']
-                    result.card_id = card_info['card_id']
-                    result.rarity = card_info['rarity']
+            if match_res:
+                # If ambiguity or match found
+                result.ambiguity_flag = match_res.get('ambiguity', False)
+                result.candidates = match_res.get('candidates', [])
 
-                    if warped is not None and card_info.get("potential_art_paths"):
-                        match_path, match_score = await run.io_bound(
-                            self.scanner.match_artwork, warped, card_info["potential_art_paths"]
-                        )
-                        if match_path:
-                            result.image_path = match_path
-                            result.match_score = match_score
-                        else:
-                            result.image_path = card_info["potential_art_paths"][0]
-                            result.match_score = 0
+                # If we have a clear winner (first candidate), fill basics
+                if result.candidates:
+                    best = result.candidates[0]
+                    result.name = best.get('name')
+                    result.card_id = best.get('card_id')
+                    result.set_code = best.get('set_code')
+                    result.rarity = best.get('rarity', 'Unknown')
+                    result.match_score = int(best.get('score', 0))
 
-            if result.rarity == "Unknown":
-                result.rarity = result.visual_rarity
+                    # Image Path
+                    if best.get('image_id'):
+                        # Resolve image path using image_manager
+                        # We need to construct url or just use ID?
+                        # ygo_api helper?
+                        api_card = await ygo_service.get_card(result.card_id)
+                        if api_card:
+                            # find image url
+                            img = next((i for i in api_card.card_images if i.id == best['image_id']), None)
+                            if img:
+                                path = await image_manager.ensure_image(result.card_id, img.image_url, high_res=True)
+                                result.image_path = path
+
+            # Fallback if no match but Set ID exists in OCR?
+            if not result.set_code and ocr_res.set_id:
+                result.set_code = ocr_res.set_id
+
+            logger.info(f"Matching finished in {time.time() - start_time:.3f}s. Ambiguity: {result.ambiguity_flag}")
 
             self.result_queue.put(result)
-            logger.info(f"Lookup complete for {result.set_code}")
-
-            # Emit event for live results
-            self._emit("result_ready", {"set_code": result.set_code})
+            self._emit("result_ready", {"set_code": result.set_code, "ambiguous": result.ambiguity_flag})
 
         except Exception as e:
             logger.error(f"Error in process_pending_lookups: {e}", exc_info=True)
 
-    async def _resolve_card_details(self, set_id: str) -> Optional[Dict[str, Any]]:
-        set_id = set_id.upper()
-        cards = await ygo_service.load_card_database("en")
+    async def find_best_match(self, ocr_res: 'OCRResult', art_match: Dict) -> Dict[str, Any]:
+        """
+        Weighted matching algorithm.
+        Returns dict with 'ambiguity' (bool) and 'candidates' (List).
+        """
+        cards = await ygo_service.load_card_database("en") # TODO: Optimize language loading?
 
         candidates = []
+
+        # Helper to normalize
+        def norm(s): return self.scanner._normalize_card_name(s) if s else ""
+
+        ocr_norm_name = norm(ocr_res.card_name)
+
+        # 0. Filter Potential Database Entries
+        # Scanning 12k cards * variants is expensive if we do full scoring.
+        # Filter first by: Set Code OR Name Match OR Art Match ID
+
+        # Art Match ID
+        art_id = None
+        if art_match and art_match.get('filename'):
+            try:
+                art_id = int(os.path.splitext(art_match['filename'])[0])
+            except: pass
+
+        potential_cards = []
+
         for card in cards:
+            is_candidate = False
+
+            # Check Set Code
+            if ocr_res.set_id and card.card_sets:
+                 if any(s.set_code == ocr_res.set_id for s in card.card_sets):
+                     is_candidate = True
+
+            # Check Name (if Set Code didn't match or missing)
+            if not is_candidate and ocr_norm_name:
+                 if norm(card.name) == ocr_norm_name:
+                     is_candidate = True
+
+            # Check Art ID
+            if not is_candidate and art_id:
+                 if any(img.id == art_id for img in card.card_images):
+                     is_candidate = True
+                 elif card.card_sets and any(s.image_id == art_id for s in card.card_sets):
+                     is_candidate = True
+
+            if is_candidate:
+                potential_cards.append(card)
+
+        # 1. Score Candidates (Variants)
+        scored_variants = []
+
+        for card in potential_cards:
             if not card.card_sets: continue
-            for s in card.card_sets:
-                if s.set_code == set_id:
-                    candidates.append((card, s))
 
-        if not candidates:
-            return None
+            for variant in card.card_sets:
+                score = 0.0
 
-        card, card_set = candidates[0]
+                # A. Set Code (80+)
+                if ocr_res.set_id and variant.set_code == ocr_res.set_id:
+                    score += 80.0
+                    score += (ocr_res.set_id_conf / 100.0) * 10.0
 
-        potential_paths = []
-        if card.card_images:
-            for img in card.card_images:
-                path = await image_manager.ensure_image(card.id, img.image_url, high_res=True)
-                if path:
-                    potential_paths.append(path)
+                # B. Name (50+)
+                if ocr_norm_name and norm(card.name) == ocr_norm_name:
+                    score += 50.0
+                elif ocr_norm_name and ocr_norm_name in norm(card.name): # Partial
+                    score += 25.0
+
+                # C. Art Match (40+)
+                if art_id:
+                    if variant.image_id == art_id:
+                        score += 40.0
+                    elif any(img.id == art_id for img in card.card_images):
+                        score += 35.0 # Wrong variant but correct card
+
+                # D. Stats (+/- 15)
+                # Need to check OCR extraction of ATK/DEF vs Card
+                # OCRResult now has atk/def
+                if ocr_res.atk:
+                    try:
+                        # Handle ?
+                        val = str(card.atk) if card.atk is not None else "?"
+                        if val == ocr_res.atk: score += 15.0
+                    except: pass
+
+                if ocr_res.def_val:
+                     try:
+                        val = str(card.def_) if card.def_ is not None else "?"
+                        if val == ocr_res.def_val: score += 15.0
+                     except: pass
+
+                if score > 30.0: # Minimum threshold
+                    scored_variants.append({
+                        "score": score,
+                        "card_id": card.id,
+                        "name": card.name,
+                        "set_code": variant.set_code,
+                        "rarity": variant.set_rarity,
+                        "image_id": variant.image_id,
+                        "variant_id": variant.variant_id
+                    })
+
+        scored_variants.sort(key=lambda x: x['score'], reverse=True)
+
+        if not scored_variants:
+            return {"ambiguity": False, "candidates": []}
+
+        # 2. Determine Ambiguity
+        ambiguous = False
+
+        # A. Database Ambiguity: Top winner has multiple rarities for SAME Set Code
+        top = scored_variants[0]
+        same_code_variants = [v for v in scored_variants if v['set_code'] == top['set_code'] and v['score'] >= top['score'] - 5.0]
+        # Check if they have different rarities
+        rarities = set(v['rarity'] for v in same_code_variants)
+        if len(rarities) > 1:
+            ambiguous = True
+
+        # B. Matching Ambiguity: Top 2 scores are close
+        if len(scored_variants) > 1:
+            second = scored_variants[1]
+            if top['score'] - second['score'] < 10.0:
+                 # Check if they are actually different cards/variants (not just same card diff rarity which is covered above)
+                 if top['set_code'] != second['set_code']:
+                     ambiguous = True
 
         return {
-            "name": card.name,
-            "card_id": card.id,
-            "rarity": card_set.set_rarity,
-            "potential_art_paths": potential_paths
+            "ambiguity": ambiguous,
+            "candidates": scored_variants[:10] # Return top 10
         }
 
 # Singleton instantiation logic

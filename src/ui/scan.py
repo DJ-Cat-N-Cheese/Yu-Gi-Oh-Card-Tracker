@@ -15,6 +15,7 @@ from src.services.scanner import SCANNER_AVAILABLE
 from src.core.persistence import persistence
 from src.core.models import CollectionCard, CollectionVariant, CollectionEntry
 from src.services.ygo_api import ygo_service
+from src.ui.components.ambiguity_dialog import AmbiguityDialog
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,7 @@ class ScanPage:
         self.start_btn = None
         self.stop_btn = None
         self.is_active = False
+        self.default_condition = "Near Mint"
 
         # Config
         self.ocr_tracks = ['doctr'] # Default to DocTR
@@ -242,35 +244,13 @@ class ScanPage:
         # Push state immediately
         if event.snapshot:
             self.debug_report = event.snapshot.model_dump()
-
-        # Schedule UI updates on main thread
-        # Using simple lambda might risk late binding? No, context should be preserved by ui.context or similar?
-        # Actually NiceGUI callbacks from threads need specific handling?
-        # Typically we can just refresh directly if we are within the context, but this comes from a background thread.
-        # We need to use `app.call_later` to bridge to the event loop, but specific client context?
-        # ScanPage instance is per-client (in `scan_page` scope).
-
-        # We can trigger a refresh of the elements.
-        # Since this callback runs in the background thread of ScannerManager, we must NOT call UI methods directly.
-        # We assume ScannerManager calls this in its thread.
-
-        # We need to dispatch to the UI thread.
-        # But `app.storage` isn't used here.
-        # We can rely on a timer loop to pick up the state (polling local state),
-        # OR use `ui.timer(..., callback=...)` to poll the event queue if we queued it?
-
-        # WAIT. The user asked for "Event Based System".
-        # If I just update `self.debug_report` here, does the UI see it?
-        # No, the UI is static until `.refresh()` is called.
-        # And I can't call `.refresh()` from a background thread easily without context.
-
-        # However, `scanner_manager` is a global singleton. `ScanPage` is per-user.
-        # If multiple users are on the page, they all get this callback if they registered?
-        # ScannerManager listener list is shared.
-
-        # Let's use a queue on the Page instance to receive events, and a fast timer to consume them.
-        # This effectively keeps the "loop" but makes it responsive to events rather than polling the manager.
         self.event_queue.put(event)
+
+    def on_card_confirmed(self, result_dict: Dict[str, Any]):
+        """Callback from Ambiguity Dialog or direct addition."""
+        self.scanned_cards.insert(0, result_dict)
+        self.render_live_list.refresh()
+        ui.notify(f"Added: {result_dict.get('name')}", type='positive')
 
     async def event_consumer(self):
         """Consumes events from the local queue and updates UI."""
@@ -307,9 +287,12 @@ class ScanPage:
             # 3. Check result queue
             res = scanner_service.scanner_manager.get_latest_result()
             if res:
-                self.scanned_cards.insert(0, res)
-                self.render_live_list.refresh()
-                ui.notify(f"Scanned: {res.get('name')}", type='positive')
+                if res.get('ambiguity_flag'):
+                    dialog = AmbiguityDialog(res, self.on_card_confirmed)
+                    dialog.open()
+                else:
+                    self.on_card_confirmed(res)
+
                 self.refresh_debug_ui() # Ensure final result is shown
 
         except Exception as e:
@@ -373,7 +356,12 @@ class ScanPage:
                     variant_id = str(item['card_id'])
                     image_id = None
 
-                    if api_card:
+                    # If we have variant info from matching
+                    if item.get('variant_id'):
+                         variant_id = item['variant_id']
+                         image_id = item.get('image_id')
+                    elif api_card:
+                         # Fallback search
                         for s in api_card.card_sets:
                             if s.set_code == item['set_code'] and s.set_rarity == item['rarity']:
                                 variant_id = s.variant_id
@@ -389,7 +377,7 @@ class ScanPage:
                     target_card.variants.append(target_variant)
 
                 entry = CollectionEntry(
-                    condition="Near Mint",
+                    condition=self.default_condition,
                     language=item['language'],
                     first_edition=item['first_edition'],
                     quantity=1
@@ -774,7 +762,12 @@ def scan_page():
                 ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black')
 
                 ui.space()
-                ui.button('Add to Collection', on_click=page.commit_cards).props('color=primary icon=save')
+
+                ui.select(options=["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor", "Damaged"],
+                          value=page.default_condition, label="Default Condition",
+                          on_change=lambda e: setattr(page, 'default_condition', e.value)).classes('w-32')
+
+                ui.button('Add All', on_click=page.commit_cards).props('color=primary icon=save')
 
             with ui.row().classes('w-full h-[calc(100vh-250px)] gap-4'):
                 # Camera View
