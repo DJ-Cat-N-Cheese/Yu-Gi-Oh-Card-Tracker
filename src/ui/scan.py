@@ -291,6 +291,7 @@ class ScanPage:
 
                     # Handle Ambiguity
                     if event.type == 'scan_ambiguous':
+                        logger.info("UI received scan_ambiguous event")
                         self.show_ambiguity_dialog(event.data.get('result'))
 
                     if event.type == 'error':
@@ -329,6 +330,7 @@ class ScanPage:
 
     def show_ambiguity_dialog(self, result_data):
         """Shows the ambiguity resolution dialog."""
+        logger.info(f"Opening Ambiguity Dialog for: {result_data.get('name') if result_data else 'None'}")
         if not result_data: return
 
         with ui.dialog() as dialog, ui.card().classes('w-[600px] h-auto p-4 flex flex-col gap-4'):

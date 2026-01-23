@@ -658,6 +658,8 @@ class ScannerManager:
         Sophisticated matching algorithm using Set ID, Name, Art, and ATK/DEF.
         Resolves ambiguity or returns a high-confidence match.
         """
+        logger.info(f"Starting Match Logic for scan")
+
         # 1. Gather Text Candidates (Set ID & Name)
         ocr_results: List[OCRResult] = []
         for i in range(1, 5):
@@ -867,6 +869,7 @@ class ScannerManager:
         # AMBIGUITY CHECK
         is_ambiguous = False
         if not final_candidates:
+             logger.warning("No candidates found during matching.")
              return None
 
         best = final_candidates[0]
@@ -875,12 +878,15 @@ class ScannerManager:
             second = final_candidates[1]
             if (best['score'] - second['score']) < 30:
                 is_ambiguous = True
+                logger.info(f"Ambiguity detected: Close scores ({best['score']} vs {second['score']})")
 
         if best['set_code'] is None or best['set_code'] == "Unknown":
             is_ambiguous = True
+            logger.info("Ambiguity detected: Missing Set Code")
 
         if best['score'] < 50:
              is_ambiguous = True
+             logger.info(f"Ambiguity detected: Low Confidence Score ({best['score']})")
 
         res = ScanResult()
         res.name = best['name']
