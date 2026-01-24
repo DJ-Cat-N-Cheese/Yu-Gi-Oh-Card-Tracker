@@ -241,6 +241,21 @@ class ScanPage:
 
         # UI State Persistence
         self.expansion_states = {}
+        # Containers for rotation binding
+        self.live_view_container = None
+        self.debug_view_container = None
+        self.latest_capture_container = None
+
+    def update_rotation(self, value):
+        self.rotation = value
+        self.save_settings()
+        style = f'transform: rotate({value}deg)'
+        if self.live_view_container:
+            self.live_view_container.style(style)
+        if self.debug_view_container:
+            self.debug_view_container.style(style)
+        if self.latest_capture_container:
+            self.latest_capture_container.style(style)
 
     def save_settings(self):
         """Saves current settings to config."""
@@ -602,10 +617,11 @@ class ScanPage:
         if backend_src:
              ui.label("Latest Capture (Processed):").classes('font-bold mt-2 text-lg')
              ui.image(backend_src).classes('w-full h-auto border rounded shadow-md')
+             self.latest_capture_container = None # Reset tracker
         elif self.latest_capture_src:
              ui.label("Latest Capture (Raw):").classes('font-bold mt-2 text-lg')
              # Apply CSS rotation if showing raw frontend capture
-             ui.image(self.latest_capture_src).classes('w-full h-auto border rounded shadow-md').style(f'transform: rotate({self.rotation}deg)')
+             self.latest_capture_container = ui.image(self.latest_capture_src).classes('w-full h-auto border rounded shadow-md').style(f'transform: rotate({self.rotation}deg)')
         elif scanner_service.scanner_manager.is_processing:
              ui.spinner()
 
@@ -815,13 +831,14 @@ class ScanPage:
                 # Rotation
                 ui.label("Rotation:").classes('font-bold text-gray-300 text-sm')
                 ui.toggle([0, 90, 180, 270], value=self.rotation,
-                        on_change=lambda e: (setattr(self, 'rotation', e.value), self.save_settings())).props('spread')
+                        on_change=lambda e: self.update_rotation(e.value)).props('spread')
 
                 # Camera Preview
                 ui.label("Camera Preview").classes('font-bold text-lg mt-4')
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
                     # Rotate the container, not the content, to preserve the video element
-                    with ui.element('div').classes('w-full h-full').bind_style_from(self, 'rotation', backward=lambda x: f'transform: rotate({x}deg)'):
+                    self.debug_view_container = ui.element('div').classes('w-full h-full').style(f'transform: rotate({self.rotation}deg)')
+                    with self.debug_view_container:
                         ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
 
                 # Controls
@@ -919,7 +936,8 @@ def scan_page():
             with ui.row().classes('w-full h-[calc(100vh-250px)] gap-4'):
                 # Camera View
                 with ui.card().classes('flex-1 h-full p-0 overflow-hidden relative bg-black'):
-                     with ui.element('div').classes('w-full h-full relative').bind_style_from(self, 'rotation', backward=lambda x: f'transform: rotate({x}deg)'):
+                     self.live_view_container = ui.element('div').classes('w-full h-full relative').style(f'transform: rotate({self.rotation}deg)')
+                     with self.live_view_container:
                         ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
                         ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
 
