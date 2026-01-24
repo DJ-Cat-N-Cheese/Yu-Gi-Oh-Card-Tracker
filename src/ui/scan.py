@@ -216,6 +216,8 @@ class ScanPage:
         # Load Configuration
         self.config = config_manager.load_config()
 
+        self.rotation = self.config.get('rotation', 0)
+
         # Initialize UI state from config
         self.ocr_tracks = self.config.get('ocr_tracks', ['doctr'])
         # Ensure ocr_tracks is valid (only one active track supported for now, but keeping list structure for compat)
@@ -226,7 +228,6 @@ class ScanPage:
         self.preprocessing_mode = self.config.get('preprocessing_mode', 'classic')
         self.art_match_yolo = self.config.get('art_match_yolo', True) # Default to True per request
         self.ambiguity_threshold = self.config.get('ambiguity_threshold', 10.0)
-        self.rotation = self.config.get('rotation', 0)
 
         # Load Recent Scans
         self.load_recent_scans()
@@ -594,10 +595,17 @@ class ScanPage:
             ui.spinner(size='lg')
             return
 
-        preview_src = self.latest_capture_src or self.debug_report.get('captured_image_url') or self.debug_report.get('input_image_url')
-        if preview_src:
-            ui.label("Latest Capture:").classes('font-bold mt-2 text-lg')
-            ui.image(preview_src).classes('w-full h-auto border rounded shadow-md')
+        # Prioritize backend image (already rotated) over raw frontend capture
+        backend_src = self.debug_report.get('captured_image_url') or self.debug_report.get('input_image_url')
+
+        # If we have a backend image, use it. Otherwise fall back to frontend capture (rotated via CSS)
+        if backend_src:
+             ui.label("Latest Capture (Processed):").classes('font-bold mt-2 text-lg')
+             ui.image(backend_src).classes('w-full h-auto border rounded shadow-md')
+        elif self.latest_capture_src:
+             ui.label("Latest Capture (Raw):").classes('font-bold mt-2 text-lg')
+             # Apply CSS rotation if showing raw frontend capture
+             ui.image(self.latest_capture_src).classes('w-full h-auto border rounded shadow-md').style(f'transform: rotate({self.rotation}deg)')
         elif scanner_service.scanner_manager.is_processing:
              ui.spinner()
 
@@ -812,7 +820,9 @@ class ScanPage:
                 # Camera Preview
                 ui.label("Camera Preview").classes('font-bold text-lg mt-4')
                 with ui.element('div').classes('w-full aspect-video bg-black rounded relative overflow-hidden'):
-                    ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
+                    # Rotate the container, not the content, to preserve the video element
+                    with ui.element('div').classes('w-full h-full').bind_style_from(self, 'rotation', backward=lambda x: f'transform: rotate({x}deg)'):
+                        ui.html('<video id="debug-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
 
                 # Controls
                 with ui.row().classes('w-full gap-2'):
@@ -909,8 +919,9 @@ def scan_page():
             with ui.row().classes('w-full h-[calc(100vh-250px)] gap-4'):
                 # Camera View
                 with ui.card().classes('flex-1 h-full p-0 overflow-hidden relative bg-black'):
-                    ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
-                    ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
+                     with ui.element('div').classes('w-full h-full relative').bind_style_from(self, 'rotation', backward=lambda x: f'transform: rotate({x}deg)'):
+                        ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
+                        ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
 
                 # List View
                 with ui.column().classes('w-96 h-full'):
