@@ -10,6 +10,8 @@ import queue
 import json
 from typing import List, Dict, Any, Optional
 from fastapi import UploadFile
+from PIL import Image
+import io
 
 # Import the module, not the instance, to avoid stale references on reload
 from src.services.scanner import manager as scanner_service
@@ -390,6 +392,11 @@ class ScanPage:
 
                     # Refresh logic based on event type
                     if event.type in ['status_update', 'scan_queued', 'scan_started', 'step_complete', 'scan_finished']:
+
+                        # Clear local capture preview once the backend has initialized the new scan (showing the real rotated image)
+                        if event.type == 'step_complete' and event.data.get('step') == 'init':
+                            self.latest_capture_src = None
+
                         self.refresh_debug_ui()
 
                         # Handle specific finished notifications
@@ -625,13 +632,35 @@ class ScanPage:
                 ui.notify("Camera not active or ready", type='warning')
                 return
 
-            self.latest_capture_src = data_url
+            # Decode raw capture
+            header, encoded = data_url.split(",", 1)
+            content = base64.b64decode(encoded)
+
+            # Create rotated preview locally if needed
+            if self.rotation != 0:
+                try:
+                    img = Image.open(io.BytesIO(content))
+                    # Map User Rotation (CW) to PIL Transpose
+                    if self.rotation == 90:
+                        img = img.transpose(Image.ROTATE_270)
+                    elif self.rotation == 180:
+                        img = img.transpose(Image.ROTATE_180)
+                    elif self.rotation == 270:
+                        img = img.transpose(Image.ROTATE_90)
+
+                    buffered = io.BytesIO()
+                    img.save(buffered, format="JPEG")
+                    rotated_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    self.latest_capture_src = f"data:image/jpeg;base64,{rotated_b64}"
+                except Exception as e:
+                    logger.error(f"Failed to rotate preview: {e}")
+                    self.latest_capture_src = data_url
+            else:
+                self.latest_capture_src = data_url
+
             # We want to show the capture immediately?
             # Yes, locally.
             self.refresh_debug_ui()
-
-            header, encoded = data_url.split(",", 1)
-            content = base64.b64decode(encoded)
 
             options = {
                 "tracks": [self.selected_track],
