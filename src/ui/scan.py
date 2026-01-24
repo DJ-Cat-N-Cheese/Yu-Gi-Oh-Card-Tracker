@@ -315,12 +315,10 @@ class ScanPage:
 
         # Defaults
         self.default_language = "EN"
-        self.default_first_ed = False
 
         # Batch Update State
         self.update_apply_lang = False
         self.update_apply_cond = False
-        self.update_apply_first = False
 
         # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
@@ -403,6 +401,8 @@ class ScanPage:
                     data = json.load(f)
                     if isinstance(data, list):
                         self.scanned_cards = data
+                        # Populate filtered list immediately to avoid empty UI
+                        self.filtered_scanned_cards = list(data)
             except Exception as e:
                 logger.error(f"Failed to load recent scans: {e}")
 
@@ -1097,8 +1097,8 @@ class ScanPage:
 
     async def on_update_all_click(self):
         if not self.scanned_cards: return
-        if not (self.update_apply_lang or self.update_apply_cond or self.update_apply_first):
-            ui.notify("Select at least one property (Lang, Cond, 1st) to update.", type='warning')
+        if not (self.update_apply_lang or self.update_apply_cond):
+            ui.notify("Select at least one property (Lang, Cond) to update.", type='warning')
             return
 
         with ui.dialog() as d, ui.card():
@@ -1108,7 +1108,6 @@ class ScanPage:
              updates = []
              if self.update_apply_lang: updates.append(f"Language -> {self.default_language}")
              if self.update_apply_cond: updates.append(f"Condition -> {self.default_condition}")
-             if self.update_apply_first: updates.append(f"1st Ed -> {'Yes' if self.default_first_ed else 'No'}")
 
              msg = "Applying: " + ", ".join(updates)
              ui.label(msg).classes('text-xs text-accent')
@@ -1124,7 +1123,6 @@ class ScanPage:
                      for item in self.scanned_cards:
                          if self.update_apply_cond: item['condition'] = self.default_condition
                          if self.update_apply_lang: item['language'] = self.default_language
-                         if self.update_apply_first: item['first_edition'] = self.default_first_ed
                          count += 1
 
                      self.save_recent_scans()
@@ -1132,6 +1130,34 @@ class ScanPage:
                      ui.notify(f"Updated {count} cards.", type='positive')
                  ui.button("Update", on_click=confirm).props('color=warning')
         d.open()
+
+    def render_top_header(self):
+        with ui.row().classes('w-full p-2 bg-black border-b border-gray-800 items-center justify-between gap-4'):
+             # Group 1: Hardware & Source
+             with ui.row().classes('items-center gap-2'):
+                 if self.collections:
+                      ui.select(options=self.collections, value=self.target_collection_file, label='Target Collection',
+                                on_change=lambda e: setattr(self, 'target_collection_file', e.value)).props('dense outlined options-dense').classes('w-48')
+
+                 self.camera_select = ui.select(options={}, label='Camera').props('dense outlined options-dense').classes('w-48')
+
+                 with ui.row().classes('gap-1'):
+                     self.start_btn = ui.button(icon='videocam', on_click=self.start_camera).props('flat dense color=positive round').tooltip('Start Camera')
+                     self.stop_btn = ui.button(icon='videocam_off', on_click=self.stop_camera).props('flat dense color=negative round').tooltip('Stop Camera')
+                     self.stop_btn.visible = False
+
+             # Group 2: Defaults & Actions
+             with ui.row().classes('items-center gap-4'):
+                 ui.label("Defaults:").classes('text-xs font-bold text-gray-500 uppercase')
+                 with ui.row().classes('gap-2'):
+                      ui.select(['EN', 'DE', 'FR', 'IT', 'PT'], value=self.default_language, label="Lang",
+                                on_change=lambda e: setattr(self, 'default_language', e.value)).props('dense outlined options-dense').classes('w-20')
+                      ui.select(CARD_CONDITIONS, value=self.default_condition, label="Cond",
+                                on_change=lambda e: setattr(self, 'default_condition', e.value)).props('dense outlined options-dense').classes('w-32')
+
+                 ui.separator().props('vertical')
+
+                 ui.button('Commit', on_click=self.commit_cards).props('color=positive icon=save').classes('font-bold')
 
     @ui.refreshable
     def render_scan_header(self):
@@ -1146,7 +1172,6 @@ class ScanPage:
                     ui.button("Update", on_click=self.on_update_all_click).props('flat dense color=warning size=sm')
                     ui.checkbox('Lang', value=self.update_apply_lang, on_change=lambda e: setattr(self, 'update_apply_lang', e.value)).props('dense size=xs').classes('text-[10px]')
                     ui.checkbox('Cond', value=self.update_apply_cond, on_change=lambda e: setattr(self, 'update_apply_cond', e.value)).props('dense size=xs').classes('text-[10px]')
-                    ui.checkbox('1st', value=self.update_apply_first, on_change=lambda e: setattr(self, 'update_apply_first', e.value)).props('dense size=xs').classes('text-[10px]')
 
                 ui.button("Remove All", on_click=self.on_remove_all_click).props('flat dense color=negative size=sm')
                 ui.separator().props('vertical')
@@ -1188,9 +1213,15 @@ class ScanPage:
                          img_src = api_card.card_images[0].image_url_small
 
                 if not img_src and item.get('image_path'):
-                     img_src = f"/images/{os.path.basename(item['image_path'])}"
+                     if item['image_path'].startswith('data/scans/'):
+                         img_src = item['image_path'].replace('data/scans/', '/scans/')
+                     else:
+                         img_src = f"/images/{os.path.basename(item['image_path'])}"
 
-                with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-800 w-full aspect-[2/3] select-none') \
+                cond = item.get('condition', self.default_condition)
+                cond_short = CONDITION_ABBREVIATIONS.get(cond, cond[:2].upper())
+
+                with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
                         .on('click', lambda x=item: self.open_single_view(x)) \
                         .on('contextmenu.prevent', lambda x=item: self.remove_card(self.scanned_cards.index(x))):
 
@@ -1200,17 +1231,28 @@ class ScanPage:
                          else:
                              ui.label("?").classes('w-full h-full flex items-center justify-center bg-gray-800 text-white')
 
-                         lang = item.get('language', 'EN')
-                         if lang:
+                         lang = item.get('language', 'EN').upper()
+                         country_code = LANGUAGE_COUNTRY_MAP.get(lang)
+                         if country_code:
+                             ui.element('img').props(f'src="https://flagcdn.com/h24/{country_code}.png" alt="{lang}"').classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
+                         else:
                              ui.label(lang).classes('absolute top-[1px] left-[1px] text-[10px] font-bold shadow-black drop-shadow-md bg-black/50 rounded px-1 text-white')
 
-                         if item.get('first_edition'):
-                             ui.label('1st').classes('absolute top-[1px] right-[1px] text-[10px] font-bold text-orange-400 bg-black/50 rounded px-1')
+                         qty = item.get('quantity', 1)
+                         if qty > 1:
+                              ui.label(f"{qty}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs shadow-md')
 
                          with ui.column().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-0 w-full'):
                              ui.label(item.get('name', 'Unknown')).classes('text-[9px] font-bold text-white leading-none truncate w-full')
-                             ui.label(item.get('set_code', '')).classes('font-mono text-yellow-500 leading-none truncate')
-                             ui.label(item.get('rarity', '')).classes('text-[8px] text-gray-300 leading-none truncate')
+
+                             with ui.row().classes('w-full justify-between items-center'):
+                                 with ui.row().classes('gap-1'):
+                                     ui.label(cond_short).classes('font-bold text-yellow-500')
+                                     if item.get('first_edition'):
+                                         ui.label('1st').classes('font-bold text-orange-400')
+                                 ui.label(item.get('set_code', '')).classes('font-mono')
+
+                             ui.label(item.get('rarity', '')).classes('text-[8px] text-gray-300 w-full truncate')
 
     @ui.refreshable
     def render_debug_results(self):
@@ -1540,19 +1582,14 @@ def scan_page():
 
         # --- TAB 1: LIVE SCAN ---
         with ui.tab_panel(live_tab).classes('p-0 h-full flex flex-col'):
+
+            # Global Header
+            page.render_top_header()
+
             with ui.row().classes('w-full flex-grow flex-nowrap gap-0 h-full'):
 
                  # --- LEFT PANEL (Camera & Controls) ---
                  with ui.column().classes('w-1/2 h-full p-4 flex flex-col gap-4 border-r border-gray-800 bg-black'):
-                      # Top Bar: Camera & Collection
-                      with ui.row().classes('w-full gap-2 items-center'):
-                          if page.collections:
-                              ui.select(options=page.collections, value=page.target_collection_file, label='Target Collection',
-                                        on_change=lambda e: setattr(page, 'target_collection_file', e.value)).classes('flex-grow')
-                          page.camera_select = ui.select(options={}, label='Camera').classes('flex-grow')
-                          page.start_btn = ui.button(icon='videocam', on_click=page.start_camera).props('flat dense color=positive').tooltip('Start Camera')
-                          page.stop_btn = ui.button(icon='videocam_off', on_click=page.stop_camera).props('flat dense color=negative').tooltip('Stop Camera')
-                          page.stop_btn.visible = False
 
                       # Camera View
                       with ui.card().classes('w-full aspect-video p-0 overflow-hidden relative bg-black border border-gray-700 shadow-lg'):
@@ -1560,21 +1597,11 @@ def scan_page():
                            ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
                            ui.html('<div id="capture-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; opacity: 0; transition: opacity 0.5s; background-size: contain; background-repeat: no-repeat; background-position: center;"></div>', sanitize=False)
 
-                      # Status & Capture
+                      # Status
                       page.render_status_controls()
-                      ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg').classes('w-full font-bold')
 
-                      # Defaults & Commit
-                      ui.label("Scan Defaults").classes('font-bold text-gray-400 text-sm mt-2')
-                      with ui.row().classes('w-full gap-2 items-center bg-gray-900 p-2 rounded border border-gray-800'):
-                           ui.select(['EN', 'DE', 'FR', 'IT', 'PT'], value=page.default_language, label="Lang",
-                                     on_change=lambda e: setattr(page, 'default_language', e.value)).classes('w-20')
-                           ui.select(CARD_CONDITIONS, value=page.default_condition, label="Cond",
-                                     on_change=lambda e: setattr(page, 'default_condition', e.value)).classes('flex-grow')
-                           ui.checkbox("1st Ed", value=page.default_first_ed,
-                                       on_change=lambda e: setattr(page, 'default_first_ed', e.value)).classes('text-sm')
-
-                      ui.button('Commit to Collection', on_click=page.commit_cards).props('color=positive icon=save').classes('w-full mt-auto')
+                      # Big Capture Button
+                      ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg').classes('w-full font-bold h-16 text-xl')
 
                  # --- RIGHT PANEL (Gallery) ---
                  with ui.column().classes('w-1/2 h-full flex flex-col bg-dark overflow-hidden'):

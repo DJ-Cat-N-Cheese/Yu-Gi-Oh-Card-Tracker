@@ -50,9 +50,9 @@ class AmbiguityDialog(ui.dialog):
         # Trigger async load
         ui.timer(0.1, self.load_full_data, once=True)
 
-        with self, ui.card().classes('w-[900px] h-[700px] flex flex-row p-4 gap-4'):
+        with self, ui.card().classes('w-full max-w-6xl h-[80vh] flex flex-row p-4 gap-4'):
              # LEFT: Image Preview
-             with ui.column().classes('w-1/3 h-full items-center justify-center bg-black rounded'):
+             with ui.column().classes('w-1/3 h-full items-center justify-center bg-black rounded relative overflow-hidden'):
                  self.preview_image = ui.image().classes('max-w-full max-h-full object-contain')
                  self.update_preview()
 
@@ -328,7 +328,20 @@ class AmbiguityDialog(ui.dialog):
         if self.selected_image_id:
              self.preview_image.set_source(f"/images/{self.selected_image_id}.jpg")
         else:
-             self.preview_image.set_source(None)
+             # Fallback to scan crop or raw scan
+             crop_path = self.result.get('cropped_image_path')
+             raw_path = self.result.get('raw_image_path')
+
+             src = None
+             if crop_path and os.path.exists(crop_path):
+                  # Convert file path "data/scans/..." to url "/scans/..."
+                  src = crop_path.replace("data/scans/", "/scans/")
+                  if not src.startswith("/"): src = "/" + src
+             elif raw_path and os.path.exists(raw_path):
+                  src = raw_path.replace("data/scans/", "/scans/")
+                  if not src.startswith("/"): src = "/" + src
+
+             self.preview_image.set_source(src)
 
     async def confirm(self):
         # Handle "Other" Set Code

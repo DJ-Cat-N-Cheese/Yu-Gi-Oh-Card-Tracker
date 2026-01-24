@@ -58,6 +58,7 @@ app.add_static_files('/images', 'data/images')
 app.add_static_files('/data/img', 'data/img') # Serve data/img for Art Match if used
 app.add_static_files('/sets', 'data/sets')
 app.add_static_files('/debug', 'debug')
+app.add_static_files('/scans', 'data/scans')
 
 # Handle Chrome DevTools probe to prevent 404 warnings
 @app.get('/.well-known/appspecific/com.chrome.devtools.json')
