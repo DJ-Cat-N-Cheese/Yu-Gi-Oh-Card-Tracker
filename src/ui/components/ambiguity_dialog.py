@@ -103,16 +103,28 @@ class AmbiguityDialog(ui.dialog):
                  ).classes('w-full').bind_visibility_from(self.set_code_select, 'value', lambda x: x == "Other")
 
                  # 5. Artstyle (Image ID)
+                 # Initialize options from candidates
+                 initial_images = sorted(list(set(c.get('image_id') for c in self.candidates if c.get('image_id'))))
+                 if self.selected_image_id and self.selected_image_id not in initial_images:
+                     initial_images.append(self.selected_image_id)
+
+                 initial_art_opts = {i: f"Art Variation (ID: {i})" for i in initial_images}
+
                  self.artstyle_select = ui.select(
-                     options={}, # Map ID -> Label (e.g. "Default Art", "Alt Art 1")
+                     options=initial_art_opts,
                      value=self.selected_image_id,
                      label="Artstyle",
                      on_change=self.on_artstyle_change
                  ).classes('w-full')
 
                  # 6. Rarity
+                 # Initialize options from candidates
+                 initial_rarities = sorted(list(set(c.get('rarity') for c in self.candidates if c.get('rarity'))))
+                 if self.selected_rarity and self.selected_rarity not in initial_rarities:
+                     initial_rarities.append(self.selected_rarity)
+
                  self.rarity_select = ui.select(
-                     options=[],
+                     options=initial_rarities,
                      value=self.selected_rarity,
                      label="Rarity",
                      on_change=lambda e: setattr(self, 'selected_rarity', e.value)
@@ -222,6 +234,9 @@ class AmbiguityDialog(ui.dialog):
         self.update_art_and_rarity_options(filtered_vars)
 
     def update_art_and_rarity_options(self, variants):
+        # Safeguard against UI not being ready
+        if not self.artstyle_select or not self.rarity_select: return
+
         # Filter by Set Code (unless Other)
         if self.selected_set_code == "Other":
             # Show all images for this card? Or just the default?
