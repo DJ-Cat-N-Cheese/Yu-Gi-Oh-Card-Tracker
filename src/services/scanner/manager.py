@@ -419,7 +419,13 @@ class ScannerManager:
                         # If we found a card, push to result queue
                         # We pick the best result.
                         best_res = self._pick_best_result(report)
-                        if best_res:
+                        art_match = report.get('art_match_yolo')
+
+                        if best_res or art_match:
+                            if not best_res:
+                                # Create dummy OCR result if missing but art match exists
+                                best_res = OCRResult(engine="none", raw_text="", language="EN")
+
                             # Enhance with visual traits if warped image exists
                             warped = report.get('warped_image_data') # Not in model, but returned by _process_scan
 
@@ -888,6 +894,10 @@ class ScannerManager:
                      except: pass
 
                 if score > 30.0: # Minimum threshold
+                    # Debug log for Art-Only matches
+                    if art_id and score >= 35.0 and set_score == 0 and not ocr_norm_name:
+                         logger.debug(f"Candidate added via Art Match: {card.name} (Score: {score})")
+
                     candidate_entry = {
                         "score": score,
                         "card_id": card.id,

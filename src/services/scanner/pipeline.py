@@ -628,7 +628,11 @@ class CardScanner:
 
     def _detect_card_type(self, text: str) -> Optional[str]:
         """Detects Spell/Trap keywords early in the text."""
-        upper_text = text.upper()
+        # Restrict to first 100 characters to ensure we are looking at the top of the card
+        # (Relative beginning of OCR text)
+        limit = 100
+        upper_text = text[:limit].upper()
+
         # Prioritize finding these keywords
         if "SPELL CARD" in upper_text or "CARTE MAGIE" in upper_text or "ZAUBERKARTE" in upper_text:
             return "Spell"
