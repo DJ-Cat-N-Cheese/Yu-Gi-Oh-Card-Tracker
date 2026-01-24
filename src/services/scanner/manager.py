@@ -855,7 +855,7 @@ class ScannerManager:
                          virtual_entry = candidate_entry.copy()
                          virtual_entry["set_code"] = ocr_res.set_id
                          # Boost score slightly above the EN variant to prioritize the user's actual scan
-                         virtual_entry["score"] = score + 6.0 # Enough to beat the base match (EN)
+                         virtual_entry["score"] = score + 12.0 # Enough to beat the base match (EN)
                          # We set variant_id to None so confirmation triggers "Add Custom" logic (via "Other" flow logic or new flow)
                          virtual_entry["variant_id"] = None
                          scored_variants.append(virtual_entry)
