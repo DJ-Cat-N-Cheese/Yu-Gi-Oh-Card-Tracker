@@ -64,6 +64,14 @@ class StorageDialog:
             asyncio.create_task(self.load_sets())
 
         with self.dialog, ui.card().classes('w-[500px]'):
+            # Clear previous state if creating new
+            if not existing_data:
+                if self.name_input: self.name_input.value = ''
+                if self.type_select: self.type_select.value = 'Box'
+                if self.desc_input: self.desc_input.value = ''
+                if self.set_select: self.set_select.value = None
+                if self.image_preview: self.image_preview.set_source(None)
+                self.uploaded_image_path = None
             title = "Edit Storage" if existing_data else "New Storage"
             ui.label(title).classes('text-h6')
 
@@ -166,10 +174,7 @@ class StorageDialog:
             ui.notify('Name is required', type='warning')
             return
 
-        # Check uniqueness if name changed
-        if name != self.current_data.get('name') and storage_service.get_storage(name):
-            ui.notify('Name already exists', type='negative')
-            return
+        # Check uniqueness handled by storage page callback context
 
         type_val = self.type_select.value
         set_code = self.set_select.value if type_val == 'Sealed Product' else None
@@ -189,6 +194,9 @@ class StorageDialog:
 
 class StoragePage:
     def __init__(self):
+        # Load persisted UI state
+        saved_state = persistence.load_ui_state()
+
         self.state = {
             'view': 'gallery', # gallery, detail
             'current_storage': None, # Storage dict
@@ -239,7 +247,11 @@ class StoragePage:
         }
 
         files = persistence.list_collections()
-        if files:
+        saved_file = saved_state.get('storage_selected_file')
+
+        if saved_file and saved_file in files:
+            self.state['selected_collection_file'] = saved_file
+        elif files:
             self.state['selected_collection_file'] = files[0]
 
         self.single_card_view = SingleCardView()
@@ -248,78 +260,77 @@ class StoragePage:
 
         self.storage_dialog = StorageDialog(self.on_storage_save)
 
-        self.state['storages'] = storage_service.get_all_storage()
-
     async def load_data(self):
         if self.state['selected_collection_file']:
             try:
                 self.state['current_collection'] = await run.io_bound(persistence.load_collection, self.state['selected_collection_file'])
+                # Load Storages from Collection
+                self.state['storages'] = storage_service.get_all_storage(self.state['current_collection'])
             except Exception as e:
                 logger.error(f"Error loading collection: {e}")
-
-        self.state['storages'] = storage_service.get_all_storage()
+                ui.notify(f"Error loading collection: {e}", type='negative')
+                self.state['storages'] = []
+        else:
+            self.state['storages'] = []
 
         if self.state['view'] == 'gallery':
             self.render_content.refresh()
         elif self.state['view'] == 'detail':
-            # Refresh storage object in case it was updated
+            # Refresh storage object
             if self.state['current_storage']:
-                updated = storage_service.get_storage(self.state['current_storage']['name'])
-                if updated: self.state['current_storage'] = updated
+                updated = storage_service.get_storage(self.state['current_collection'], self.state['current_storage']['name'])
+                if updated:
+                    self.state['current_storage'] = updated
+                else:
+                    # Storage might have been deleted or we switched collection
+                    self.state['view'] = 'gallery'
+                    self.state['current_storage'] = None
 
             await self.load_detail_rows()
             self.render_content.refresh()
 
+    async def save_current_collection(self):
+        if self.state['current_collection'] and self.state['selected_collection_file']:
+            await run.io_bound(persistence.save_collection, self.state['current_collection'], self.state['selected_collection_file'])
+
     async def on_storage_save(self, original_name, data):
+        col = self.state['current_collection']
+        if not col:
+            ui.notify('No collection selected', type='negative')
+            return
+
         if original_name:
             # Update
             success = storage_service.update_storage(
-                original_name, data['name'], data['type'], data['description'], data['image_path'], data['set_code']
+                col, original_name, data['name'], data['type'], data['description'], data['image_path'], data['set_code']
             )
             if success:
                 ui.notify('Storage updated', type='positive')
 
-                # Handle Rename: Update all collections
+                # Handle Rename: Update internal card references
                 if original_name != data['name']:
-                    logger.info(f"Storage renamed from {original_name} to {data['name']}. Updating collections...")
-                    collections = persistence.list_collections()
-                    count = 0
-                    for col_file in collections:
-                        try:
-                            # Load
-                            col = await run.io_bound(persistence.load_collection, col_file)
-                            # Update
-                            modified = CollectionEditor.rename_storage_location(col, original_name, data['name'])
-                            if modified:
-                                # Save
-                                await run.io_bound(persistence.save_collection, col, col_file)
-                                count += 1
-                        except Exception as e:
-                            logger.error(f"Error updating collection {col_file} for storage rename: {e}")
+                    logger.info(f"Storage renamed from {original_name} to {data['name']}. Updating collection entries...")
+                    modified = CollectionEditor.rename_storage_location(col, original_name, data['name'])
+                    if modified:
+                        ui.notify(f"Updated card references for rename.", type='positive')
 
-                    if count > 0:
-                        ui.notify(f"Updated {count} collection(s) with new storage name.", type='positive')
-
-                    # Update current collection if it was modified
-                    if self.state['selected_collection_file']:
-                        # Reload current collection to reflect changes
-                        try:
-                            self.state['current_collection'] = await run.io_bound(persistence.load_collection, self.state['selected_collection_file'])
-                        except: pass
+                # Save Collection
+                await self.save_current_collection()
 
                 # Update current_storage reference
                 if self.state['current_storage'] and self.state['current_storage']['name'] == original_name:
-                    self.state['current_storage'] = storage_service.get_storage(data['name'])
+                    self.state['current_storage'] = storage_service.get_storage(col, data['name'])
         else:
             # Create
             success = storage_service.add_storage(
-                data['name'], data['type'], data['description'], data['image_path'], data['set_code']
+                col, data['name'], data['type'], data['description'], data['image_path'], data['set_code']
             )
             if success:
+                await self.save_current_collection()
                 ui.notify('Storage created', type='positive')
 
         if not success:
-            ui.notify('Operation failed', type='negative')
+            ui.notify('Operation failed (Name collision?)', type='negative')
 
         await self.load_data()
 
@@ -446,6 +457,8 @@ class StoragePage:
         self.state['current_storage'] = None
         self.render_content.refresh()
 
+    # --- Renderers ---
+
     @ui.refreshable
     def render_content(self):
         if self.state['view'] == 'gallery':
@@ -454,11 +467,30 @@ class StoragePage:
             self.render_detail_view()
 
     def render_gallery_view(self):
+        # Header
         with ui.row().classes('w-full items-center justify-between p-4 bg-gray-900 rounded-lg border border-gray-800 mb-4'):
             ui.label('Storage').classes('text-h5 text-white')
+
             with ui.row().classes('items-center gap-4'):
+                # Collection Selector
+                files = persistence.list_collections()
+                file_options = {}
+                for f in files:
+                    display_name = f
+                    if f.endswith('.json'): display_name = f[:-5]
+                    file_options[f] = display_name
+
+                async def handle_collection_change(e):
+                    self.state['selected_collection_file'] = e.value
+                    persistence.save_ui_state({'storage_selected_file': e.value})
+                    await self.load_data()
+
+                ui.select(file_options, value=self.state['selected_collection_file'], label='Collection',
+                          on_change=handle_collection_change).classes('w-40')
+
                 ui.button('New Storage', icon='add', on_click=self.open_new_storage_dialog).props('color=primary')
 
+        # Grid
         with ui.grid(columns='repeat(auto-fill, minmax(250px, 1fr))').classes('w-full gap-6'):
             for s in self.state['storages']:
                 self.render_storage_card(s)
@@ -622,7 +654,7 @@ class StoragePage:
                 msg = "Not enough copies in storage!"
 
         if success:
-            await run.io_bound(persistence.save_collection, col, self.state['selected_collection_file'])
+            await self.save_current_collection()
             ui.notify(msg, type='positive')
             await self.load_detail_rows()
             self.render_detail_grid.refresh()
