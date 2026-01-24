@@ -78,8 +78,10 @@ class ScannerManager:
 
         self.debug_dir = "debug/scans"
         self.queue_dir = "scans/queue"
+        self.temp_dir = "data/scans/temp"
         os.makedirs(self.debug_dir, exist_ok=True)
         os.makedirs(self.queue_dir, exist_ok=True)
+        os.makedirs(self.temp_dir, exist_ok=True)
 
     def register_listener(self, callback: Callable[["ScanEvent"], None]):
         """Registers a callback for scanner events."""
@@ -422,6 +424,17 @@ class ScannerManager:
                             warped = report.get('warped_image_data') # Not in model, but returned by _process_scan
 
                             ambiguity_threshold = task.options.get("ambiguity_threshold", 10.0)
+                            art_threshold = task.options.get("art_match_threshold", 0.42)
+
+                            # Handle Raw Image Saving (Copy to temp)
+                            temp_raw_path = None
+                            if task.options.get("save_raw_scan", True):
+                                try:
+                                    temp_raw_filename = f"raw_{os.path.basename(filename)}"
+                                    temp_raw_path = os.path.join(self.temp_dir, temp_raw_filename)
+                                    shutil.copy2(filepath, temp_raw_path)
+                                except Exception as e:
+                                    logger.error(f"Failed to copy raw image to temp: {e}")
 
                             # Construct lookup data (Internal structure for LookupQueue)
                             lookup_data = {
@@ -430,7 +443,10 @@ class ScannerManager:
                                 "visual_rarity": report.get('visual_rarity', 'Common'),
                                 "first_edition": report.get('first_edition', False),
                                 "warped_image": warped,
-                                "threshold": ambiguity_threshold
+                                "warped_image_url": report.get("warped_image_url"),
+                                "raw_image_path": temp_raw_path,
+                                "threshold": ambiguity_threshold,
+                                "art_threshold": art_threshold
                             }
                             self.lookup_queue.put(lookup_data)
 
@@ -594,11 +610,22 @@ class ScannerManager:
              report['visual_rarity'] = self.scanner.detect_rarity_visual(warped)
              # Use the collected texts instead of warped image scan
              report['first_edition'] = self.scanner.detect_first_edition(available_texts)
+
+             # Detect Card Type from aggregated results
+             detected_type = None
+             for key in ["t1_full", "t1_crop", "t2_full", "t2_crop"]:
+                 res = report.get(key)
+                 if res and res.card_type:
+                     detected_type = res.card_type
+                     break
+             report['card_type'] = detected_type
+
              report['warped_image_data'] = warped # Pass along for Art Match
 
              if self.debug_state:
                  if hasattr(self.debug_state, 'visual_rarity'): self.debug_state.visual_rarity = report['visual_rarity']
                  if hasattr(self.debug_state, 'first_edition'): self.debug_state.first_edition = report['first_edition']
+                 if hasattr(self.debug_state, 'card_type'): self.debug_state.card_type = report['card_type']
 
         # Art Match (YOLO)
         if options.get("art_match_yolo", False) and self.scanner:
@@ -666,6 +693,9 @@ class ScannerManager:
             art_match = data.get('art_match')
             warped = data.pop('warped_image', None)
             threshold = data.get('threshold', 10.0)
+            art_threshold = data.get('art_threshold', 0.42)
+            warped_url = data.get('warped_image_url')
+            raw_path = data.get('raw_image_path')
 
             # Base Result
             result = ScanResult()
@@ -674,9 +704,17 @@ class ScannerManager:
             result.visual_rarity = data.get('visual_rarity', 'Common')
             result.first_edition = data.get('first_edition', False)
             result.raw_ocr = [ocr_res]
+            result.raw_image_path = raw_path
+
+            # Resolve warped image path for result
+            if warped_url:
+                # URL is like /debug/scans/warped_....jpg
+                # We need filesystem path.
+                filename = os.path.basename(warped_url)
+                result.scan_image_path = os.path.join(self.debug_dir, filename)
 
             # Find Best Match
-            match_res = await self.find_best_match(ocr_res, art_match, threshold)
+            match_res = await self.find_best_match(ocr_res, art_match, threshold, art_threshold)
 
             if match_res:
                 # If ambiguity or match found
@@ -741,7 +779,7 @@ class ScannerManager:
 
         return 0.0
 
-    async def find_best_match(self, ocr_res: 'OCRResult', art_match: Dict, threshold: float = 10.0) -> Dict[str, Any]:
+    async def find_best_match(self, ocr_res: 'OCRResult', art_match: Dict, threshold: float = 10.0, art_threshold: float = 0.42) -> Dict[str, Any]:
         """
         Weighted matching algorithm.
         Returns dict with 'ambiguity' (bool) and 'candidates' (List).
@@ -759,12 +797,16 @@ class ScannerManager:
         # Scanning 12k cards * variants is expensive if we do full scoring.
         # Filter first by: Set Code OR Name Match OR Art Match ID
 
-        # Art Match ID
+        # Art Match ID & Score Check
         art_id = None
         if art_match and art_match.get('filename'):
-            try:
-                art_id = int(os.path.splitext(art_match['filename'])[0])
-            except: pass
+            score = art_match.get('score', 0)
+            if score >= art_threshold:
+                try:
+                    art_id = int(os.path.splitext(art_match['filename'])[0])
+                except: pass
+            else:
+                logger.info(f"Art Match Discarded: Score {score:.3f} < Threshold {art_threshold}")
 
         potential_cards = []
 
@@ -818,6 +860,16 @@ class ScannerManager:
                         score += 40.0
                     elif any(img.id == art_id for img in card.card_images):
                         score += 35.0 # Wrong variant but correct card
+
+                # C2. Card Type Bonus (+10)
+                # If OCR detected "Spell" or "Trap" and the card type matches
+                if ocr_res.card_type and card.type:
+                     # Simple check: string contains 'Spell' or 'Trap'
+                     ocr_type = ocr_res.card_type.upper()
+                     db_type = card.type.upper()
+                     if ("SPELL" in ocr_type and "SPELL" in db_type) or \
+                        ("TRAP" in ocr_type and "TRAP" in db_type):
+                         score += 10.0
 
                 # D. Stats (+/- 15)
                 # Need to check OCR extraction of ATK/DEF vs Card
