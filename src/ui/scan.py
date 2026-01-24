@@ -272,13 +272,13 @@ class ScanPage:
         self.rotation = self.config.get('rotation', 0)
         self.overlay_duration = self.config.get('overlay_duration', 1000)
 
-        # Load Recent Scans
-        self.load_recent_scans()
-
         # Data & Filters
         self.api_card_map = {}
         self.filtered_scanned_cards = []
         self.single_card_view = SingleCardView()
+
+        # Load Recent Scans
+        self.load_recent_scans()
         self.filter_pane = None
 
         self.filter_state = {
