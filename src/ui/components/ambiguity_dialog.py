@@ -81,8 +81,14 @@ class AmbiguityDialog(ui.dialog):
                  ).classes('w-full')
 
                  # 3. Set Code
+                 # Initialize options with candidates to avoid "Invalid value" error
+                 initial_set_codes = sorted(list(set(c['set_code'] for c in self.candidates)))
+                 if self.selected_set_code and self.selected_set_code not in initial_set_codes:
+                     initial_set_codes.append(self.selected_set_code)
+                 initial_set_codes.append("Other")
+
                  self.set_code_select = ui.select(
-                     options=[], # Loaded dynamically
+                     options=initial_set_codes,
                      value=self.selected_set_code,
                      label="Set Code",
                      on_change=self.on_set_code_change,
