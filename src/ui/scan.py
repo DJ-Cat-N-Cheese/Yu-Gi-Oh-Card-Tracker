@@ -226,6 +226,7 @@ class ScanPage:
         self.preprocessing_mode = self.config.get('preprocessing_mode', 'classic')
         self.art_match_yolo = self.config.get('art_match_yolo', True) # Default to True per request
         self.ambiguity_threshold = self.config.get('ambiguity_threshold', 10.0)
+        self.rotation = self.config.get('rotation', 0)
 
         # Load Recent Scans
         self.load_recent_scans()
@@ -246,11 +247,24 @@ class ScanPage:
         self.config['preprocessing_mode'] = self.preprocessing_mode
         self.config['art_match_yolo'] = self.art_match_yolo
         self.config['ambiguity_threshold'] = self.ambiguity_threshold
+        self.config['rotation'] = self.rotation
 
         # Sync list used by logic
         self.ocr_tracks = [self.selected_track]
 
         config_manager.save_config(self.config)
+        self.apply_video_rotation()
+
+    def apply_video_rotation(self):
+        """Applies CSS rotation to video elements."""
+        js = f"""
+        const deg = {self.rotation};
+        const v1 = document.getElementById('scanner-video');
+        if(v1) v1.style.transform = 'rotate(' + deg + 'deg)';
+        const v2 = document.getElementById('debug-video');
+        if(v2) v2.style.transform = 'rotate(' + deg + 'deg)';
+        """
+        ui.run_javascript(js)
 
     def load_recent_scans(self):
         """Loads scans from temp file."""
@@ -483,7 +497,8 @@ class ScanPage:
                 "tracks": [self.selected_track], # Use the single selected track
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -520,7 +535,8 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
@@ -541,9 +557,8 @@ class ScanPage:
                 ui.notify("Camera not active or ready", type='warning')
                 return
 
-            self.latest_capture_src = data_url
-            # We want to show the capture immediately?
-            # Yes, locally.
+            # Don't show raw capture locally; wait for backend rotated image event
+            self.latest_capture_src = None
             self.refresh_debug_ui()
 
             header, encoded = data_url.split(",", 1)
@@ -553,7 +568,8 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -796,6 +812,10 @@ class ScanPage:
                 ui.number(value=self.ambiguity_threshold, min=0, max=100, step=1.0,
                          on_change=lambda e: (setattr(self, 'ambiguity_threshold', e.value), self.save_settings())).classes('w-full')
 
+                # Rotation
+                ui.label("Camera Rotation:").classes('font-bold text-gray-300 text-sm')
+                ui.toggle({0: '0°', 90: '90°', 180: '180°', 270: '270°'}, value=self.rotation,
+                        on_change=lambda e: (setattr(self, 'rotation', e.value), self.save_settings())).props('spread')
 
                 # Camera Preview
                 ui.label("Camera Preview").classes('font-bold text-lg mt-4')
@@ -822,6 +842,7 @@ class ScanPage:
                 self.render_debug_pipeline_results()
 
         ui.run_javascript('initDebugStream()')
+        self.apply_video_rotation()
 
     def toggle_track(self, track, enabled):
         # Deprecated logic in favor of single selection radio
@@ -859,6 +880,7 @@ def scan_page():
             ui.run_javascript('reattachScannerVideo()')
         elif e.value == 'Debug Lab':
             ui.run_javascript('initDebugStream()')
+        page.apply_video_rotation()
 
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
