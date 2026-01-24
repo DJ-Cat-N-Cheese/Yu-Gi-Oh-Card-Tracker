@@ -18,6 +18,7 @@ from src.ui.browse_sets import browse_sets_page
 from src.ui.bulk_add import bulk_add_page
 from src.ui.scan import scan_page
 from src.ui.db_editor import db_editor_page
+from src.ui.storage import storage_page
 
 @ui.page('/')
 def home():
@@ -26,6 +27,10 @@ def home():
 @ui.page('/collection')
 def collection():
     create_layout(collection_page)
+
+@ui.page('/storage')
+def storage():
+    create_layout(storage_page)
 
 @ui.page('/sets')
 def sets():
@@ -54,9 +59,11 @@ def db_editor():
 # Serve images
 os.makedirs('data/images', exist_ok=True)
 os.makedirs('data/img', exist_ok=True)
+os.makedirs('data/storage', exist_ok=True)
 app.add_static_files('/images', 'data/images')
 app.add_static_files('/data/img', 'data/img') # Serve data/img for Art Match if used
 app.add_static_files('/sets', 'data/sets')
+app.add_static_files('/storage', 'data/storage')
 app.add_static_files('/debug', 'debug')
 
 # Handle Chrome DevTools probe to prevent 404 warnings
