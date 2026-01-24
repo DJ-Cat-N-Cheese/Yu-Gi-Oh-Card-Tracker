@@ -226,6 +226,7 @@ class ScanPage:
         self.preprocessing_mode = self.config.get('preprocessing_mode', 'classic')
         self.art_match_yolo = self.config.get('art_match_yolo', True) # Default to True per request
         self.ambiguity_threshold = self.config.get('ambiguity_threshold', 10.0)
+        self.rotation = self.config.get('rotation', 0)
 
         # Load Recent Scans
         self.load_recent_scans()
@@ -246,6 +247,7 @@ class ScanPage:
         self.config['preprocessing_mode'] = self.preprocessing_mode
         self.config['art_match_yolo'] = self.art_match_yolo
         self.config['ambiguity_threshold'] = self.ambiguity_threshold
+        self.config['rotation'] = self.rotation
 
         # Sync list used by logic
         self.ocr_tracks = [self.selected_track]
@@ -345,7 +347,10 @@ class ScanPage:
             res = scanner_service.scanner_manager.get_latest_result()
             if res:
                 logger.info(f"UI Received Result: {res.get('set_code')}, Ambiguous: {res.get('ambiguity_flag')}")
-                if res.get('ambiguity_flag'):
+
+                if not res.get('candidates'):
+                    ui.notify("No match found", type='negative')
+                elif res.get('ambiguity_flag'):
                     ui.notify("Scan Ambiguous: Please resolve.", type='warning', timeout=5000)
                     dialog = AmbiguityDialog(res, self.on_card_confirmed)
                     dialog.open()
@@ -483,7 +488,8 @@ class ScanPage:
                 "tracks": [self.selected_track], # Use the single selected track
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -520,7 +526,8 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
@@ -553,7 +560,8 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
-                "ambiguity_threshold": self.ambiguity_threshold
+                "ambiguity_threshold": self.ambiguity_threshold,
+                "rotation": self.rotation
             }
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
@@ -796,6 +804,10 @@ class ScanPage:
                 ui.number(value=self.ambiguity_threshold, min=0, max=100, step=1.0,
                          on_change=lambda e: (setattr(self, 'ambiguity_threshold', e.value), self.save_settings())).classes('w-full')
 
+                # Rotation
+                ui.label("Rotation:").classes('font-bold text-gray-300 text-sm')
+                ui.toggle([0, 90, 180, 270], value=self.rotation,
+                        on_change=lambda e: (setattr(self, 'rotation', e.value), self.save_settings())).props('spread')
 
                 # Camera Preview
                 ui.label("Camera Preview").classes('font-bold text-lg mt-4')

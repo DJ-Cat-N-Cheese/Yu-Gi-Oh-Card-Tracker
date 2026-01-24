@@ -299,6 +299,9 @@ class ScannerManager:
 
         for f in files:
             if not f.lower().endswith(('.jpg', '.png', '.jpeg')): continue
+            # Exclude high-res duplicates
+            if '_high' in f.lower(): continue
+
             path = os.path.join(img_dir, f)
             try:
                 img = cv2.imread(path)
@@ -380,6 +383,15 @@ class ScannerManager:
                     frame = cv2.imread(filepath)
 
                     if frame is not None:
+                        # Apply Rotation
+                        rotation = task.options.get("rotation", 0)
+                        if rotation == 90:
+                            frame = cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+                        elif rotation == 180:
+                            frame = cv2.rotate(frame, cv2.ROTATE_180)
+                        elif rotation == 270:
+                            frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+
                         # Update debug state basics
                         cap_url = self._save_debug_image(frame, "manual_cap")
 
@@ -417,7 +429,13 @@ class ScannerManager:
                         # If we found a card, push to result queue
                         # We pick the best result.
                         best_res = self._pick_best_result(report)
-                        if best_res:
+                        art_match = report.get('art_match_yolo')
+
+                        if best_res or art_match:
+                            if not best_res:
+                                # Create dummy result for Art-only match
+                                best_res = OCRResult(engine="none", scope="none", raw_text="")
+
                             # Enhance with visual traits if warped image exists
                             warped = report.get('warped_image_data') # Not in model, but returned by _process_scan
 
