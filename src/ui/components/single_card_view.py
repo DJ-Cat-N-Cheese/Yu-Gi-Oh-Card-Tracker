@@ -61,7 +61,9 @@ class SingleCardView:
         rarity_map: Dict[str, Set[str]] = None,
         view_mode: str = 'consolidated',
         current_collection: Any = None,
-        original_quantity: int = 0
+        original_quantity: int = 0,
+        primary_button_label: str = 'ADD',
+        primary_button_mode: str = 'ADD'
     ):
         """
         Renders the inventory management section (Language, Set, Rarity, etc.).
@@ -233,8 +235,8 @@ class SingleCardView:
                     # Normal flow
                     await on_save_callback(mode, matched_variant_id, quantity_override=quantity_override)
 
-                async def do_add():
-                    await handle_update('ADD')
+                async def do_primary():
+                    await handle_update(primary_button_mode)
 
                 async def do_subtract():
                     qty = int(input_state['quantity'] or 0)
@@ -243,10 +245,10 @@ class SingleCardView:
                     else:
                         ui.notify("Quantity must be > 0", type='warning')
 
-                with ui.button('ADD', on_click=do_add).props('color=secondary'):
-                    ui.tooltip('Add the specified quantity to your collection').classes('bg-black text-white')
+                with ui.button(primary_button_label, on_click=do_primary).props('color=secondary'):
+                    ui.tooltip('Add/Update the entry').classes('bg-black text-white')
 
-                if view_mode == 'collectors':
+                if view_mode == 'collectors' and primary_button_mode == 'ADD':
                     with ui.button('SUBTRACT', on_click=do_subtract).props('color=warning text-color=dark'):
                         ui.tooltip('Subtract the specified quantity from your collection').classes('bg-black text-white')
 
@@ -503,7 +505,9 @@ class SingleCardView:
         current_collection: Any = None,
         save_callback: Callable = None,
         variant_id: str = None,
-        hide_header_stats: bool = False
+        hide_header_stats: bool = False,
+        primary_button_label: str = 'ADD',
+        primary_button_mode: str = 'ADD'
     ):
         try:
             set_options = {}
@@ -773,7 +777,9 @@ class SingleCardView:
                                 rarity_map=rarity_map,
                                 view_mode='collectors',
                                 current_collection=current_collection,
-                                original_quantity=owned_count
+                                original_quantity=owned_count,
+                                primary_button_label=primary_button_label,
+                                primary_button_mode=primary_button_mode
                             )
 
                         self._render_available_sets(card)

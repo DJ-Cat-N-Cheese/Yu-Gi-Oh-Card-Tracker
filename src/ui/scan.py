@@ -20,7 +20,13 @@ from src.core.persistence import persistence
 from src.core.models import CollectionCard, CollectionVariant, CollectionEntry
 from src.services.ygo_api import ygo_service
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
+from src.ui.components.filter_pane import FilterPane
+from src.ui.components.single_card_view import SingleCardView
+from src.ui.viewmodels import BulkCollectionEntry
+from src.core.changelog_manager import changelog_manager
 from src.core import config_manager
+from src.services.collection_editor import CollectionEditor
+from src.core.utils import generate_variant_id
 
 logger = logging.getLogger(__name__)
 
@@ -242,9 +248,6 @@ class ScanPage:
         self.art_match_threshold = self.config.get('art_match_threshold', 0.42)
         self.rotation = self.config.get('rotation', 0)
 
-        # Load Recent Scans
-        self.load_recent_scans()
-
         # Debug Lab State (local cache of Pydantic model dump)
         self.debug_report = {}
         self.debug_loading = False
@@ -254,6 +257,49 @@ class ScanPage:
 
         # UI State Persistence
         self.expansion_states = {}
+
+        # Gallery / List State
+        self.scan_entries: List[BulkCollectionEntry] = []
+        self.scan_filtered: List[BulkCollectionEntry] = []
+        self.api_card_map = {} # Cache for API cards
+
+        self.scan_state = {
+            'collection_cards': [], # Synced with self.scan_entries
+            'search_text': '',
+            'sort_by': 'Newest',
+            'sort_desc': True,
+            'collection_page': 1,
+            'collection_page_size': 50,
+            'collection_total_pages': 1,
+
+            # Filters
+            'filter_set': '',
+            'filter_rarity': '',
+            'filter_attr': '',
+            'filter_card_type': ['Monster', 'Spell', 'Trap'],
+            'filter_monster_race': '',
+            'filter_st_race': '',
+            'filter_archetype': '',
+            'filter_monster_category': [],
+            'filter_level': None,
+            'filter_atk_min': 0, 'filter_atk_max': 5000,
+            'filter_def_min': 0, 'filter_def_max': 5000,
+            'filter_price_min': 0.0, 'filter_price_max': 1000.0,
+            'filter_ownership_min': 0, 'filter_ownership_max': 100,
+            'filter_condition': [], 'filter_owned_lang': '',
+
+            # Metadata (Populated later)
+            'available_sets': [],
+            'available_monster_races': [],
+            'available_st_races': [],
+            'available_archetypes': [],
+            'available_card_types': ['Monster', 'Spell', 'Trap', 'Skill'],
+        }
+
+        self.single_card_view = SingleCardView()
+        self.filter_pane = None
+        self.scan_filter_dialog = None
+        self.warning_dialog = None
 
     def save_settings(self):
         """Saves current settings to config."""
@@ -271,9 +317,62 @@ class ScanPage:
 
         config_manager.save_config(self.config)
 
-    def load_recent_scans(self):
+    def _scan_to_entry(self, scan_result: Dict) -> Optional[BulkCollectionEntry]:
+        card_id = scan_result.get('card_id')
+        if not card_id: return None
+
+        # Cache API Card
+        if card_id not in self.api_card_map:
+             card = ygo_service.get_card(card_id)
+             if card:
+                 self.api_card_map[card_id] = card
+
+        api_card = self.api_card_map.get(card_id)
+        if not api_card: return None
+
+        # Determine Image
+        img_id = scan_result.get('image_id')
+        if not img_id and api_card.card_images:
+            img_id = api_card.card_images[0].id
+
+        # URL logic similar to BulkAdd
+        img_url = None
+        if api_card.card_images:
+             for img in api_card.card_images:
+                 if img.id == img_id:
+                     img_url = img.image_url_small
+                     break
+
+        set_name = "Unknown Set"
+        if api_card.card_sets:
+            for s in api_card.card_sets:
+                if s.set_code == scan_result.get('set_code'):
+                    set_name = s.set_name
+                    break
+
+        return BulkCollectionEntry(
+            id=scan_result.get('uuid'),
+            api_card=api_card,
+            quantity=1,
+            set_code=scan_result.get('set_code'),
+            set_name=set_name,
+            rarity=scan_result.get('rarity'),
+            language=scan_result.get('language', 'EN'),
+            condition=scan_result.get('condition', self.default_condition),
+            first_edition=scan_result.get('first_edition', False),
+            image_url=img_url,
+            image_id=img_id,
+            variant_id=scan_result.get('variant_id'),
+            price=0.0
+        )
+
+    async def load_recent_scans(self):
         """Loads scans from temp file."""
+        # Ensure DB loaded
+        await ygo_service.load_card_database()
+
         temp_path = "data/scans/scans_temp.json"
+        self.scanned_cards = []
         if os.path.exists(temp_path):
             try:
                 with open(temp_path, 'r') as f:
@@ -282,6 +381,53 @@ class ScanPage:
                         self.scanned_cards = data
             except Exception as e:
                 logger.error(f"Failed to load recent scans: {e}")
+
+        # Ensure UUIDs
+        updated = False
+        for c in self.scanned_cards:
+            if 'uuid' not in c:
+                c['uuid'] = str(uuid.uuid4())
+                updated = True
+
+        if updated:
+            self.save_recent_scans()
+
+        # Build View Models
+        self.scan_entries = []
+        for c in self.scanned_cards:
+            entry = self._scan_to_entry(c)
+            if entry:
+                self.scan_entries.append(entry)
+
+        self.scan_state['collection_cards'] = self.scan_entries
+
+        # Populate Metadata for Filters (Lazy approach: based on loaded cards + global DB if needed,
+        # but BulkAdd uses global. For Scan, maybe just use what we have or global?
+        # BulkAdd loads global. We can rely on ygo_service for global metadata if we wanted strict filtering.
+        # But FilterPane relies on `scan_state` keys.
+        # Let's populate minimal metadata based on scanned cards for now or reuse bulk add logic?
+        # To reuse FilterPane effectively, we need valid metadata.
+        # Let's try to load minimal metadata from the scanned cards themselves for dropdowns.
+
+        sets = set()
+        m_races = set()
+        st_races = set()
+        archetypes = set()
+
+        for entry in self.scan_entries:
+            sets.add(f"{entry.set_name} | {entry.set_code.split('-')[0]}")
+            c = entry.api_card
+            if c:
+                if c.archetype: archetypes.add(c.archetype)
+                if "Monster" in c.type and c.race: m_races.add(c.race)
+                elif ("Spell" in c.type or "Trap" in c.type) and c.race: st_races.add(c.race)
+
+        self.scan_state['available_sets'][:] = sorted(list(sets))
+        self.scan_state['available_monster_races'][:] = sorted(list(m_races))
+        self.scan_state['available_st_races'][:] = sorted(list(st_races))
+        self.scan_state['available_archetypes'][:] = sorted(list(archetypes))
+
+        await self.apply_scan_filters()
 
     def save_recent_scans(self):
         """Saves current scanned cards to temp file."""
@@ -292,6 +438,166 @@ class ScanPage:
                 json.dump(self.scanned_cards, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save recent scans: {e}")
+
+    async def apply_scan_filters(self):
+        source = self.scan_state['collection_cards']
+        res = list(source)
+        s = self.scan_state
+
+        txt = s['search_text'].lower()
+        if txt:
+            def matches(e: BulkCollectionEntry):
+                return (txt in e.api_card.name.lower() or
+                        txt in e.set_code.lower() or
+                        txt in e.api_card.desc.lower())
+            res = [e for e in res if matches(e)]
+
+        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
+        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
+        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
+        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        if s['filter_set']:
+             target = s['filter_set'].split('|')[0].strip().lower()
+             res = [e for e in res if target in e.set_name.lower() or target in e.set_code.lower()]
+        if s['filter_rarity']:
+             target = s['filter_rarity'].lower()
+             res = [e for e in res if e.rarity.lower() == target]
+        if s['filter_monster_category']:
+             cats = s['filter_monster_category']
+             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
+        if s['filter_owned_lang']:
+             res = [e for e in res if e.language == s['filter_owned_lang']]
+        if s['filter_condition']:
+             res = [e for e in res if e.condition in s['filter_condition']]
+
+        key = s['sort_by']
+        reverse = s['sort_desc']
+        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
+        elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
+        elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
+        elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
+        elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
+        elif key == 'Newest':
+             # Default order (source) is Newest First.
+             # If reverse is False (Ascending), we want Oldest First.
+             if not reverse:
+                 res.reverse()
+
+        self.scan_filtered = res
+        self.scan_state['collection_page'] = 1
+        self.update_scan_pagination()
+        if hasattr(self, 'render_live_list'):
+            self.render_live_list.refresh()
+
+    def update_scan_pagination(self):
+        count = len(self.scan_filtered)
+        self.scan_state['collection_total_pages'] = max(1, (count + self.scan_state['collection_page_size'] - 1) // self.scan_state['collection_page_size'])
+
+    async def undo_last_scan_action(self):
+        last_change = changelog_manager.undo_last_change('scan_temp')
+        if not last_change:
+            ui.notify("Nothing to undo.", type='warning')
+            return
+
+        action = last_change.get('action')
+        data = last_change.get('card_data')
+
+        if action == 'ADD':
+            uuid_target = data.get('uuid')
+            self.scanned_cards = [c for c in self.scanned_cards if c.get('uuid') != uuid_target]
+
+        elif action == 'REMOVE':
+             # data should be the full object for REMOVE
+             self.scanned_cards.insert(0, data)
+
+        elif action == 'UPDATE':
+             uuid_target = data.get('uuid')
+             old_data = last_change.get('old_data')
+             if old_data:
+                 for c in self.scanned_cards:
+                     if c.get('uuid') == uuid_target:
+                         c.update(old_data)
+                         break
+
+        self.save_recent_scans()
+        await self.load_recent_scans()
+        ui.notify(f"Undid {action}", type='positive')
+        if hasattr(self, 'render_scan_header'):
+            self.render_scan_header.refresh()
+
+    async def update_scan_entry(self, entry_id: str, updates: Dict[str, Any]):
+         # Find matching scan result
+         target = None
+         for c in self.scanned_cards:
+             if c.get('uuid') == entry_id:
+                 target = c
+                 break
+
+         if target:
+             old_data = {k: target.get(k) for k in updates.keys() if k in target}
+
+             # Log UPDATE
+             changelog_manager._write_entry('scan_temp', {
+                "action": "UPDATE",
+                "quantity": 1,
+                "card_data": {'uuid': target.get('uuid')},
+                "old_data": old_data,
+                "type": "single"
+             })
+
+             target.update(updates)
+             self.save_recent_scans()
+             await self.load_recent_scans()
+             # ui.notify("Updated entry", type='positive')
+
+    async def remove_scan_entry(self, entry: BulkCollectionEntry):
+        target = None
+        for i, c in enumerate(self.scanned_cards):
+            if c.get('uuid') == entry.id:
+                target = c
+                break
+
+        if target:
+            # Log REMOVE
+            # Store full target object to allow restore
+            changelog_manager.log_change('scan_temp', 'REMOVE', target, 1)
+
+            self.scanned_cards.remove(target)
+            self.save_recent_scans()
+            await self.load_recent_scans()
+            ui.notify("Removed entry", type='info')
+            if hasattr(self, 'render_scan_header'):
+                self.render_scan_header.refresh()
+
+    async def reset_scan_filters(self):
+        s = self.scan_state
+        s['search_text'] = ''
+        s['filter_set'] = ''
+        s['filter_rarity'] = ''
+        s['filter_attr'] = ''
+        s['filter_card_type'] = ['Monster', 'Spell', 'Trap']
+        s['filter_monster_race'] = ''
+        s['filter_st_race'] = ''
+        s['filter_archetype'] = ''
+        s['filter_monster_category'] = []
+        s['filter_level'] = None
+        s['filter_atk_min'] = 0
+        s['filter_atk_max'] = 5000
+        s['filter_def_min'] = 0
+        s['filter_def_max'] = 5000
+        s['filter_price_min'] = 0.0
+        s['filter_price_max'] = 1000.0
+        s['filter_ownership_min'] = 0
+        s['filter_ownership_max'] = 100
+        s['filter_condition'] = []
+        s['filter_owned_lang'] = ''
+
+        if self.filter_pane:
+            self.filter_pane.reset_ui_elements()
+
+        await self.apply_scan_filters()
 
     async def init_cameras(self):
         try:
@@ -313,7 +619,7 @@ class ScanPage:
             self.debug_report = event.snapshot.model_dump()
         self.event_queue.put(event)
 
-    def on_card_confirmed(self, result_dict: Dict[str, Any]):
+    async def on_card_confirmed(self, result_dict: Dict[str, Any]):
         """Callback from Ambiguity Dialog or direct addition."""
 
         # Save Warped Image logic
@@ -370,10 +676,20 @@ class ScanPage:
                  os.remove(result_dict['raw_image_path'])
              except: pass
 
+        # Ensure UUID
+        if 'uuid' not in result_dict:
+            result_dict['uuid'] = str(uuid.uuid4())
+
         self.scanned_cards.insert(0, result_dict)
         self.save_recent_scans()
-        self.render_live_list.refresh()
+
+        # Log ADD
+        changelog_manager.log_change('scan_temp', 'ADD', result_dict, 1)
+
+        await self.load_recent_scans()
         ui.notify(f"Added: {result_dict.get('name')}", type='positive')
+        if hasattr(self, 'render_scan_header'):
+            self.render_scan_header.refresh()
 
     async def event_consumer(self):
         """Consumes events from the local queue and updates UI."""
@@ -435,7 +751,7 @@ class ScanPage:
                     dialog.open()
                 else:
                     ui.notify("Scan Successful!", type='positive', timeout=3000)
-                    self.on_card_confirmed(res)
+                    await self.on_card_confirmed(res)
 
                 self.refresh_debug_ui() # Ensure final result is shown
 
@@ -560,6 +876,18 @@ class ScanPage:
                 ui.notify("Camera not active or ready", type='warning')
                 return
 
+            # Show overlay
+            if hasattr(self, 'capture_overlay'):
+                self.capture_overlay.source = data_url
+                # Apply rotation
+                transform = f'rotate({self.rotation}deg)'
+                self.capture_overlay.style(f'display: block; transform: {transform};')
+
+                def hide_overlay():
+                    self.capture_overlay.style('display: none;')
+
+                ui.timer(1.0, hide_overlay, once=True)
+
             header, encoded = data_url.split(",", 1)
             content = base64.b64decode(encoded)
 
@@ -679,22 +1007,183 @@ class ScanPage:
         except Exception as err:
             ui.notify(f"Capture failed: {err}", type='negative')
 
+    def _setup_card_tooltip(self, card, specific_image_id=None):
+        if not card: return
+        target_img = card.card_images[0] if card.card_images else None
+        if specific_image_id and card.card_images:
+            for img in card.card_images:
+                if img.id == specific_image_id:
+                    target_img = img
+                    break
+        if not target_img: return
+
+        img_id = target_img.id
+        high_res_url = target_img.image_url
+        low_res_url = target_img.image_url_small
+        is_local = image_manager.image_exists(img_id, high_res=True)
+        initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+
+        with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none').props('style="max-width: none" delay=5000') as tooltip:
+            if initial_src:
+                ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl').props('fit=contain')
+            if not is_local and high_res_url:
+                async def ensure_high():
+                    if not image_manager.image_exists(img_id, high_res=True):
+                         await image_manager.ensure_image(img_id, high_res_url, high_res=True)
+                tooltip.on('show', ensure_high)
+
+    @ui.refreshable
+    def render_scan_header(self):
+        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('text-h6 font-bold')
+            with ui.row().classes('items-center gap-1 flex-nowrap'):
+                # Update & Remove
+                # Note: Bulk Update logic could be added here similar to BulkAddPage
+
+                has_history = changelog_manager.get_last_change('scan_temp') is not None
+                btn = ui.button(icon='undo', on_click=self.undo_last_scan_action).props('flat dense color=white size=sm')
+                if not has_history:
+                    btn.disable()
+                    btn.classes('opacity-50')
+                else:
+                    with btn: ui.tooltip('Undo last action')
+
+                ui.button("Remove All", on_click=self.on_remove_all_click).props('flat dense color=negative size=sm')
+
+                ui.separator().props('vertical')
+
+                ui.input(placeholder='Search...',
+                         on_change=lambda e: self.apply_scan_filters()) \
+                    .bind_value(self.scan_state, 'search_text') \
+                    .props('dense borderless dark debounce=300') \
+                    .classes('w-52 text-sm')
+
+                ui.separator().props('vertical')
+
+                # Pagination
+                async def change_page(delta):
+                     new_p = max(1, min(self.scan_state['collection_total_pages'], self.scan_state['collection_page'] + delta))
+                     if new_p != self.scan_state['collection_page']:
+                         self.scan_state['collection_page'] = new_p
+                         self.render_live_list.refresh()
+
+                ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense color=white size=sm')
+                ui.label().bind_text_from(self.scan_state, 'collection_page', lambda p: f"{p}/{self.scan_state['collection_total_pages']}").classes('text-xs font-mono')
+                ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense color=white size=sm')
+
+                ui.separator().props('vertical')
+
+                # Sort
+                sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set Code', 'Newest']
+                async def on_sort(e):
+                    self.scan_state['sort_by'] = e.value
+                    await self.apply_scan_filters()
+                ui.select(sort_opts, value=self.scan_state['sort_by'], on_change=on_sort).props('dense options-dense borderless').classes('w-20 text-xs')
+
+                async def toggle_sort():
+                    self.scan_state['sort_desc'] = not self.scan_state['sort_desc']
+                    await self.apply_scan_filters()
+                ui.button(on_click=toggle_sort).props('flat dense color=white size=sm').bind_icon_from(self.scan_state, 'sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                ui.button(icon='filter_list', on_click=self.open_filter_dialog).props('flat dense color=white size=sm')
+
+    def open_filter_dialog(self):
+        if not self.scan_filter_dialog:
+             self.scan_filter_dialog = ui.dialog().props('position=right')
+             with self.scan_filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0 flex flex-col'):
+                 with ui.scroll_area().classes('flex-grow w-full'):
+                     self.filter_pane = FilterPane(self.scan_state, self.apply_scan_filters, self.reset_scan_filters)
+                     self.filter_pane.build()
+        self.scan_filter_dialog.open()
+
+    async def open_scan_single_view(self, entry: BulkCollectionEntry):
+        async def on_save(card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode):
+             updates = {
+                 'set_code': set_code,
+                 'rarity': rarity,
+                 'language': language,
+                 'condition': condition,
+                 'first_edition': first_edition,
+                 'image_id': image_id,
+                 'variant_id': variant_id
+             }
+             await self.update_scan_entry(entry.id, updates)
+             ui.notify('Scan updated.', type='positive')
+
+        await self.single_card_view.open_collectors(
+            card=entry.api_card,
+            owned_count=entry.quantity,
+            set_code=entry.set_code,
+            rarity=entry.rarity,
+            set_name=entry.set_name,
+            language=entry.language,
+            condition=entry.condition,
+            first_edition=entry.first_edition,
+            image_url=entry.image_url,
+            image_id=entry.image_id,
+            set_price=entry.price,
+            current_collection=None,
+            save_callback=on_save,
+            variant_id=entry.variant_id,
+            hide_header_stats=False,
+            primary_button_label='UPDATE',
+            primary_button_mode='UPDATE'
+        )
+
+    async def on_remove_all_click(self):
+        changes = []
+        for c in self.scanned_cards:
+            changes.append({
+                'action': 'REMOVE',
+                'quantity': 1,
+                'card_data': c
+            })
+
+        changelog_manager.log_batch_change('scan_temp', 'Remove All Scans', changes)
+
+        self.scanned_cards.clear()
+        self.save_recent_scans()
+        await self.load_recent_scans()
+        ui.notify("Removed all scans", type='positive')
+        if hasattr(self, 'render_scan_header'):
+            self.render_scan_header.refresh()
+
     @ui.refreshable
     def render_live_list(self):
-        if not self.scanned_cards:
-            ui.label("No cards scanned.").classes('text-gray-400 italic')
+        start = (self.scan_state['collection_page'] - 1) * self.scan_state['collection_page_size']
+        end = min(start + self.scan_state['collection_page_size'], len(self.scan_filtered))
+        items = self.scan_filtered[start:end]
+
+        if not items:
+            ui.label('No scans found.').classes('text-gray-500 italic w-full text-center mt-10')
             return
 
-        for i, card in enumerate(self.scanned_cards):
-            with ui.card().classes('w-full mb-2 p-2 flex flex-row items-center gap-4'):
-                if card.get('image_path'):
-                    ui.image(f"/images/{os.path.basename(card['image_path'])}").classes('w-12 h-16 object-contain')
-                with ui.column().classes('flex-grow'):
-                    ui.label(card.get('name', 'Unknown')).classes('font-bold')
-                    ui.label(f"{card.get('set_code')}").classes('text-xs text-gray-500')
+        with ui.grid(columns='repeat(auto-fill, minmax(110px, 1fr))').classes('w-full gap-2 p-2').props('id="scan-list"'):
+            for item in items:
+                img_src = item.image_url or (f"/images/{item.image_id}.jpg" if image_manager.image_exists(item.image_id) else None)
 
-                ui.button(icon='delete', color='negative',
-                          on_click=lambda idx=i: self.remove_card(idx)).props('flat')
+                with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
+                        .on('click', lambda i=item: self.open_scan_single_view(i)) \
+                        .on('contextmenu.prevent', lambda i=item: self.remove_scan_entry(i)):
+
+                    with ui.element('div').classes('relative w-full h-full'):
+                         if img_src:
+                             ui.image(img_src).classes('w-full h-full object-cover')
+
+                         ui.label(item.language).classes('absolute top-[1px] left-[1px] text-xs font-bold shadow-black drop-shadow-md bg-black/30 rounded px-1')
+
+                         with ui.column().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-0 w-full'):
+                             ui.label(item.api_card.name).classes('text-[9px] font-bold text-white leading-none truncate w-full')
+                             with ui.row().classes('w-full justify-between items-center'):
+                                 ui.label(item.set_code).classes('font-mono')
+                                 if item.first_edition:
+                                     ui.label('1st').classes('font-bold text-orange-400')
+                             ui.label(item.rarity).classes('text-[8px] text-gray-300 w-full truncate')
+
+                    self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
+
+        # Initialize sortable for visual effect (or reordering if we implement it)
+        ui.run_javascript('if (window.initSortable) initSortable("scan-list", "scan_group", false, false)')
 
     @ui.refreshable
     def render_debug_results(self):
@@ -993,6 +1482,27 @@ def scan_page():
         ui.label("Scanner dependencies not found.").classes('text-red-500 text-xl font-bold')
         return
 
+    ui.add_head_html('<script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>')
+    ui.add_head_html('<style>.sortable-ghost-custom { opacity: 0.5; }</style>')
+    ui.add_body_html('''
+        <script>
+        window.initSortable = function(elementId, groupName, pullMode, putMode) {
+            var el = document.getElementById(elementId);
+            if (!el) return;
+            if (el._sortable) el._sortable.destroy();
+
+            el._sortable = new Sortable(el, {
+                group: { name: groupName, pull: pullMode, put: putMode },
+                animation: 150,
+                sort: true,
+                ghostClass: 'sortable-ghost-custom',
+                forceFallback: true,
+                fallbackTolerance: 3
+            });
+        }
+        </script>
+    ''')
+
     ui.add_head_html(JS_CAMERA_CODE)
 
     def handle_tab_change(e):
@@ -1043,18 +1553,21 @@ def scan_page():
                 with ui.card().classes('flex-1 h-full p-0 overflow-hidden relative bg-black'):
                     ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
                     ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
+                    page.capture_overlay = ui.image().classes('absolute top-0 left-0 w-full h-full object-contain pointer-events-none z-10').style('display: none;')
 
                 # List View
-                with ui.column().classes('w-96 h-full'):
-                    ui.label("Recent Scans").classes('text-xl font-bold')
-                    with ui.scroll_area().classes('w-full flex-grow border rounded p-2'):
-                        page.render_live_list()
+                with ui.column().classes('flex-1 h-full bg-dark border border-gray-800 rounded flex flex-col overflow-hidden'):
+                    page.render_scan_header()
+                    with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
+                        with ui.scroll_area().classes('w-full h-full'):
+                            page.render_live_list()
 
         # --- TAB 2: DEBUG LAB ---
         with ui.tab_panel(debug_tab):
              page.render_debug_lab()
 
     ui.timer(1.0, page.init_cameras, once=True)
+    ui.timer(0.1, page.load_recent_scans, once=True)
 
     # Use fast consumer loop instead of slow polling
     ui.timer(0.1, page.event_consumer)

@@ -10,6 +10,7 @@ from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.ui.components.structure_deck_dialog import StructureDeckDialog
+from src.ui.viewmodels import LibraryEntry, BulkCollectionEntry
 from src.core.models import Collection
 from dataclasses import dataclass, field
 from typing import List, Optional, Any, Dict
@@ -50,33 +51,6 @@ def get_grouping_key_parts(set_code: str):
 
     # Fallback
     return set_code, 'UNKNOWN', '000'
-
-@dataclass
-class LibraryEntry:
-    id: str # Unique ID for UI (card_id + variant hash)
-    api_card: ApiCard
-    set_code: str
-    set_name: str
-    rarity: str
-    image_url: str
-    image_id: int
-    price: float = 0.0
-
-@dataclass
-class BulkCollectionEntry:
-    id: str # Unique ID for UI
-    api_card: ApiCard
-    quantity: int
-    set_code: str
-    set_name: str
-    rarity: str
-    language: str
-    condition: str
-    first_edition: bool
-    image_url: str
-    image_id: int
-    variant_id: str
-    price: float = 0.0
 
 def _build_collection_entries(col: Collection, api_card_map: Dict[int, ApiCard]) -> List[BulkCollectionEntry]:
     entries = []
