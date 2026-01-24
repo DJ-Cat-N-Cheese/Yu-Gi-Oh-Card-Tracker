@@ -13,7 +13,8 @@ class CollectionEditor:
         image_id: Optional[int] = None,
         language: str = 'EN',
         condition: str = 'Near Mint',
-        first_edition: bool = False
+        first_edition: bool = False,
+        storage_location: Optional[str] = None
     ) -> int:
         """
         Returns the quantity of a specific card entry.
@@ -34,7 +35,10 @@ class CollectionEditor:
             return 0
 
         target_entry = next((e for e in target_variant.entries
-                             if e.language == language and e.condition == condition and e.first_edition == first_edition), None)
+                             if e.language == language and
+                                e.condition == condition and
+                                e.first_edition == first_edition and
+                                e.storage_location == storage_location), None)
 
         return target_entry.quantity if target_entry else 0
 
@@ -50,6 +54,7 @@ class CollectionEditor:
         first_edition: bool,
         image_id: Optional[int] = None,
         variant_id: Optional[str] = None,
+        storage_location: Optional[str] = None,
         mode: str = 'SET'
     ) -> bool:
         """
@@ -105,7 +110,10 @@ class CollectionEditor:
             # 4. Find or Create CollectionEntry
             target_entry = None
             for e in target_variant.entries:
-                if e.condition == condition and e.language == language and e.first_edition == first_edition:
+                if (e.condition == condition and
+                    e.language == language and
+                    e.first_edition == first_edition and
+                    e.storage_location == storage_location):
                     target_entry = e
                     break
 
@@ -129,7 +137,8 @@ class CollectionEditor:
                         condition=condition,
                         language=language,
                         first_edition=first_edition,
-                        quantity=final_quantity
+                        quantity=final_quantity,
+                        storage_location=storage_location
                     ))
                     modified = True
             else:
@@ -149,3 +158,50 @@ class CollectionEditor:
                 modified = True
 
         return modified
+
+    @staticmethod
+    def move_card(
+        collection: Collection,
+        api_card: ApiCard,
+        set_code: str,
+        rarity: str,
+        language: str,
+        quantity: int,
+        condition: str,
+        first_edition: bool,
+        source_storage: Optional[str],
+        target_storage: Optional[str],
+        image_id: Optional[int] = None,
+        variant_id: Optional[str] = None
+    ) -> bool:
+        """
+        Moves a specific quantity of a card from one storage location to another.
+        """
+        if quantity <= 0:
+            return False
+
+        if source_storage == target_storage:
+            return False
+
+        # 1. Check if source has enough quantity
+        src_qty = CollectionEditor.get_quantity(
+            collection, api_card.id, variant_id, set_code, rarity, image_id, language, condition, first_edition, source_storage
+        )
+
+        if src_qty < quantity:
+            return False # Not enough cards to move
+
+        # 2. Remove from Source
+        removed = CollectionEditor.apply_change(
+            collection, api_card, set_code, rarity, language, -quantity, condition, first_edition, image_id, variant_id, source_storage, mode='ADD'
+        )
+
+        if not removed:
+            return False # Should not happen given check above
+
+        # 3. Add to Target
+        added = CollectionEditor.apply_change(
+             collection, api_card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, target_storage, mode='ADD'
+        )
+
+        return True

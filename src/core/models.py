@@ -4,6 +4,13 @@ import uuid
 
 # --- Collection Models ---
 
+class StorageContainer(BaseModel):
+    name: str
+    type: Literal["Binder", "Box", "Sealed Product"]
+    description: Optional[str] = ""
+    image_path: Optional[str] = None
+    creation_date: Optional[str] = None
+
 class CollectionEntry(BaseModel):
     condition: Literal["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor", "Damaged"] = "Near Mint"
     language: str = "EN"
@@ -38,6 +45,7 @@ class Collection(BaseModel):
     name: str
     description: Optional[str] = ""
     cards: List[CollectionCard] = []
+    storage: List[StorageContainer] = []
 
     @property
     def total_value(self) -> float:

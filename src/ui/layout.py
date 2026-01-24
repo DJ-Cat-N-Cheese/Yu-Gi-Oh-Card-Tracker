@@ -165,6 +165,7 @@ def create_layout(content_function):
 
             nav_button('Dashboard', 'dashboard', '/')
             nav_button('Collection', 'style', '/collection')
+            nav_button('Storage', 'inventory_2', '/storage')
             nav_button('Browse Sets', 'library_books', '/sets')
             nav_button('Deck Builder', 'construction', '/decks')
             nav_button('Bulk Add', 'playlist_add', '/bulk_add')
