@@ -672,6 +672,12 @@ class ScanPage:
                 vis_rarity = self.debug_report.get('visual_rarity', 'Unknown')
                 ui.badge(f"Visual: {vis_rarity}", color='blue').classes('text-sm')
 
+                # Card Type
+                card_type = self.debug_report.get('card_type')
+                if card_type:
+                    color = 'purple' if 'TRAP' in card_type.upper() else 'green'
+                    ui.badge(f"Type: {card_type}", color=color).classes('text-sm')
+
         if candidates:
             with ui.card().classes('w-full bg-gray-900 border border-gray-600 p-2 mb-4'):
                 ui.label("Match Candidates (Top 10)").classes('font-bold text-lg mb-2')

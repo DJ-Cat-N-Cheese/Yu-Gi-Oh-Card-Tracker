@@ -597,11 +597,22 @@ class ScannerManager:
              report['visual_rarity'] = self.scanner.detect_rarity_visual(warped)
              # Use the collected texts instead of warped image scan
              report['first_edition'] = self.scanner.detect_first_edition(available_texts)
+
+             # Detect Card Type from aggregated results
+             detected_type = None
+             for key in ["t1_full", "t1_crop", "t2_full", "t2_crop"]:
+                 res = report.get(key)
+                 if res and res.card_type:
+                     detected_type = res.card_type
+                     break
+             report['card_type'] = detected_type
+
              report['warped_image_data'] = warped # Pass along for Art Match
 
              if self.debug_state:
                  if hasattr(self.debug_state, 'visual_rarity'): self.debug_state.visual_rarity = report['visual_rarity']
                  if hasattr(self.debug_state, 'first_edition'): self.debug_state.first_edition = report['first_edition']
+                 if hasattr(self.debug_state, 'card_type'): self.debug_state.card_type = report['card_type']
 
         # Art Match (YOLO)
         if options.get("art_match_yolo", False) and self.scanner:

@@ -70,6 +70,7 @@ class ScanDebugReport(BaseModel):
 
     visual_rarity: str = "Unknown"
     first_edition: bool = False
+    card_type: Optional[str] = None # "Spell", "Trap"
     steps: List[ScanStep] = []
 
     # Final Match Candidates
