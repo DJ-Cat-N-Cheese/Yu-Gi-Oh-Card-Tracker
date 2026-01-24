@@ -249,6 +249,10 @@ class AmbiguityDialog(ui.dialog):
         self.update_preview()
 
     def refresh_ui_options(self, skip_set_code=False):
+        # Guard clause against initialization race condition
+        if not all([self.set_code_select, self.rarity_select, self.artstyle_select]):
+            return
+
         # Update Set Codes
         if not skip_set_code:
             opts = self.get_set_code_options()
