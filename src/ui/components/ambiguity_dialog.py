@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional, Callable
 import logging
 import asyncio
 
-from src.core.utils import is_set_code_compatible, normalize_set_code, REGION_TO_LANGUAGE_MAP
+from src.core.utils import is_set_code_compatible, normalize_set_code, transform_set_code, REGION_TO_LANGUAGE_MAP
 from src.services.ygo_api import ygo_service
 from src.services.image_manager import image_manager
 
@@ -181,33 +181,37 @@ class AmbiguityDialog(ui.dialog):
              filtered_vars = variants
 
         # 1. Update Set Codes
-        codes = set()
+        base_codes = set()
 
-        # Add valid codes from DB
+        # Add codes from DB variants
         for v in filtered_vars:
-            codes.add(v['set_code'])
+            base_codes.add(v['set_code'])
 
-        # Add OCR Code if valid
+        # Add OCR Code (Raw)
         if self.ocr_set_id:
-             # Check compatibility
-             is_valid = False
-             norm_ocr = normalize_set_code(self.ocr_set_id)
-             for v in variants: # Check against ALL variants of this card
-                 if normalize_set_code(v['set_code']) == norm_ocr:
-                     is_valid = True
-                     break
+            base_codes.add(self.ocr_set_id)
 
-             if is_valid:
-                 codes.add(self.ocr_set_id)
+        # Add Candidates codes
+        for c in self.candidates:
+            if c.get('set_code'):
+                base_codes.add(c['set_code'])
 
-        # Also ensure current selected Set Code is preserved if valid (e.g. if it came from a candidate)
+        # Add current selection
         if self.selected_set_code and self.selected_set_code != "Other":
-             # Check if it matches any variant via normalization
-             norm_sel = normalize_set_code(self.selected_set_code)
-             if any(normalize_set_code(v['set_code']) == norm_sel for v in variants):
-                 codes.add(self.selected_set_code)
+            base_codes.add(self.selected_set_code)
 
-        sorted_codes = sorted(list(codes))
+        # Transform all codes based on language
+        transformed_codes = set()
+        for code in base_codes:
+            # 1. Add Transformed Code
+            t_code = transform_set_code(code, self.selected_language)
+            transformed_codes.add(t_code)
+
+        # 2. ALWAYS add the original scanned code (if present)
+        if self.ocr_set_id:
+            transformed_codes.add(self.ocr_set_id)
+
+        sorted_codes = sorted(list(transformed_codes))
         sorted_codes.append("Other")
 
         self.set_code_select.options = sorted_codes
@@ -333,18 +337,34 @@ class AmbiguityDialog(ui.dialog):
     async def confirm(self):
         # Handle "Other" Set Code
         final_set_code = self.selected_set_code
-        final_rarity = self.selected_rarity
-
-        variant_id = None
-        image_id = self.selected_image_id
-
         if self.selected_set_code == "Other":
             final_set_code = self.other_set_code_val
 
-            if not final_set_code:
-                ui.notify("Please enter a Set Code", type='warning')
-                return
+        final_rarity = self.selected_rarity
+        variant_id = None
+        image_id = self.selected_image_id
 
+        if not final_set_code:
+            ui.notify("Please enter a Set Code", type='warning')
+            return
+
+        # Check if the selected/input variant exists in the DB
+        variant_exists = False
+        if self.full_card_data and self.full_card_data.card_sets:
+             # Try exact match first
+             v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity and s.image_id == image_id), None)
+             if v:
+                 variant_id = v.variant_id
+                 variant_exists = True
+             else:
+                 # Fallback to loose match (ignore image id)
+                 v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity), None)
+                 if v:
+                     variant_id = v.variant_id
+                     variant_exists = True
+
+        # If it doesn't exist (whether "Other" or a transformed code that isn't in DB), add it.
+        if not variant_exists:
             # Add to DB
             if final_set_code and self.card_id:
                 try:
@@ -405,17 +425,6 @@ class AmbiguityDialog(ui.dialog):
                     logger.error(f"Failed to add variant: {e}")
                     ui.notify(f"Failed to add variant: {e}", type='negative')
                     return
-        else:
-             # Find existing variant_id
-             if self.full_card_data and self.full_card_data.card_sets:
-                 # Try exact match first
-                 v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity and s.image_id == image_id), None)
-                 if v:
-                     variant_id = v.variant_id
-                 else:
-                     # Fallback to loose match (ignore image id if not found)
-                     v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity), None)
-                     if v: variant_id = v.variant_id
 
         # Construct Result
         final_res = self.result.copy()
