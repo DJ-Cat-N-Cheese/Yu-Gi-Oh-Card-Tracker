@@ -1440,21 +1440,12 @@ class ScanPage:
                     elif is_paused:
                          label_text = "Paused"
 
-                    # Transient states
-                    if not is_paused and status == "Paused":
-                        label_text = "Resuming..."
-                    elif is_paused and status not in ["Paused", "Stopped"]:
-                        label_text = "Pausing..."
-
                     with ui.column().classes('gap-0'):
                         ui.label(f"Status: {label_text}").classes('font-bold')
-                        ui.label(f"Mgr: {getattr(mgr, 'instance_id', 'N/A')}").classes('text-[10px] text-gray-600')
-                        # Access current_step safely from debug_report (it's a dict now in UI context)
                         current_step = self.debug_report.get('current_step', 'Idle')
                         if mgr.is_processing:
                             ui.label(f"{current_step}").classes('text-xs text-blue-400')
 
-                # Controls
                 if is_paused:
                      ui.button('Start Processing', icon='play_arrow', color='positive', on_click=self.toggle_pause).props('size=sm')
                 else:
