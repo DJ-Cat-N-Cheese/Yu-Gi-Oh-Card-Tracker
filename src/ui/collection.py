@@ -1048,7 +1048,7 @@ class CollectionPage:
                                  total_owned += e.quantity
                          break
 
-            await self.single_card_view.open_consolidated(card, total_owned, owned_breakdown, on_save)
+            await self.single_card_view.open_consolidated(card, total_owned, owned_breakdown, on_save, self.state['current_collection'])
             return
 
         if self.state['view_scope'] == 'collectors':
