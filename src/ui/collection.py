@@ -464,6 +464,17 @@ class CollectionPage:
         if url_map:
              await image_manager.download_batch(url_map, concurrency=10)
 
+        if self.state['view_scope'] == 'collectors':
+             unique_codes = set()
+             for item in items:
+                 if hasattr(item, 'language') and item.language:
+                     code = LANGUAGE_COUNTRY_MAP.get(item.language.strip().upper())
+                     if code: unique_codes.add(code)
+
+             if unique_codes:
+                 tasks = [image_manager.ensure_flag_image(code) for code in unique_codes]
+                 await asyncio.gather(*tasks)
+
     async def apply_filters(self, e=None, reset_page=True):
         if self.state['view_scope'] == 'consolidated':
             source = self.state['cards_consolidated']
@@ -1173,8 +1184,9 @@ class CollectionPage:
 
                     lang_code = item.language.strip().upper()
                     country_code = LANGUAGE_COUNTRY_MAP.get(lang_code)
-                    if country_code:
-                        ui.image(f"https://flagcdn.com/h20/{country_code}.png").classes('w-[18px] h-3 inline-block shadow-sm').props(f'alt="{lang_code}" fit="fill"')
+                    flag_url = image_manager.get_flag_image_url(country_code) if country_code else None
+                    if flag_url:
+                        ui.image(flag_url).classes('w-[18px] h-3 inline-block shadow-sm').props(f'alt="{lang_code}" fit="fill"')
                     else:
                         ui.label(lang_code).classes('text-sm font-bold')
 
@@ -1207,8 +1219,9 @@ class CollectionPage:
 
                         lang_code = item.language.strip().upper()
                         country_code = LANGUAGE_COUNTRY_MAP.get(lang_code)
-                        if country_code:
-                            ui.element('img').props(f'src="https://flagcdn.com/h24/{country_code}.png" alt="{lang_code}"').classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
+                        flag_url = image_manager.get_flag_image_url(country_code) if country_code else None
+                        if flag_url:
+                            ui.element('img').props(f'src="{flag_url}" alt="{lang_code}"').classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
                         else:
                             ui.label(lang_code).classes('absolute top-[1px] left-[1px] text-xs font-bold shadow-black drop-shadow-md bg-black/30 rounded px-1')
 
