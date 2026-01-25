@@ -337,44 +337,41 @@ class AmbiguityDialog(ui.dialog):
     async def confirm(self):
         # Handle "Other" Set Code
         final_set_code = self.selected_set_code
-        if self.selected_set_code == "Other":
-            final_set_code = self.other_set_code_val
-
         final_rarity = self.selected_rarity
+
         variant_id = None
         image_id = self.selected_image_id
 
-        if not final_set_code:
-            ui.notify("Please enter a Set Code", type='warning')
-            return
+        # Determine if we need to add a new variant
+        # This covers both "Other" input AND selected transformed codes that don't exist in DB
+        needs_creation = False
 
-        # Check if the selected/input variant exists in the DB
-        variant_exists = False
-        if self.full_card_data and self.full_card_data.card_sets:
-             # Try exact match first
-             v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity and s.image_id == image_id), None)
-             if v:
-                 variant_id = v.variant_id
-                 variant_exists = True
-             else:
-                 # Fallback to loose match (ignore image id)
+        if self.selected_set_code == "Other":
+            final_set_code = self.other_set_code_val
+            needs_creation = True
+        else:
+            # Check if existing selection is actually in the DB
+            # We must verify existence because transformed codes might be phantom
+            found = False
+            if self.full_card_data and self.full_card_data.card_sets:
                  v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity), None)
                  if v:
                      variant_id = v.variant_id
-                     variant_exists = True
+                     found = True
 
-        # If it doesn't exist (whether "Other" or a transformed code that isn't in DB), add it.
-        if not variant_exists:
+            if not found:
+                needs_creation = True
+
+        if needs_creation:
+            if not final_set_code:
+                ui.notify("Please enter a Set Code", type='warning')
+                return
+
             # Add to DB
             if final_set_code and self.card_id:
                 try:
                     # DUPLICATE CHECK:
                     # Check if this set code is already assigned to a DIFFERENT card in the database.
-                    # We iterate over all cards (expensive? we can use a helper or cache).
-                    # Actually, ygo_service keeps a cache.
-                    # We need a method `find_card_by_set_code(set_code)`.
-
-                    # Let's perform a check.
                     cards = await ygo_service.load_card_database(self.selected_language.lower())
                     duplicate_found = False
                     for c in cards:
@@ -382,7 +379,6 @@ class AmbiguityDialog(ui.dialog):
                         if c.card_sets:
                             for s in c.card_sets:
                                 if s.set_code == final_set_code:
-                                    # Found a duplicate on another card!
                                     duplicate_found = True
                                     break
                         if duplicate_found: break
@@ -392,13 +388,19 @@ class AmbiguityDialog(ui.dialog):
                         return
 
                     # Proceed to Add
-                    # We need to add this variant
-                    # add_card_variant(card_id, set_name, set_code, set_rarity, ...)
-                    # We don't know set_name. Try to infer or use "Custom".
-
-                    # Look up set info?
                     set_info = await ygo_service.get_set_info(final_set_code)
                     set_name = set_info.get('name', 'Custom Set') if set_info else 'Custom Set'
+
+                    # Ensure card exists in target language DB before adding variant
+                    # If not, we might fail with "Card ID not found" inside add_card_variant
+                    target_card = await run.io_bound(ygo_service.get_card, self.card_id, self.selected_language.lower())
+                    if not target_card:
+                         # Force creation of card entry in target language if missing
+                         # We can't easily "create" it without data, but maybe we can fetch it?
+                         # Or just warn?
+                         # Ideally ygo_service handles this, but if not:
+                         ui.notify(f"Card not found in {self.selected_language} database. Try fetching data first.", type='warning')
+                         return
 
                     new_set = await ygo_service.add_card_variant(
                         card_id=self.card_id,
@@ -413,7 +415,6 @@ class AmbiguityDialog(ui.dialog):
                         ui.notify(f"Added new variant {final_set_code}", type='positive')
                     else:
                         # Duplicate? Find existing.
-                        # Reload card to get fresh data
                         card = await run.io_bound(ygo_service.get_card, self.card_id, self.selected_language.lower())
                         if card and card.card_sets:
                              v = next((s for s in card.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity), None)
@@ -425,6 +426,17 @@ class AmbiguityDialog(ui.dialog):
                     logger.error(f"Failed to add variant: {e}")
                     ui.notify(f"Failed to add variant: {e}", type='negative')
                     return
+        else:
+             # Find existing variant_id (Redundant check but safe)
+             if self.full_card_data and self.full_card_data.card_sets:
+                 # Try exact match first (incl image)
+                 v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity and s.image_id == image_id), None)
+                 if v:
+                     variant_id = v.variant_id
+                 else:
+                     # Fallback to loose match
+                     v = next((s for s in self.full_card_data.card_sets if s.set_code == final_set_code and s.set_rarity == final_rarity), None)
+                     if v: variant_id = v.variant_id
 
         # Construct Result
         final_res = self.result.copy()
