@@ -1645,6 +1645,10 @@ class BulkAddPage:
              if self.current_collection_obj:
                  storage_opts.extend([s.name for s in self.current_collection_obj.storage_definitions])
 
+             # Validate default_storage against current options to prevent ValueError
+             if self.state['default_storage'] not in storage_opts:
+                 self.state['default_storage'] = None
+
              with ui.row().classes('items-center gap-2 bg-gray-800 p-2 rounded border border-gray-700'):
                  ui.label('Defaults:').classes('text-accent font-bold text-xs uppercase mr-2')
                  ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
