@@ -22,6 +22,18 @@ class SingleCardView:
     def __init__(self):
         self.last_selected_storage = None
 
+    def _is_variant_equivalent(self, variant_set_code: str, target_set_code: str, target_language: str) -> bool:
+        """
+        Checks if a variant's set code is equivalent to the target set code for a specific language.
+        Handles legacy region codes (e.g. 'G' vs 'DE').
+        """
+        if variant_set_code == target_set_code:
+            return True
+        if (normalize_set_code(variant_set_code) == normalize_set_code(target_set_code) and
+            extract_language_code(variant_set_code) == target_language):
+            return True
+        return False
+
     def _setup_high_res_image_logic(self, img_id: int, high_res_remote_url: str, low_res_url: str, image_element: ui.image, current_id_check: Callable[[], bool] = None):
         """
         Sets the source of the image element.
@@ -770,7 +782,10 @@ class SingleCardView:
                                                 # Let's check against v.set_code.
                                                 # Ideally we should match variant_id if available, but visual stats rely on props.
 
-                                                is_variant_match = (v.set_code == final_code and
+                                                # Check if set codes are "equivalent" for the target language
+                                                code_match = self._is_variant_equivalent(v.set_code, final_code, input_state['language'])
+
+                                                is_variant_match = (code_match and
                                                                     v.rarity == input_state['rarity'] and
                                                                     (v.image_id == input_state['image_id'] if input_state['image_id'] else True))
 
