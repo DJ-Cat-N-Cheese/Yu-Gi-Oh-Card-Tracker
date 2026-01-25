@@ -468,6 +468,77 @@ class StoragePage:
              if isinstance(ctypes, str): ctypes = [ctypes]
              res = [r for r in res if any(t in r.api_card.type for t in ctypes)]
 
+        # Set
+        if self.state['filter_set']:
+            target = self.state['filter_set']
+            res = [r for r in res if f"{r.set_name} | {r.set_code.split('-')[0]}" == target]
+
+        # Monster Type (Race)
+        if self.state['filter_monster_race']:
+            res = [r for r in res if r.api_card.race == self.state['filter_monster_race']]
+
+        # Spell/Trap Type (Race)
+        if self.state['filter_st_race']:
+            res = [r for r in res if r.api_card.race == self.state['filter_st_race']]
+
+        # Archetype
+        if self.state['filter_archetype']:
+            res = [r for r in res if r.api_card.archetype == self.state['filter_archetype']]
+
+        # Monster Category
+        if self.state['filter_monster_category']:
+            cats = self.state['filter_monster_category']
+            if isinstance(cats, str): cats = [cats]
+            if cats:
+                res = [r for r in res if any(r.api_card.matches_category(c) for c in cats)]
+
+        # Level/Rank
+        if self.state['filter_level'] is not None:
+             res = [r for r in res if r.api_card.level == self.state['filter_level']]
+
+        # ATK
+        if self.state['filter_atk_min'] > 0 or self.state['filter_atk_max'] < 5000:
+            min_v = self.state['filter_atk_min']
+            max_v = self.state['filter_atk_max']
+            res = [r for r in res if r.api_card.atk is not None and min_v <= r.api_card.atk <= max_v]
+
+        # DEF
+        if self.state['filter_def_min'] > 0 or self.state['filter_def_max'] < 5000:
+            min_v = self.state['filter_def_min']
+            max_v = self.state['filter_def_max']
+            res = [r for r in res if r.api_card.def_ is not None and min_v <= r.api_card.def_ <= max_v]
+
+        # Ownership Quantity
+        if self.state['filter_ownership_min'] > 0 or self.state['filter_ownership_max'] < self.state['max_owned_quantity']:
+            min_v = self.state['filter_ownership_min']
+            max_v = self.state['filter_ownership_max']
+            res = [r for r in res if min_v <= r.quantity <= max_v]
+
+        # Price
+        if self.state['filter_price_min'] > 0 or self.state['filter_price_max'] < 1000:
+            min_v = self.state['filter_price_min']
+            max_v = self.state['filter_price_max']
+
+            def get_price(card):
+                if not card.card_prices: return 0.0
+                try:
+                    p = card.card_prices[0].tcgplayer_price
+                    return float(p) if p else 0.0
+                except: return 0.0
+
+            res = [r for r in res if min_v <= get_price(r.api_card) <= max_v]
+
+        # Owned Language
+        if self.state['filter_owned_lang']:
+             res = [r for r in res if r.language == self.state['filter_owned_lang']]
+
+        # Condition
+        if self.state['filter_condition']:
+             conds = self.state['filter_condition']
+             if isinstance(conds, str): conds = [conds]
+             if conds:
+                res = [r for r in res if r.condition in conds]
+
         key = self.state['sort_by']
         desc = self.state['sort_desc']
 
