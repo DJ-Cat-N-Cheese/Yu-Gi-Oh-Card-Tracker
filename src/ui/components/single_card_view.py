@@ -776,7 +776,9 @@ class SingleCardView:
 
                                                 if is_variant_match:
                                                     for e in v.entries:
-                                                        if e.language == target_lang and e.condition == target_cond and e.first_edition == target_first:
+                                                        # Case-insensitive language comparison
+                                                        lang_match = e.language.upper() == target_lang.upper()
+                                                        if lang_match and e.condition == target_cond and e.first_edition == target_first:
                                                             cur_owned += e.quantity
                                                             loc = e.storage_location or "None"
                                                             storage_counts[loc] = storage_counts.get(loc, 0) + e.quantity
