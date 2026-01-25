@@ -17,12 +17,96 @@ import io
 from src.services.scanner import manager as scanner_service
 from src.services.scanner import SCANNER_AVAILABLE
 from src.core.persistence import persistence
-from src.core.models import CollectionCard, CollectionVariant, CollectionEntry
+from src.core.models import CollectionCard, CollectionVariant, CollectionEntry, Collection, ApiCard
+from src.services.collection_editor import CollectionEditor
 from src.services.ygo_api import ygo_service
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
+from src.ui.components.filter_pane import FilterPane
+from src.ui.components.single_card_view import SingleCardView
+from src.core.changelog_manager import changelog_manager
+from src.services.image_manager import image_manager
+from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code, LANGUAGE_COUNTRY_MAP
+from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.core import config_manager
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class BulkCollectionEntry:
+    id: str # Unique ID for UI
+    api_card: ApiCard
+    quantity: int
+    set_code: str
+    set_name: str
+    rarity: str
+    language: str
+    condition: str
+    first_edition: bool
+    image_url: str
+    image_id: int
+    variant_id: str
+    storage_location: Optional[str] = None
+    price: float = 0.0
+
+def _build_collection_entries(col: Collection) -> List[BulkCollectionEntry]:
+    entries = []
+    # We need api cards to populate details.
+    # Since we don't have the full map passed in, we fetch from cache or individual lookups?
+    # Individual lookups are slow. We should probably get the map once or pass it.
+    # ScanPage handles loading.
+
+    # We'll use ygo_service to get the card map if possible, or lookup per card.
+    # Given ScanPage is usually smaller than a full collection, per-card might be okay,
+    # but let's try to be efficient.
+
+    # Optimization: Get all card IDs from collection
+    card_ids = [c.card_id for c in col.cards]
+    # We can pre-fetch these? ygo_service doesn't have a "get_many" but get_card uses cache.
+    # We assume ygo_service.load_card_database() has been called or will be called.
+    # ScanPage init calls load_recent_scans which happens on init.
+    # We might need to ensure DB is loaded.
+
+    for card in col.cards:
+        api_card = ygo_service.get_card(card.card_id)
+        if not api_card: continue
+
+        for variant in card.variants:
+            img_id = variant.image_id if variant.image_id else (api_card.card_images[0].id if api_card.card_images else api_card.id)
+            img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
+            if variant.image_id and api_card.card_images:
+                for img in api_card.card_images:
+                    if img.id == variant.image_id:
+                        img_url = img.image_url_small
+                        break
+
+            set_name = "Unknown Set"
+            if api_card.card_sets:
+                for s in api_card.card_sets:
+                     if s.set_code == variant.set_code:
+                         set_name = s.set_name
+                         break
+
+            for entry in variant.entries:
+                loc_str = str(entry.storage_location) if entry.storage_location else "None"
+                unique_id = f"{variant.variant_id}_{entry.language}_{entry.condition}_{entry.first_edition}_{loc_str}"
+                entries.append(BulkCollectionEntry(
+                    id=unique_id,
+                    api_card=api_card,
+                    quantity=entry.quantity,
+                    set_code=variant.set_code,
+                    set_name=set_name,
+                    rarity=variant.rarity,
+                    language=entry.language,
+                    condition=entry.condition,
+                    first_edition=entry.first_edition,
+                    image_url=img_url,
+                    image_id=img_id,
+                    variant_id=variant.variant_id,
+                    storage_location=entry.storage_location,
+                    price=0.0
+                ))
+    return entries
 
 JS_CAMERA_CODE = """
 <script>
@@ -212,7 +296,7 @@ function setRotation(deg) {
 
 class ScanPage:
     def __init__(self):
-        self.scanned_cards: List[Dict[str, Any]] = []
+        self.scan_collection = Collection(name="scan_temp", cards=[])
         self.target_collection_file = None
         self.collections = persistence.list_collections()
         if self.collections:
@@ -223,6 +307,9 @@ class ScanPage:
         self.stop_btn = None
         self.is_active = False
         self.default_condition = "Near Mint"
+        self.default_language = "EN"
+        self.default_storage = None
+        self.target_collection_obj = None
 
         # Load Configuration
         self.config = config_manager.load_config()
@@ -255,6 +342,688 @@ class ScanPage:
         # UI State Persistence
         self.expansion_states = {}
 
+        # Metadata for Filters (Shared with BulkAddPage logic)
+        self.metadata = {
+            'available_sets': [],
+            'available_monster_races': [],
+            'available_st_races': [],
+            'available_archetypes': [],
+            'available_card_types': ['Monster', 'Spell', 'Trap', 'Skill'],
+        }
+
+        # Scan View State
+        page_size = 50
+        self.scan_state = {
+            'collection_cards': [], # List[BulkCollectionEntry]
+            'collection_filtered': [],
+            'collection_page': 1,
+            'collection_page_size': page_size,
+            'collection_total_pages': 1,
+            'search_text': '',
+            'sort_by': 'Newest',
+            'sort_desc': False,
+
+            # Filters (standard keys for FilterPane)
+            'filter_set': '',
+            'filter_rarity': '',
+            'filter_attr': '',
+            'filter_card_type': ['Monster', 'Spell', 'Trap'],
+            'filter_monster_race': '',
+            'filter_st_race': '',
+            'filter_archetype': '',
+            'filter_monster_category': [],
+            'filter_level': None,
+            'filter_atk_min': 0, 'filter_atk_max': 5000,
+            'filter_def_min': 0, 'filter_def_max': 5000,
+            'filter_price_min': 0.0, 'filter_price_max': 1000.0,
+            'filter_ownership_min': 0, 'filter_ownership_max': 100,
+            'filter_condition': [], 'filter_owned_lang': '',
+
+             # Metadata linking
+            **self.metadata
+        }
+
+        # Additional Update Controls State
+        self.update_state = {
+            'apply_lang': False,
+            'apply_cond': False,
+            'apply_first': False,
+            'apply_storage': False
+        }
+
+        self.single_card_view = SingleCardView()
+        self.filter_pane = None
+        self.filter_dialog = None
+
+    async def init_data(self):
+        try:
+            # Load DB if needed
+            lang_code = config_manager.get_language().lower()
+            api_cards = await ygo_service.load_card_database(lang_code)
+
+            # Populate Metadata
+            sets = set()
+            m_races = set()
+            st_races = set()
+            archetypes = set()
+
+            for c in api_cards:
+                if c.card_sets:
+                    for s in c.card_sets:
+                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
+                if c.archetype: archetypes.add(c.archetype)
+                if "Monster" in c.type: m_races.add(c.race)
+                elif "Spell" in c.type or "Trap" in c.type:
+                    if c.race: st_races.add(c.race)
+
+            self.metadata['available_sets'][:] = sorted(list(sets))
+            self.metadata['available_monster_races'][:] = sorted(list(m_races))
+            self.metadata['available_st_races'][:] = sorted(list(st_races))
+            self.metadata['available_archetypes'][:] = sorted(list(archetypes))
+
+            # Update scan_state references to metadata lists (in case they were copied by value, though dicts are ref)
+            # Actually **self.metadata unpacking creates copies in the dict. We need to update scan_state.
+            for k, v in self.metadata.items():
+                self.scan_state[k] = v
+
+            # Refresh Scan View
+            self.refresh_scan_view()
+            if self.filter_pane: self.filter_pane.update_options()
+        except Exception as e:
+            logger.error(f"Error initializing data: {e}")
+
+    def refresh_scan_view(self):
+        # Build entries
+        entries = _build_collection_entries(self.scan_collection)
+        self.scan_state['collection_cards'] = entries
+        self.apply_scan_filters()
+
+    def apply_scan_filters(self):
+        source = self.scan_state['collection_cards']
+        res = list(source)
+        s = self.scan_state
+
+        txt = s['search_text'].lower()
+        if txt:
+            def matches(e: BulkCollectionEntry):
+                return (txt in e.api_card.name.lower() or
+                        txt in e.set_code.lower() or
+                        txt in e.api_card.desc.lower())
+            res = [e for e in res if matches(e)]
+
+        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
+        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
+        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
+        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        if s['filter_set']:
+             target = s['filter_set'].split('|')[0].strip().lower()
+             res = [e for e in res if target in e.set_name.lower() or target in e.set_code.lower()]
+        if s['filter_rarity']:
+             target = s['filter_rarity'].lower()
+             res = [e for e in res if e.rarity.lower() == target]
+        if s['filter_monster_category']:
+             cats = s['filter_monster_category']
+             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
+        if s['filter_owned_lang']:
+             res = [e for e in res if e.language == s['filter_owned_lang']]
+        if s['filter_condition']:
+             res = [e for e in res if e.condition in s['filter_condition']]
+
+        # Sort
+        key = s['sort_by']
+        reverse = s['sort_desc']
+        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
+        elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
+        elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
+        elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
+        elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
+        elif key == 'Newest':
+            # Newest relies on order of addition? Or we can assume order in list is roughly newest if prepended?
+            # Or use timestamp? scan_collection doesn't have timestamp per entry explicitly unless we use something else.
+            # Assuming scan_collection order is preserved (prepend), then index is proxy for newest.
+            # But here we are sorting `res` which is a new list.
+            # `BulkCollectionEntry` creation order follows `scan_collection` iteration order.
+            # If `scan_collection` has newest first, then default order is newest.
+            # But let's verify. `on_card_confirmed` inserts at 0. So yes.
+            # So `res` is naturally sorted by Newest (Desc) if we don't shuffle.
+            if reverse: # If Desc is True (meaning we want Newest first? usually Newest IS the default order)
+                 # If default list is [Newest...Oldest]
+                 # If reverse=True, we reverse it to [Oldest...Newest] (Oldest First)
+                 # Wait. sort_desc=True usually means Descending order (Largest/Newest first).
+                 # If list is already Newest First, then sort_desc=True should keep it.
+                 # But we don't have a key to sort by.
+                 # We can use index.
+                 pass
+            else:
+                 # If sort_desc=False (Ascending / Oldest First)
+                 res.reverse()
+
+        self.scan_state['collection_filtered'] = res
+        self.scan_state['collection_page'] = 1
+        self.update_scan_pagination()
+
+        # We need to refresh the gallery UI component
+        if hasattr(self, 'render_recent_scans_gallery'):
+            self.render_recent_scans_gallery.refresh()
+
+    def update_scan_pagination(self):
+        count = len(self.scan_state['collection_filtered'])
+        self.scan_state['collection_total_pages'] = max(1, (count + self.scan_state['collection_page_size'] - 1) // self.scan_state['collection_page_size'])
+
+    async def reset_scan_filters(self):
+        # Reset State
+        s = self.scan_state
+        s['search_text'] = ''
+        s['filter_set'] = ''
+        s['filter_rarity'] = ''
+        s['filter_attr'] = ''
+        s['filter_card_type'] = ['Monster', 'Spell', 'Trap']
+        s['filter_monster_race'] = ''
+        s['filter_st_race'] = ''
+        s['filter_archetype'] = ''
+        s['filter_monster_category'] = []
+        s['filter_level'] = None
+        s['filter_atk_min'] = 0
+        s['filter_atk_max'] = 5000
+        s['filter_def_min'] = 0
+        s['filter_def_max'] = 5000
+        s['filter_price_min'] = 0.0
+        s['filter_price_max'] = 1000.0
+        s['filter_ownership_min'] = 0
+        s['filter_ownership_max'] = 100
+        s['filter_condition'] = []
+        s['filter_owned_lang'] = ''
+
+        # Reset UI
+        if self.filter_pane:
+            self.filter_pane.reset_ui_elements()
+
+        # Apply
+        self.apply_scan_filters()
+
+    def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
+        if not card: return
+        target_img = card.card_images[0] if card.card_images else None
+        if specific_image_id and card.card_images:
+            for img in card.card_images:
+                if img.id == specific_image_id:
+                    target_img = img
+                    break
+        if not target_img: return
+
+        img_id = target_img.id
+        high_res_url = target_img.image_url
+        low_res_url = target_img.image_url_small
+        is_local = image_manager.image_exists(img_id, high_res=True)
+        initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+
+        with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none').props('style="max-width: none" delay=5000') as tooltip:
+            if initial_src:
+                ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl').props('fit=contain')
+            if not is_local and high_res_url:
+                async def ensure_high():
+                    if not image_manager.image_exists(img_id, high_res=True):
+                         await image_manager.ensure_image(img_id, high_res_url, high_res=True)
+                tooltip.on('show', ensure_high)
+
+    @ui.refreshable
+    def render_recent_scans_gallery(self):
+        start = (self.scan_state['collection_page'] - 1) * self.scan_state['collection_page_size']
+        end = min(start + self.scan_state['collection_page_size'], len(self.scan_state['collection_filtered']))
+        items = self.scan_state['collection_filtered'][start:end]
+
+        url_map = {}
+        for item in items:
+            if item.image_url: url_map[item.image_id] = item.image_url
+        if url_map:
+            asyncio.create_task(image_manager.download_batch(url_map, concurrency=5))
+
+        if not items:
+            ui.label('No scans found.').classes('text-gray-500 italic w-full text-center mt-10')
+            return
+
+        with ui.grid(columns='repeat(auto-fill, minmax(110px, 1fr))').classes('w-full gap-2 p-2').props('id="scan-list"'):
+            for item in items:
+                img_src = f"/images/{item.image_id}.jpg" if image_manager.image_exists(item.image_id) else item.image_url
+
+                cond_short = CONDITION_ABBREVIATIONS.get(item.condition, item.condition[:2].upper())
+
+                with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
+                        .props(f'data-id="{item.id}"') \
+                        .on('click', lambda i=item: self.open_single_view_scan(i)) \
+                        .on('contextmenu.prevent', lambda i=item: self.reduce_scan_card_qty(i)):
+
+                    with ui.element('div').classes('relative w-full h-full'):
+                         ui.image(img_src).classes('w-full h-full object-cover')
+
+                         lang_code = item.language.strip().upper()
+                         country_code = LANGUAGE_COUNTRY_MAP.get(lang_code)
+                         if country_code:
+                             ui.element('img').props(f'src="https://flagcdn.com/h24/{country_code}.png" alt="{lang_code}"').classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
+                         else:
+                             ui.label(lang_code).classes('absolute top-[1px] left-[1px] text-xs font-bold shadow-black drop-shadow-md bg-black/30 rounded px-1')
+
+                         ui.label(f"{item.quantity}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs shadow-md')
+
+                         with ui.column().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-0 w-full'):
+                             ui.label(item.api_card.name).classes('text-[9px] font-bold text-white leading-none truncate w-full')
+                             with ui.row().classes('w-full justify-between items-center'):
+                                 with ui.row().classes('gap-1'):
+                                     ui.label(cond_short).classes('font-bold text-yellow-500')
+                                     if item.first_edition:
+                                         ui.label('1st').classes('font-bold text-orange-400')
+                                 ui.label(item.set_code).classes('font-mono')
+                             with ui.row().classes('w-full justify-between items-center gap-1'):
+                                 ui.label(item.rarity).classes('text-[8px] text-gray-300 truncate flex-shrink')
+                                 # ui.label(item.storage_location or "None").classes('text-[8px] text-gray-400 font-mono truncate flex-shrink text-right')
+
+                    self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
+
+    @ui.refreshable
+    def render_recent_scans_panel(self):
+        # Header
+        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('text-h6 font-bold')
+
+            with ui.row().classes('items-center gap-1 flex-nowrap'):
+                # Undo
+                ui.button("Undo", icon='undo', on_click=self.on_undo_click).props('flat dense color=white size=sm')
+
+                # Update Controls
+                with ui.row().classes('gap-1 items-center bg-gray-800 rounded px-1 border border-gray-700'):
+                    ui.button("Update", on_click=self.on_update_all_click).props('flat dense color=warning size=sm')
+                    ui.checkbox('Lang', value=self.update_state['apply_lang'],
+                                on_change=lambda e: self.update_state.update({'apply_lang': e.value})).props('dense size=xs').classes('text-[10px]')
+                    ui.checkbox('Cond', value=self.update_state['apply_cond'],
+                                on_change=lambda e: self.update_state.update({'apply_cond': e.value})).props('dense size=xs').classes('text-[10px]')
+                    ui.checkbox('1st', value=self.update_state['apply_first'],
+                                on_change=lambda e: self.update_state.update({'apply_first': e.value})).props('dense size=xs').classes('text-[10px]')
+                    ui.checkbox('Storage', value=self.update_state['apply_storage'],
+                                on_change=lambda e: self.update_state.update({'apply_storage': e.value})).props('dense size=xs').classes('text-[10px]')
+
+                ui.button("Remove All", on_click=self.on_remove_all_click).props('flat dense color=negative size=sm')
+
+                ui.separator().props('vertical')
+
+                ui.input(placeholder='Search...',
+                         on_change=lambda e: self.apply_scan_filters()) \
+                    .bind_value(self.scan_state, 'search_text') \
+                    .props('dense borderless dark debounce=300') \
+                    .classes('w-32 text-sm')
+
+                ui.separator().props('vertical')
+
+                # Pagination
+                async def change_scan_page(delta):
+                     new_p = max(1, min(self.scan_state['collection_total_pages'], self.scan_state['collection_page'] + delta))
+                     if new_p != self.scan_state['collection_page']:
+                         self.scan_state['collection_page'] = new_p
+                         self.render_recent_scans_gallery.refresh()
+
+                ui.button(icon='chevron_left', on_click=lambda: change_scan_page(-1)).props('flat dense color=white size=sm')
+                ui.label().bind_text_from(self.scan_state, 'collection_page', lambda p: f"{p}/{self.scan_state['collection_total_pages']}").classes('text-xs font-mono')
+                ui.button(icon='chevron_right', on_click=lambda: change_scan_page(1)).props('flat dense color=white size=sm')
+
+                ui.separator().props('vertical')
+
+                # Sort
+                col_sort_opts = ['Name', 'ATK', 'DEF', 'Level', 'Set Code', 'Quantity', 'Newest']
+                async def on_scan_sort(e):
+                    self.scan_state['sort_by'] = e.value
+                    self.apply_scan_filters()
+                ui.select(col_sort_opts, value=self.scan_state['sort_by'], on_change=on_scan_sort).props('dense options-dense borderless').classes('w-20 text-xs')
+
+                async def toggle_scan_sort():
+                    self.scan_state['sort_desc'] = not self.scan_state['sort_desc']
+                    self.apply_scan_filters()
+                ui.button(on_click=toggle_scan_sort).props('flat dense color=white size=sm').bind_icon_from(self.scan_state, 'sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                if self.filter_dialog:
+                     ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('flat dense color=white size=sm')
+
+        with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
+             with ui.scroll_area().classes('w-full h-full'):
+                self.render_recent_scans_gallery()
+
+    async def on_undo_click(self):
+        last_change = changelog_manager.undo_last_change("scan_temp")
+        if last_change:
+            # Revert logic
+            action = last_change.get('action')
+            data = last_change.get('card_data')
+            qty = last_change.get('quantity', 1)
+
+            if action == 'COMMIT':
+                target_name = last_change.get('target_collection')
+                changes = last_change.get('changes', [])
+
+                try:
+                    target_col = persistence.load_collection(target_name)
+
+                    # Remove from Target
+                    for c in changes:
+                        api_card = ygo_service.get_card(c['card_data']['card_id'])
+                        if api_card:
+                            CollectionEditor.apply_change(
+                                collection=target_col,
+                                api_card=api_card,
+                                set_code=c['card_data']['set_code'],
+                                rarity=c['card_data']['rarity'],
+                                language=c['card_data']['language'],
+                                quantity=-c['quantity'], # Remove
+                                condition=c['card_data']['condition'],
+                                first_edition=c['card_data']['first_edition'],
+                                image_id=c['card_data']['image_id'],
+                                variant_id=c['card_data']['variant_id'],
+                                mode='ADD',
+                                storage_location=c['card_data'].get('storage_location')
+                            )
+
+                    persistence.save_collection(target_col, target_name)
+
+                    # Restore to Scan Collection
+                    for c in changes:
+                        api_card = ygo_service.get_card(c['card_data']['card_id'])
+                        if api_card:
+                            CollectionEditor.apply_change(
+                                collection=self.scan_collection,
+                                api_card=api_card,
+                                set_code=c['card_data']['set_code'],
+                                rarity=c['card_data']['rarity'],
+                                language=c['card_data']['language'],
+                                quantity=c['quantity'], # Add back
+                                condition=c['card_data']['condition'],
+                                first_edition=c['card_data']['first_edition'],
+                                image_id=c['card_data']['image_id'],
+                                variant_id=c['card_data']['variant_id'],
+                                mode='ADD',
+                                storage_location=c['card_data'].get('storage_location')
+                            )
+
+                    self.save_recent_scans()
+                    self.refresh_scan_view()
+                    ui.notify(f"Undid Commit to {target_name}", type='positive')
+
+                except Exception as e:
+                    ui.notify(f"Failed to undo commit: {e}", type='negative')
+
+            elif action == 'BATCH':
+                # Reverse all changes
+                changes = last_change.get('changes', [])
+                for c in changes:
+                    c_action = c['action']
+                    c_qty = c['quantity']
+                    c_data = c['card_data']
+
+                    # Reverse action
+                    revert_qty = -c_qty if c_action == 'ADD' else c_qty
+
+                    if c_action in ['ADD', 'REMOVE', 'UPDATE']:
+                         api_card = ygo_service.get_card(c_data['card_id'])
+                         if api_card:
+                             CollectionEditor.apply_change(
+                                 collection=self.scan_collection,
+                                 api_card=api_card,
+                                 set_code=c_data['set_code'],
+                                 rarity=c_data['rarity'],
+                                 language=c_data['language'],
+                                 quantity=revert_qty,
+                                 condition=c_data['condition'],
+                                 first_edition=c_data['first_edition'],
+                                 image_id=c_data['image_id'],
+                                 variant_id=c_data['variant_id'],
+                                 mode='ADD',
+                                 storage_location=c_data.get('storage_location')
+                             )
+
+                self.save_recent_scans()
+                self.refresh_scan_view()
+                ui.notify("Undo successful", type='positive')
+
+            else:
+                # Single action
+                revert_qty = -qty if action == 'ADD' else qty
+
+                api_card = ygo_service.get_card(data['card_id'])
+                if api_card:
+                    CollectionEditor.apply_change(
+                        collection=self.scan_collection,
+                        api_card=api_card,
+                        set_code=data['set_code'],
+                        rarity=data['rarity'],
+                        language=data['language'],
+                        quantity=revert_qty,
+                        condition=data['condition'],
+                        first_edition=data['first_edition'],
+                        image_id=data['image_id'],
+                        variant_id=data['variant_id'],
+                        mode='ADD',
+                        storage_location=data.get('storage_location')
+                    )
+
+            self.save_recent_scans()
+            self.refresh_scan_view()
+            ui.notify("Undo successful", type='positive')
+        else:
+            ui.notify("Nothing to undo", type='warning')
+
+    async def on_update_all_click(self):
+        filtered = self.scan_state['collection_filtered']
+        if not filtered: return
+
+        apply_lang = self.update_state['apply_lang']
+        apply_cond = self.update_state['apply_cond']
+        apply_first = self.update_state['apply_first']
+        apply_storage = self.update_state['apply_storage']
+
+        if not (apply_lang or apply_cond or apply_first or apply_storage):
+             ui.notify("Select properties to update", type='warning')
+             return
+
+        target_lang = 'EN'
+        target_cond = self.default_condition
+        target_first = False
+        target_storage = None
+
+        processed_changes = []
+
+        for item in filtered:
+            new_lang = target_lang if apply_lang else item.language
+            new_cond = target_cond if apply_cond else item.condition
+            new_first = target_first if apply_first else item.first_edition
+            new_storage = target_storage if apply_storage else item.storage_location
+
+            if (new_lang == item.language and new_cond == item.condition and
+                new_first == item.first_edition and new_storage == item.storage_location):
+                continue
+
+            # Remove Old
+            CollectionEditor.apply_change(
+                collection=self.scan_collection,
+                api_card=item.api_card,
+                set_code=item.set_code,
+                rarity=item.rarity,
+                language=item.language,
+                quantity=-item.quantity,
+                condition=item.condition,
+                first_edition=item.first_edition,
+                image_id=item.image_id,
+                variant_id=item.variant_id,
+                mode='ADD',
+                storage_location=item.storage_location
+            )
+
+            # Add New
+            CollectionEditor.apply_change(
+                collection=self.scan_collection,
+                api_card=item.api_card,
+                set_code=item.set_code,
+                rarity=item.rarity,
+                language=new_lang,
+                quantity=item.quantity,
+                condition=new_cond,
+                first_edition=new_first,
+                image_id=item.image_id,
+                variant_id=item.variant_id,
+                mode='ADD',
+                storage_location=new_storage
+            )
+
+            processed_changes.append({
+                'action': 'UPDATE',
+                'quantity': item.quantity,
+                'card_data': {
+                     'card_id': item.api_card.id,
+                     'set_code': item.set_code,
+                     'rarity': item.rarity,
+                     'image_id': item.image_id,
+                     'variant_id': item.variant_id,
+                     'language': new_lang,
+                     'condition': new_cond,
+                     'first_edition': new_first,
+                     'storage_location': new_storage
+                }
+            })
+
+        if processed_changes:
+            self.save_recent_scans()
+            changelog_manager.log_batch_change("scan_temp", "Bulk Update", processed_changes)
+            self.refresh_scan_view()
+            ui.notify(f"Updated {len(processed_changes)} items", type='positive')
+
+    async def on_remove_all_click(self):
+        filtered = self.scan_state['collection_filtered']
+        if not filtered: return
+
+        processed_changes = []
+        for item in filtered:
+            CollectionEditor.apply_change(
+                collection=self.scan_collection,
+                api_card=item.api_card,
+                set_code=item.set_code,
+                rarity=item.rarity,
+                language=item.language,
+                quantity=-item.quantity,
+                condition=item.condition,
+                first_edition=item.first_edition,
+                image_id=item.image_id,
+                variant_id=item.variant_id,
+                mode='ADD',
+                storage_location=item.storage_location
+            )
+
+            processed_changes.append({
+                'action': 'REMOVE',
+                'quantity': item.quantity,
+                'card_data': {
+                     'card_id': item.api_card.id,
+                     'set_code': item.set_code,
+                     'rarity': item.rarity,
+                     'image_id': item.image_id,
+                     'variant_id': item.variant_id,
+                     'language': item.language,
+                     'condition': item.condition,
+                     'first_edition': item.first_edition,
+                     'storage_location': item.storage_location
+                }
+            })
+
+        if processed_changes:
+            self.save_recent_scans()
+            changelog_manager.log_batch_change("scan_temp", "Bulk Remove", processed_changes)
+            self.refresh_scan_view()
+            ui.notify(f"Removed {len(processed_changes)} items", type='positive')
+
+    async def open_single_view_scan(self, item):
+        async def on_save(card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode):
+             success = CollectionEditor.apply_change(
+                 collection=self.scan_collection,
+                 api_card=card,
+                 set_code=set_code,
+                 rarity=rarity,
+                 language=language,
+                 quantity=quantity,
+                 condition=condition,
+                 first_edition=first_edition,
+                 image_id=image_id,
+                 mode=mode,
+                 variant_id=variant_id,
+                 storage_location=item.storage_location
+             )
+
+             if success:
+                 self.save_recent_scans()
+                 card_data = {
+                    'card_id': card.id,
+                    'name': card.name,
+                    'set_code': set_code,
+                    'rarity': rarity,
+                    'image_id': image_id,
+                    'language': language,
+                    'condition': condition,
+                    'first_edition': first_edition,
+                    'variant_id': variant_id,
+                    'storage_location': item.storage_location
+                 }
+                 changelog_manager.log_change("scan_temp", mode, card_data, quantity)
+                 self.refresh_scan_view()
+                 ui.notify('Updated.', type='positive')
+
+        await self.single_card_view.open_collectors(
+            card=item.api_card,
+            owned_count=item.quantity,
+            set_code=item.set_code,
+            rarity=item.rarity,
+            set_name=item.set_name,
+            language=item.language,
+            condition=item.condition,
+            first_edition=item.first_edition,
+            image_url=item.image_url,
+            image_id=item.image_id,
+            set_price=item.price,
+            current_collection=self.scan_collection,
+            save_callback=on_save,
+            variant_id=item.variant_id,
+            hide_header_stats=False
+        )
+
+    async def reduce_scan_card_qty(self, item):
+        CollectionEditor.apply_change(
+            collection=self.scan_collection,
+            api_card=item.api_card,
+            set_code=item.set_code,
+            rarity=item.rarity,
+            language=item.language,
+            quantity=-1,
+            condition=item.condition,
+            first_edition=item.first_edition,
+            image_id=item.image_id,
+            variant_id=item.variant_id,
+            mode='ADD',
+            storage_location=item.storage_location
+        )
+
+        self.save_recent_scans()
+
+        card_data = {
+            'card_id': item.api_card.id,
+            'name': item.api_card.name,
+            'set_code': item.set_code,
+            'rarity': item.rarity,
+            'image_id': item.image_id,
+            'language': item.language,
+            'condition': item.condition,
+            'first_edition': item.first_edition,
+            'variant_id': item.variant_id,
+            'storage_location': item.storage_location
+        }
+        changelog_manager.log_change("scan_temp", 'REMOVE', card_data, 1)
+
+        self.refresh_scan_view()
+        ui.notify("Removed 1", type='info')
+
     def save_settings(self):
         """Saves current settings to config."""
         self.config['ocr_tracks'] = [self.selected_track]
@@ -271,25 +1040,103 @@ class ScanPage:
 
         config_manager.save_config(self.config)
 
+    @property
+    def scanned_cards(self) -> List[Dict[str, Any]]:
+        """Backwards compatibility adapter for old UI code."""
+        res = []
+        for card in self.scan_collection.cards:
+            for var in card.variants:
+                for entry in var.entries:
+                    item = {
+                        'card_id': card.card_id,
+                        'name': card.name,
+                        'set_code': var.set_code,
+                        'rarity': var.rarity,
+                        'variant_id': var.variant_id,
+                        'image_id': var.image_id,
+                        'language': entry.language,
+                        'condition': entry.condition,
+                        'first_edition': entry.first_edition,
+                        # Fake path for UI
+                        'image_path': f"data/images/{var.image_id}.jpg" if var.image_id else None
+                    }
+                    res.append(item)
+        # Reverse to show newest first (mimic insert(0))
+        return list(reversed(res))
+
+    @scanned_cards.setter
+    def scanned_cards(self, value):
+        if value == []:
+            self.scan_collection.cards = []
+
     def load_recent_scans(self):
         """Loads scans from temp file."""
         temp_path = "data/scans/scans_temp.json"
+        self.scan_collection = Collection(name="scan_temp", cards=[])
+
         if os.path.exists(temp_path):
             try:
-                with open(temp_path, 'r') as f:
+                with open(temp_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    if isinstance(data, list):
-                        self.scanned_cards = data
+
+                # Check format
+                if isinstance(data, dict) and 'cards' in data:
+                    # New Format
+                    self.scan_collection = Collection(**data)
+                elif isinstance(data, list):
+                    # Old Format (List of Dicts) - Migrate
+                    self._migrate_legacy_scans(data)
+                    self.save_recent_scans() # Save in new format
             except Exception as e:
                 logger.error(f"Failed to load recent scans: {e}")
+
+    def _migrate_legacy_scans(self, data: List[Dict]):
+        for item in data:
+            if not item.get('card_id'): continue
+
+            card_id = item['card_id']
+            set_code = item.get('set_code')
+            rarity = item.get('rarity')
+            variant_id = item.get('variant_id') or str(card_id)
+            image_id = item.get('image_id')
+
+            # Find/Create Card
+            card = next((c for c in self.scan_collection.cards if c.card_id == card_id), None)
+            if not card:
+                card = CollectionCard(card_id=card_id, name=item.get('name', 'Unknown'))
+                self.scan_collection.cards.append(card)
+
+            # Find/Create Variant
+            variant = next((v for v in card.variants if v.variant_id == variant_id), None)
+            if not variant:
+                 # Try soft match
+                 variant = next((v for v in card.variants if v.set_code == set_code and v.rarity == rarity), None)
+
+            if not variant:
+                variant = CollectionVariant(
+                    variant_id=variant_id,
+                    set_code=set_code or "Unknown",
+                    rarity=rarity or "Common",
+                    image_id=image_id
+                )
+                card.variants.append(variant)
+
+            entry = CollectionEntry(
+                condition=item.get('condition', self.default_condition),
+                language=item.get('language', 'EN'),
+                first_edition=item.get('first_edition', False),
+                quantity=1
+            )
+            variant.entries.append(entry)
 
     def save_recent_scans(self):
         """Saves current scanned cards to temp file."""
         temp_path = "data/scans/scans_temp.json"
         try:
             os.makedirs(os.path.dirname(temp_path), exist_ok=True)
-            with open(temp_path, 'w') as f:
-                json.dump(self.scanned_cards, f, indent=4)
+            data = self.scan_collection.model_dump(mode='json')
+            with open(temp_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
         except Exception as e:
             logger.error(f"Failed to save recent scans: {e}")
 
@@ -370,9 +1217,57 @@ class ScanPage:
                  os.remove(result_dict['raw_image_path'])
              except: pass
 
-        self.scanned_cards.insert(0, result_dict)
+        # Add to Collection
+        card_id = result_dict['card_id']
+        api_card = ygo_service.get_card(card_id)
+        if not api_card:
+            ui.notify(f"Error: Card {card_id} not found in DB", type='negative')
+            return
+
+        set_code = result_dict.get('set_code')
+        rarity = result_dict.get('rarity')
+        variant_id = result_dict.get('variant_id')
+        image_id = result_dict.get('image_id')
+        language = result_dict.get('language', 'EN')
+        condition = result_dict.get('condition', self.default_condition)
+        first_edition = result_dict.get('first_edition', False)
+
+        # Generate variant_id if missing (essential for log consistency)
+        if not variant_id:
+             variant_id = generate_variant_id(card_id, set_code, rarity, image_id)
+
+        CollectionEditor.apply_change(
+            collection=self.scan_collection,
+            api_card=api_card,
+            set_code=set_code,
+            rarity=rarity,
+            language=language,
+            quantity=1,
+            condition=condition,
+            first_edition=first_edition,
+            image_id=image_id,
+            variant_id=variant_id,
+            mode='ADD',
+            storage_location=None
+        )
+
         self.save_recent_scans()
-        self.render_live_list.refresh()
+
+        # Log Change
+        card_data = {
+            'card_id': card_id,
+            'name': api_card.name,
+            'set_code': set_code,
+            'rarity': rarity,
+            'image_id': image_id,
+            'language': language,
+            'condition': condition,
+            'first_edition': first_edition,
+            'variant_id': variant_id
+        }
+        changelog_manager.log_change("scan_temp", 'ADD', card_data, 1)
+
+        self.refresh_scan_view()
         ui.notify(f"Added: {result_dict.get('name')}", type='positive')
 
     async def event_consumer(self):
@@ -475,78 +1370,76 @@ class ScanPage:
             ui.notify("Please select a target collection.", type='warning')
             return
 
-        if not self.scanned_cards:
+        if not self.scan_collection.cards:
             ui.notify("No cards to add.", type='warning')
             return
 
         try:
-            collection = persistence.load_collection(self.target_collection_file)
+            target_col_name = self.target_collection_file
+            target_col = persistence.load_collection(target_col_name)
 
-            count = 0
-            for item in self.scanned_cards:
-                # item is dict from ScanResult.model_dump()
-                if not item.get('card_id'):
-                    continue
+            # Prepare data for transfer and logging
+            items_to_move = _build_collection_entries(self.scan_collection)
 
-                target_card = next((c for c in collection.cards if c.card_id == item['card_id']), None)
-                if not target_card:
-                    target_card = CollectionCard(card_id=item['card_id'], name=item['name'])
-                    collection.cards.append(target_card)
+            changes_for_target = []
 
-                target_variant = next((v for v in target_card.variants
-                                       if v.set_code == item['set_code'] and v.rarity == item['rarity']), None)
-
-                if not target_variant:
-                    api_card = ygo_service.get_card(item['card_id'])
-                    variant_id = str(item['card_id'])
-                    image_id = None
-
-                    # If we have variant info from matching
-                    if item.get('variant_id'):
-                         variant_id = item['variant_id']
-                         image_id = item.get('image_id')
-                    elif api_card:
-                         # Fallback search
-                        for s in api_card.card_sets:
-                            if s.set_code == item['set_code'] and s.set_rarity == item['rarity']:
-                                variant_id = s.variant_id
-                                image_id = s.image_id
-                                break
-
-                    target_variant = CollectionVariant(
-                        variant_id=variant_id,
-                        set_code=item['set_code'],
-                        rarity=item['rarity'],
-                        image_id=image_id
-                    )
-                    target_card.variants.append(target_variant)
-
-                entry = CollectionEntry(
-                    condition=self.default_condition,
-                    language=item['language'],
-                    first_edition=item['first_edition'],
-                    quantity=1
+            for item in items_to_move:
+                CollectionEditor.apply_change(
+                    collection=target_col,
+                    api_card=item.api_card,
+                    set_code=item.set_code,
+                    rarity=item.rarity,
+                    language=item.language,
+                    quantity=item.quantity,
+                    condition=item.condition,
+                    first_edition=item.first_edition,
+                    image_id=item.image_id,
+                    variant_id=item.variant_id,
+                    mode='ADD',
+                    storage_location=item.storage_location
                 )
-                target_variant.entries.append(entry)
-                count += 1
 
-            persistence.save_collection(collection, self.target_collection_file)
+                changes_for_target.append({
+                    'action': 'ADD',
+                    'quantity': item.quantity,
+                    'card_data': {
+                        'card_id': item.api_card.id,
+                        'name': item.api_card.name,
+                        'set_code': item.set_code,
+                        'rarity': item.rarity,
+                        'image_id': item.image_id,
+                        'variant_id': item.variant_id,
+                        'language': item.language,
+                        'condition': item.condition,
+                        'first_edition': item.first_edition,
+                        'storage_location': item.storage_location
+                    }
+                })
 
-            ui.notify(f"Added {count} cards to {collection.name}", type='positive')
-            self.scanned_cards.clear()
-            self.save_recent_scans() # Will save empty list
+            # Save Target
+            persistence.save_collection(target_col, target_col_name)
 
-            # Clear temp file as requested
-            try:
-                os.remove("data/scans/scans_temp.json")
-            except:
-                pass
+            # Log to Target
+            changelog_manager.log_batch_change(target_col_name, "Added from Live Scan", changes_for_target)
 
-            self.render_live_list.refresh()
+            # Log to Scan Temp (Special COMMIT action for Undo)
+            changelog_manager._write_entry("scan_temp", {
+                "action": "COMMIT",
+                "target_collection": target_col_name,
+                "changes": changes_for_target,
+                "type": "commit"
+            })
+
+            # Clear Scan Collection
+            self.scan_collection.cards = []
+            self.save_recent_scans()
+
+            self.refresh_scan_view()
+            ui.notify(f"Added {len(items_to_move)} items to {target_col.name}", type='positive')
 
         except Exception as e:
-            logger.error(f"Error saving collection: {e}")
-            ui.notify(f"Error saving collection: {e}", type='negative')
+            logger.error(f"Error committing cards: {e}")
+            ui.notify(f"Error committing cards: {e}", type='negative')
 
     async def trigger_live_scan(self):
         """Triggers a scan from the Live Tab using current settings."""
@@ -1008,52 +1901,91 @@ def scan_page():
         live_tab = ui.tab('Live Scan')
         debug_tab = ui.tab('Debug Lab')
 
-    with ui.tab_panels(tabs, value=live_tab).classes('w-full h-full'):
+    with ui.tab_panels(tabs, value=live_tab).classes('w-full h-full p-0'):
 
         # --- TAB 1: LIVE SCAN ---
-        with ui.tab_panel(live_tab):
-            with ui.row().classes('w-full gap-4 items-center mb-4'):
+        with ui.tab_panel(live_tab).classes('h-full flex flex-col p-2'):
+            # --- TOP BAR ---
+            with ui.row().classes('w-full items-center gap-4 mb-2 justify-between'):
+                # Left: Target Collection
+                async def on_target_change(e):
+                    page.target_collection_file = e.value
+                    # Load collection logic if needed for storage options
+                    if page.target_collection_file:
+                        try:
+                            page.target_collection_obj = persistence.load_collection(page.target_collection_file)
+                            if page.storage_select:
+                                opts = {None: 'None'}
+                                for s in page.target_collection_obj.storage_definitions:
+                                    opts[s.name] = s.name
+                                page.storage_select.options = opts
+                                page.storage_select.update()
+                        except: pass
+
                 if page.collections:
-                    ui.select(options=page.collections, value=page.target_collection_file, label='Collection',
-                              on_change=lambda e: setattr(page, 'target_collection_file', e.value)).classes('w-48')
+                    ui.select(options=page.collections, value=page.target_collection_file, label='Target Collection',
+                              on_change=on_target_change).classes('w-64')
 
-                page.camera_select = ui.select(options={}, label='Camera').classes('w-48')
-                page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam')
-                page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative')
-                page.stop_btn.visible = False
+                # Right: Defaults & Commit
+                with ui.row().classes('items-center gap-2'):
+                    ui.label('DEFAULTS:').classes('text-xs font-bold text-gray-400')
 
-                ui.separator().props('vertical')
+                    ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
+                              value=page.default_language,
+                              on_change=lambda e: setattr(page, 'default_language', e.value)).props('dense options-dense').classes('w-20')
 
-                # --- NEW: Status Controls in Live Scan ---
-                page.render_status_controls()
+                    ui.select(options=CARD_CONDITIONS,
+                              value=page.default_condition, label="Cond",
+                              on_change=lambda e: setattr(page, 'default_condition', e.value)).props('dense options-dense').classes('w-32')
 
-                # Replaced Auto Scan with Manual Scan Button
-                ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black')
+                    page.storage_select = ui.select(options={None: 'None'}, label='Storage',
+                                                    value=page.default_storage,
+                                                    on_change=lambda e: setattr(page, 'default_storage', e.value)).props('dense options-dense').classes('w-32')
 
-                ui.space()
+                    # Trigger load once to populate storage
+                    if page.target_collection_file:
+                         on_target_change(type('obj', (object,), {'value': page.target_collection_file}))
 
-                ui.select(options=["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor", "Damaged"],
-                          value=page.default_condition, label="Default Condition",
-                          on_change=lambda e: setattr(page, 'default_condition', e.value)).classes('w-32')
+                    ui.button('COMMIT', on_click=page.commit_cards).props('color=positive icon=save')
 
-                ui.button('Add All', on_click=page.commit_cards).props('color=primary icon=save')
+            # --- MAIN CONTENT ---
+            with ui.row().classes('w-full flex-grow gap-4'):
+                # LEFT COLUMN (Camera)
+                with ui.column().classes('w-1/2 h-full flex flex-col gap-2'):
+                    # Camera Controls
+                    with ui.card().classes('w-full p-2 bg-gray-900 border border-gray-700'):
+                        with ui.row().classes('w-full gap-2 items-center'):
+                             page.camera_select = ui.select(options={}, label='Camera').classes('flex-grow')
+                             page.start_btn = ui.button('START CAMERA', on_click=page.start_camera).props('icon=videocam')
+                             page.stop_btn = ui.button('STOP', on_click=page.stop_camera).props('icon=videocam_off color=negative')
+                             page.stop_btn.visible = False
 
-            with ui.row().classes('w-full h-[calc(100vh-250px)] gap-4'):
-                # Camera View
-                with ui.card().classes('flex-1 h-full p-0 overflow-hidden relative bg-black'):
-                    ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
-                    ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
+                    # Status Bar
+                    page.render_status_controls()
 
-                # List View
-                with ui.column().classes('w-96 h-full'):
-                    ui.label("Recent Scans").classes('text-xl font-bold')
-                    with ui.scroll_area().classes('w-full flex-grow border rounded p-2'):
-                        page.render_live_list()
+                    # Video
+                    with ui.card().classes('w-full flex-grow p-0 overflow-hidden relative bg-black border border-gray-700'):
+                        ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
+                        ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
+
+                    # Capture Button
+                    ui.button('CAPTURE & SCAN', on_click=page.trigger_live_scan).classes('w-full py-4 text-lg font-bold').props('color=accent text-color=black icon=camera_alt')
+
+                # RIGHT COLUMN (Recent Scans)
+                with ui.column().classes('w-1/2 h-full'):
+                    page.filter_dialog = ui.dialog().props('position=right')
+                    with page.filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0 flex flex-col'):
+                         with ui.scroll_area().classes('flex-grow w-full'):
+                             page.filter_pane = FilterPane(page.scan_state, page.apply_scan_filters, page.reset_scan_filters)
+                             page.filter_pane.build()
+
+                    page.render_recent_scans_panel()
 
         # --- TAB 2: DEBUG LAB ---
         with ui.tab_panel(debug_tab):
              page.render_debug_lab()
 
+    ui.timer(0.1, page.init_data, once=True)
     ui.timer(1.0, page.init_cameras, once=True)
 
     # Use fast consumer loop instead of slow polling
