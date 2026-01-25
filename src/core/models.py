@@ -14,6 +14,13 @@ class CollectionEntry(BaseModel):
     market_value: Optional[float] = 0.0
     purchase_date: Optional[str] = None
 
+class StorageDefinition(BaseModel):
+    name: str
+    type: str = "Box" # Box, Binder, Sealed Product
+    description: Optional[str] = ""
+    image_path: Optional[str] = None
+    set_code: Optional[str] = None
+
 class CollectionVariant(BaseModel):
     variant_id: str
     set_code: str
@@ -38,6 +45,7 @@ class Collection(BaseModel):
     name: str
     description: Optional[str] = ""
     cards: List[CollectionCard] = []
+    storage_definitions: List[StorageDefinition] = []
 
     @property
     def total_value(self) -> float:

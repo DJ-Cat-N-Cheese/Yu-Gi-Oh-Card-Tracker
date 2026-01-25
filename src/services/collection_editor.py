@@ -13,7 +13,8 @@ class CollectionEditor:
         image_id: Optional[int] = None,
         language: str = 'EN',
         condition: str = 'Near Mint',
-        first_edition: bool = False
+        first_edition: bool = False,
+        storage_location: Optional[str] = None
     ) -> int:
         """
         Returns the quantity of a specific card entry.
@@ -34,7 +35,10 @@ class CollectionEditor:
             return 0
 
         target_entry = next((e for e in target_variant.entries
-                             if e.language == language and e.condition == condition and e.first_edition == first_edition), None)
+                             if e.language == language and
+                                e.condition == condition and
+                                e.first_edition == first_edition and
+                                e.storage_location == storage_location), None)
 
         return target_entry.quantity if target_entry else 0
 
@@ -50,7 +54,8 @@ class CollectionEditor:
         first_edition: bool,
         image_id: Optional[int] = None,
         variant_id: Optional[str] = None,
-        mode: str = 'SET'
+        mode: str = 'SET',
+        storage_location: Optional[str] = None
     ) -> bool:
         """
         Applies a change (add, set, remove) to a collection.
@@ -69,6 +74,10 @@ class CollectionEditor:
             # If removing/setting 0 and it doesn't exist, do nothing
             if quantity <= 0 and mode == 'SET':
                 return False
+            # Only create if we are adding positive amount
+            if (mode == 'ADD' and quantity <= 0) or (mode == 'SET' and quantity <= 0):
+                return False
+
             target_card = CollectionCard(card_id=api_card.id, name=api_card.name)
             collection.cards.append(target_card)
             modified = True
@@ -105,7 +114,10 @@ class CollectionEditor:
             # 4. Find or Create CollectionEntry
             target_entry = None
             for e in target_variant.entries:
-                if e.condition == condition and e.language == language and e.first_edition == first_edition:
+                if (e.condition == condition and
+                    e.language == language and
+                    e.first_edition == first_edition and
+                    e.storage_location == storage_location):
                     target_entry = e
                     break
 
@@ -129,7 +141,8 @@ class CollectionEditor:
                         condition=condition,
                         language=language,
                         first_edition=first_edition,
-                        quantity=final_quantity
+                        quantity=final_quantity,
+                        storage_location=storage_location
                     ))
                     modified = True
             else:
@@ -147,5 +160,70 @@ class CollectionEditor:
             if target_card in collection.cards:
                 collection.cards.remove(target_card)
                 modified = True
+
+        return modified
+
+    @staticmethod
+    def move_card(
+        collection: Collection,
+        api_card: ApiCard,
+        set_code: str,
+        rarity: str,
+        language: str,
+        condition: str,
+        first_edition: bool,
+        from_storage: Optional[str],
+        to_storage: Optional[str],
+        quantity: int = 1,
+        image_id: Optional[int] = None,
+        variant_id: Optional[str] = None
+    ) -> bool:
+        """
+        Moves a specific quantity of a card from one storage location to another.
+        """
+        if from_storage == to_storage:
+            return False
+
+        # Verify availability
+        available = CollectionEditor.get_quantity(
+            collection, api_card.id, variant_id, set_code, rarity, image_id,
+            language, condition, first_edition, from_storage
+        )
+
+        if available < quantity:
+            return False
+
+        # Remove from Source
+        removed = CollectionEditor.apply_change(
+            collection, api_card, set_code, rarity, language, -quantity,
+            condition, first_edition, image_id, variant_id, mode='ADD',
+            storage_location=from_storage
+        )
+
+        # Add to Target
+        added = CollectionEditor.apply_change(
+            collection, api_card, set_code, rarity, language, quantity,
+            condition, first_edition, image_id, variant_id, mode='ADD',
+            storage_location=to_storage
+        )
+
+        return removed or added
+
+    @staticmethod
+    def rename_storage_location(collection: Collection, old_name: str, new_name: str) -> bool:
+        """
+        Updates all references of a storage location in the collection to a new name.
+        Returns True if any changes were made.
+        """
+        if old_name == new_name:
+            return False
+
+        modified = False
+        for card in collection.cards:
+            for variant in card.variants:
+                for entry in variant.entries:
+                    if entry.storage_location == old_name:
+                        entry.storage_location = new_name
+                        modified = True
 
         return modified
