@@ -1475,6 +1475,7 @@ class BulkAddPage:
         try:
             col = await run.io_bound(persistence.load_collection, self.state['selected_collection'])
             self.current_collection_obj = col
+            self.render_header.refresh()
         except Exception as e:
             logger.error(f"Failed to load collection: {e}")
             ui.notify(f"Failed to load collection: {e}", type='negative')
