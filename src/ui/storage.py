@@ -107,18 +107,20 @@ class StorageDialog:
                              logger.error(f"Error handling set change: {ex}")
                              ui.notify(f"Error loading set info: {ex}", type='warning')
 
-                     self.set_select = ui.select(self.set_options, label='Select Product', with_input=True, on_change=on_set_change) \
-                        .classes('w-full').props('clearable input-debounce=300 use-input behavior="menu" hide-selected')
-
-                     def filter_fn(e):
-                         val = e.args
-                         if val is None:
+                     # Filter Input
+                     def filter_sets(e):
+                         val = e.value
+                         if not val:
                              self.set_select.options = self.set_options
                          else:
                              self.set_select.options = {k: v for k, v in self.set_options.items() if val.lower() in v.lower()}
                          self.set_select.update()
 
-                     self.set_select.on('input-value', filter_fn)
+                     self.filter_input = ui.input(placeholder='Filter Product...').classes('w-full') \
+                         .props('debounce=300 clearable').on('update:model-value', filter_sets)
+
+                     self.set_select = ui.select(self.set_options, label='Select Product', on_change=on_set_change) \
+                        .classes('w-full').props('clearable behavior="menu"')
 
                 self.set_select_container.set_visibility(False)
 
