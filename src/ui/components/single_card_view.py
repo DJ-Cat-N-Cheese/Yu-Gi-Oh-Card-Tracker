@@ -327,7 +327,8 @@ class SingleCardView:
         card: ApiCard,
         total_owned: int,
         owned_breakdown: Dict[str, int],
-        save_callback: Callable
+        save_callback: Callable,
+        current_collection: Any = None
     ):
         try:
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
@@ -505,7 +506,8 @@ class SingleCardView:
                                 default_set_base_code=default_set_code,
                                 show_remove_button=False,
                                 rarity_map=rarity_map,
-                                view_mode='consolidated'
+                                view_mode='consolidated',
+                                current_collection=current_collection
                             )
 
                         self._render_available_sets(card)
@@ -655,7 +657,7 @@ class SingleCardView:
                              with owned_label:
                                 ui.tooltip('Owned Count')
 
-                             storage_breakdown_label = ui.label("").classes('text-sm text-gray-300 ml-2')
+                             storage_breakdown_label = ui.label("").classes('text-lg text-accent font-bold ml-2')
 
                         if owned_count == 0:
                             owned_label.set_visibility(False)
@@ -743,28 +745,58 @@ class SingleCardView:
 
                             lbl_set_price.text = f"${s_price:.2f}" if s_price is not None else "-"
 
+                            # Recalculate owned count based on CURRENT input selections (Set, Rarity, Language, Condition, 1st Ed)
                             cur_owned = 0
                             storage_counts = {}
+
+                            # Note: 'language' input might be different from card's visual language if user changed it.
+                            # But here we want to show stats for the SELECTED configuration.
+
+                            target_lang = input_state['language']
+                            target_cond = input_state['condition']
+                            target_first = input_state['first_edition']
+
                             if current_collection:
                                 for c in current_collection.cards:
                                     if c.card_id == card.id:
                                             for v in c.variants:
-                                                if v.set_code == final_code and v.rarity == input_state['rarity'] and v.image_id == input_state['image_id']:
+                                                # Match Variant (Set, Rarity, Image)
+                                                # Use set_code from input_state directly?
+                                                # final_code is calculated above using transform_set_code(base_code, input_state['language'])
+
+                                                # CAUTION: transform_set_code might produce a code that doesn't match EXACTLY if the DB has variants like 'LOB-E001' vs 'LOB-EN001'.
+                                                # But persistence usually relies on exact match or normalization.
+
+                                                # Let's check against v.set_code.
+                                                # Ideally we should match variant_id if available, but visual stats rely on props.
+
+                                                is_variant_match = (v.set_code == final_code and
+                                                                    v.rarity == input_state['rarity'] and
+                                                                    (v.image_id == input_state['image_id'] if input_state['image_id'] else True))
+
+                                                if is_variant_match:
                                                     for e in v.entries:
-                                                        if e.language == input_state['language'] and e.condition == input_state['condition'] and e.first_edition == input_state['first_edition']:
+                                                        if e.language == target_lang and e.condition == target_cond and e.first_edition == target_first:
                                                             cur_owned += e.quantity
                                                             loc = e.storage_location or "None"
                                                             storage_counts[loc] = storage_counts.get(loc, 0) + e.quantity
-                                                    break
-                                            break
-                                            break
+                                            # We don't break outer loops because multiple variants *could* theoretically exist if data is dirty,
+                                            # but strictly one variant per ID.
+                                            # However, we are iterating cards -> variants.
+                                            # Once we find the card, we iterate its variants.
+                                            # Should we sum across multiple matching variants?
+                                            # Usually only one variant matches Set+Rarity+Image.
+                                            pass
+                                    # Break if card found? Yes.
+                                    if c.card_id == card.id:
+                                        break
 
                             owned_label.text = str(cur_owned)
                             owned_label.set_visibility(cur_owned > 0)
 
                             if cur_owned > 0 and storage_counts:
-                                parts = [f"{k}: {v}" for k, v in storage_counts.items()]
-                                storage_breakdown_label.text = "| Locations: " + ", ".join(parts)
+                                parts = [f"[{k}]: {v}" for k, v in storage_counts.items()]
+                                storage_breakdown_label.text = "| Locations " + ", ".join(parts)
                                 storage_breakdown_label.set_visibility(True)
                             else:
                                 storage_breakdown_label.set_visibility(False)
