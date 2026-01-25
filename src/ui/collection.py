@@ -677,7 +677,7 @@ class CollectionPage:
         if self.pagination_total_label:
             self.pagination_total_label.text = f"/ {max(1, self.state['total_pages'])}"
 
-    def _update_in_memory(self, api_card: ApiCard, set_code: str, rarity: str, language: str, quantity: int, condition: str, first_edition: bool, image_id: Optional[int], variant_id: Optional[str], mode: str = 'ADD'):
+    def _update_in_memory(self, api_card: ApiCard, set_code: str, rarity: str, language: str, quantity: int, condition: str, first_edition: bool, image_id: Optional[int], variant_id: Optional[str], mode: str = 'ADD', storage_location: str = None):
         """
         Updates the in-memory view models (consolidated and collectors) to reflect changes immediately
         without reloading from disk.
@@ -759,15 +759,21 @@ class CollectionPage:
 
         new_qty = 0
         if self.state['current_collection']:
-             qty = CollectionEditor.get_quantity(
-                 self.state['current_collection'],
-                 api_card.id,
-                 variant_id=variant_id,
-                 language=language,
-                 condition=condition,
-                 first_edition=first_edition
-             )
-             new_qty = qty
+            # We need to sum across all storage locations for this specific variant configuration
+            # because CollectorRow aggregates them.
+            found_qty = 0
+            for c in self.state['current_collection'].cards:
+                if c.card_id == api_card.id:
+                    for v in c.variants:
+                        if v.variant_id == variant_id:
+                            for e in v.entries:
+                                if (e.language == language and
+                                    e.condition == condition and
+                                    e.first_edition == first_edition):
+                                    found_qty += e.quantity
+                            break
+                    break
+            new_qty = found_qty
 
         if target_row_index != -1:
             row = self.state['cards_collectors'][target_row_index]
@@ -927,7 +933,7 @@ class CollectionPage:
         else:
             ui.notify("Nothing to undo.", type='warning')
 
-    async def save_card_change(self, api_card: ApiCard, set_code, rarity, language, quantity, condition, first_edition, image_id: Optional[int] = None, variant_id: Optional[str] = None, mode: str = 'SET', skip_log: bool = False, **kwargs):
+    async def save_card_change(self, api_card: ApiCard, set_code, rarity, language, quantity, condition, first_edition, image_id: Optional[int] = None, variant_id: Optional[str] = None, mode: str = 'SET', skip_log: bool = False, storage_location: str = None, **kwargs):
         if not self.state['current_collection']:
             ui.notify('No collection selected.', type='negative')
             return
@@ -943,6 +949,7 @@ class CollectionPage:
                 src_cond = kwargs.get('source_condition')
                 src_first = kwargs.get('source_first_edition')
                 src_qty = kwargs.get('source_quantity', 0)
+                # Note: Currently not handling source storage for MOVE (assumes default/any matching entry)
 
                 if src_qty > 0:
                     # 1. Remove from Source
@@ -959,9 +966,10 @@ class CollectionPage:
                         col, api_card,
                         set_code=set_code, rarity=rarity,
                         language=language, quantity=src_qty, condition=condition, first_edition=first_edition,
-                        image_id=image_id, variant_id=variant_id, mode='ADD'
+                        image_id=image_id, variant_id=variant_id, mode='ADD',
+                        storage_location=storage_location
                     )
-                    self._update_in_memory(api_card, set_code, rarity, language, src_qty, condition, first_edition, image_id, variant_id, mode='ADD')
+                    self._update_in_memory(api_card, set_code, rarity, language, src_qty, condition, first_edition, image_id, variant_id, mode='ADD', storage_location=storage_location)
 
                     modified = True
 
@@ -971,7 +979,7 @@ class CollectionPage:
                                 'card_id': api_card.id, 'variant_id': src_var_id, 'language': src_lang, 'condition': src_cond, 'first_edition': src_first
                             }},
                             {'action': 'ADD', 'quantity': src_qty, 'card_data': {
-                                'card_id': api_card.id, 'variant_id': variant_id, 'set_code': set_code, 'rarity': rarity, 'language': language, 'condition': condition, 'first_edition': first_edition, 'image_id': image_id
+                                'card_id': api_card.id, 'variant_id': variant_id, 'set_code': set_code, 'rarity': rarity, 'language': language, 'condition': condition, 'first_edition': first_edition, 'image_id': image_id, 'storage_location': storage_location
                             }}
                         ]
                         changelog_manager.log_batch_change(self.state['selected_file'], "Moved Entry", changes)
@@ -989,11 +997,12 @@ class CollectionPage:
                     first_edition=first_edition,
                     image_id=image_id,
                     variant_id=variant_id,
-                    mode=mode
+                    mode=mode,
+                    storage_location=storage_location
                 )
 
                 if modified:
-                    self._update_in_memory(api_card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode)
+                    self._update_in_memory(api_card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode, storage_location=storage_location)
 
                 if modified and not skip_log:
                     card_data = {
@@ -1005,7 +1014,8 @@ class CollectionPage:
                         'language': language,
                         'condition': condition,
                         'first_edition': first_edition,
-                        'variant_id': variant_id
+                        'variant_id': variant_id,
+                        'storage_location': storage_location
                     }
                     changelog_manager.log_change(self.state['selected_file'], mode, card_data, quantity)
 

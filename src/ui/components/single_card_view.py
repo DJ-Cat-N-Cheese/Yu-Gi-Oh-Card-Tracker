@@ -19,6 +19,9 @@ STANDARD_RARITIES = [
 ]
 
 class SingleCardView:
+    def __init__(self):
+        self.last_selected_storage = None
+
     def _setup_high_res_image_logic(self, img_id: int, high_res_remote_url: str, low_res_url: str, image_element: ui.image, current_id_check: Callable[[], bool] = None):
         """
         Sets the source of the image element.
@@ -144,6 +147,28 @@ class SingleCardView:
                 set_select.on_value_change(on_set_change)
                 ui.select(CARD_CONDITIONS, label='Condition', value=input_state['condition'],
                             on_change=lambda e: [input_state.update({'condition': e.value}), on_change_callback()]).classes('w-1/3').props('dark')
+
+                # Storage Selection
+                storage_options = {None: 'None'}
+                if current_collection and hasattr(current_collection, 'storage_definitions'):
+                    for s in current_collection.storage_definitions:
+                        storage_options[s.name] = s.name
+
+                if 'storage_location' not in input_state:
+                     input_state['storage_location'] = self.last_selected_storage
+
+                # Validate against options
+                if input_state['storage_location'] not in storage_options and input_state['storage_location'] is not None:
+                     if input_state['storage_location']:
+                         storage_options[input_state['storage_location']] = f"{input_state['storage_location']} (Missing)"
+
+                def on_storage_change(e):
+                    input_state['storage_location'] = e.value
+                    self.last_selected_storage = e.value
+
+                ui.select(storage_options, label='Storage', value=input_state['storage_location'],
+                          on_change=on_storage_change).classes('w-1/3').props('dark')
+
                 ui.checkbox('1st Edition', value=input_state['first_edition'],
                             on_change=lambda e: [input_state.update({'first_edition': e.value}), on_change_callback()]).classes('my-auto').props('dark')
 
@@ -437,7 +462,8 @@ class SingleCardView:
                                 'condition': 'Near Mint',
                                 'first_edition': False,
                                 'set_base_code': default_set_code,
-                                'image_id': img_id
+                                'image_id': img_id,
+                                'storage_location': self.last_selected_storage
                             }
 
                             async def on_save_wrapper(mode, variant_id, quantity_override: int = None):
@@ -459,7 +485,8 @@ class SingleCardView:
                                     input_state['first_edition'],
                                     input_state['image_id'],
                                     variant_id,
-                                    mode # Pass mode (SET/ADD) to handle logic in save_card_change or wrapper
+                                    mode, # Pass mode (SET/ADD) to handle logic in save_card_change or wrapper
+                                    storage_location=input_state.get('storage_location')
                                 )
                                 d.close()
 
@@ -503,7 +530,8 @@ class SingleCardView:
         current_collection: Any = None,
         save_callback: Callable = None,
         variant_id: str = None,
-        hide_header_stats: bool = False
+        hide_header_stats: bool = False,
+        storage_location: str = None
     ):
         try:
             set_options = {}
@@ -567,6 +595,11 @@ class SingleCardView:
                     if fallback_name:
                         set_name = fallback_name
 
+            # Determine initial storage
+            initial_storage = storage_location
+            if initial_storage is None:
+                initial_storage = self.last_selected_storage
+
             input_state = {
                 'language': language,
                 'quantity': 1,
@@ -574,7 +607,8 @@ class SingleCardView:
                 'condition': condition,
                 'first_edition': first_edition,
                 'set_base_code': initial_base_code,
-                'image_id': image_id
+                'image_id': image_id,
+                'storage_location': initial_storage
             }
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
@@ -621,8 +655,11 @@ class SingleCardView:
                              with owned_label:
                                 ui.tooltip('Owned Count')
 
+                             storage_breakdown_label = ui.label("").classes('text-sm text-gray-300 ml-2')
+
                         if owned_count == 0:
                             owned_label.set_visibility(False)
+                            storage_breakdown_label.set_visibility(False)
 
                         if hide_header_stats:
                             # Hide total owned section if requested (or just the count, prompt says 'no Total owned')
@@ -707,6 +744,7 @@ class SingleCardView:
                             lbl_set_price.text = f"${s_price:.2f}" if s_price is not None else "-"
 
                             cur_owned = 0
+                            storage_counts = {}
                             if current_collection:
                                 for c in current_collection.cards:
                                     if c.card_id == card.id:
@@ -714,8 +752,9 @@ class SingleCardView:
                                                 if v.set_code == final_code and v.rarity == input_state['rarity'] and v.image_id == input_state['image_id']:
                                                     for e in v.entries:
                                                         if e.language == input_state['language'] and e.condition == input_state['condition'] and e.first_edition == input_state['first_edition']:
-                                                            cur_owned = e.quantity
-                                                            break
+                                                            cur_owned += e.quantity
+                                                            loc = e.storage_location or "None"
+                                                            storage_counts[loc] = storage_counts.get(loc, 0) + e.quantity
                                                     break
                                             break
                                             break
@@ -723,7 +762,14 @@ class SingleCardView:
                             owned_label.text = str(cur_owned)
                             owned_label.set_visibility(cur_owned > 0)
 
-                            update_image()
+                            if cur_owned > 0 and storage_counts:
+                                parts = [f"{k}: {v}" for k, v in storage_counts.items()]
+                                storage_breakdown_label.text = "| Locations: " + ", ".join(parts)
+                                storage_breakdown_label.set_visibility(True)
+                            else:
+                                storage_breakdown_label.set_visibility(False)
+
+                        update_display_stats()
 
                         ui.separator().classes('q-my-md')
 
@@ -757,6 +803,7 @@ class SingleCardView:
                                     input_state['image_id'],
                                     target_variant_id,
                                     mode,
+                                    storage_location=input_state.get('storage_location'),
                                     **extra_args
                                 )
                                 d.close()
