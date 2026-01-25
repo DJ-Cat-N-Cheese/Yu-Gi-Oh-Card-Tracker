@@ -426,6 +426,18 @@ class StoragePage:
         if self.filter_pane: self.filter_pane.update_options()
 
         self.state['rows'] = rows
+
+        # Download flags
+        unique_langs = set(row.language for row in rows if row.language)
+        unique_codes = set()
+        for lang in unique_langs:
+             code = LANGUAGE_COUNTRY_MAP.get(lang.strip().upper())
+             if code: unique_codes.add(code)
+
+        if unique_codes:
+             tasks = [image_manager.ensure_flag_image(code) for code in unique_codes]
+             await asyncio.gather(*tasks)
+
         await self.apply_filters()
 
     async def apply_filters(self):
@@ -674,6 +686,15 @@ class StoragePage:
             with ui.element('div').classes('relative w-full aspect-[2/3] bg-black'):
                 if row.image_url:
                     ui.image(row.image_url).classes('w-full h-full object-cover')
+
+                lang_code = row.language.strip().upper()
+                country_code = LANGUAGE_COUNTRY_MAP.get(lang_code)
+                flag_url = image_manager.get_flag_image_url(country_code) if country_code else None
+
+                if flag_url:
+                     ui.image(flag_url).classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
+                else:
+                     ui.label(lang_code).classes('absolute top-[1px] left-[1px] text-xs font-bold shadow-black drop-shadow-md bg-black/30 rounded px-1')
 
                 ui.label(f"{row.quantity}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs')
 
