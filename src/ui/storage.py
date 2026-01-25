@@ -430,7 +430,11 @@ class StoragePage:
 
         self.state['available_sets'] = sorted(list(sets))
         self.state['available_monster_races'] = sorted(list(m_races))
-        self.state['available_st_races'] = sorted(list(st_races))
+
+        # Ensure standard Spell/Trap types are always available
+        standard_st_races = {"Normal", "Continuous", "Equip", "Field", "Quick-Play", "Ritual", "Counter"}
+        self.state['available_st_races'] = sorted(list(st_races.union(standard_st_races)))
+
         self.state['available_archetypes'] = sorted(list(archetypes))
 
         if self.filter_pane: self.filter_pane.update_options()
