@@ -4,7 +4,7 @@ import os
 from typing import List, Optional
 from src.services.ygo_api import ygo_service
 from src.core.persistence import persistence, COLLECTIONS_DIR
-from src.core.models import Collection, CollectionCard, CollectionVariant, CollectionEntry
+from src.core.models import Collection, CollectionCard, CollectionVariant, CollectionEntry, StorageDefinition
 from src.core.utils import generate_variant_id, transform_set_code
 
 logger = logging.getLogger(__name__)
@@ -156,10 +156,20 @@ async def generate_sample_collection(base_filename: str = "sample_collection") -
             total_variants_count += len(variants)
 
     # 3. Construct Collection
+    # Define Storages used
+    storages = []
+    for letter in ['A', 'B', 'C', 'D']:
+        storages.append(StorageDefinition(
+            name=f"Box {letter}",
+            type="Box",
+            description=f"Sample Storage Box {letter}"
+        ))
+
     collection = Collection(
         name="Sample Collection",
         description=f"A generated sample collection with {len(collection_cards)} cards and {total_variants_count} variants.",
-        cards=collection_cards
+        cards=collection_cards,
+        storage_definitions=storages
     )
 
     # 4. Determine Filename

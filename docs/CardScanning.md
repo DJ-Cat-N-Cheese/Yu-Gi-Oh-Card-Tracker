@@ -1,31 +1,58 @@
-# Card Scanning
+# AI Card Scanner
 
-The **Scan Cards** tab uses AI (OCR and Object Detection) to identify cards via your webcam.
+OpenYuGi features an experimental AI-powered scanner that can identify cards via your webcam.
 
-![Scanner Interface](images/scanner_main.png)
+![Live Scanner](images/scan_live.png)
 
-## 1. Setup & Best Practices
-For optimal results, follow these guidelines:
-- **Lighting**: Ensure bright, even lighting. Avoid glare on the card surface (sleeves often cause glare).
-- **Background**: Use a **clean white background** (e.g., a piece of printer paper). The scanner works best when the card contour is clearly visible against white.
-- **Preprocessing**: In the **Debug Lab**, select `classic_white_bg` for the preprocessing mode if using a white background.
-- **OCR Track**: `DocTR` (Track 2) is generally more accurate than EasyOCR.
+## 1. Setup & Requirements
 
-## 2. Live Scan Tab
-- **Camera**: Select your webcam.
-- **Start/Stop**: Control the camera feed.
-- **Capture & Scan**: Click this button to capture the current frame and process it.
-- **Auto-Add**: When a card is identified, it appears in the "Recent Scans" list.
-- **Ambiguity**: If the scanner finds a card (e.g., "Blue-Eyes") but cannot determine the exact set (LOB vs SDK), an **Ambiguity Dialog** will pop up asking you to select the correct version.
+The scanner runs locally on your machine using advanced machine learning models.
+- **GPU**: Recommended but not required (runs on CPU via ONNX/PyTorch).
+- **Camera**: A generic webcam (1080p recommended).
+- **Lighting**: Good, even lighting is crucial for accurate OCR.
 
-### ⚠️ Important Warnings
-- **Multiple Tabs**: Do **NOT** open the Scan page in multiple browser tabs. The ambiguity popup may be sent to the wrong tab, causing the interface to hang or misbehave.
-- **Low Res Images**: Before using the "Art Style Match" feature (YOLO), ensure you have downloaded all low-resolution images from the **Settings** menu. The matcher needs these local files to function.
+**Technology Stack**:
+- **Detection**: YOLOv8 (identifies card boundaries).
+- **OCR**: EasyOCR or DocTR (reads Set Code and Name).
+- **Matching**: YOLOv8 Classification (matches artwork against known database).
 
-## 3. Debug Lab
-The Debug Lab offers advanced controls and visualization.
-- **Settings**: Changes made here (Rotation, Thresholds, Tracks) apply to the Live Scan view as well.
-- **Visualization**: See exactly what the AI sees—the cropped card, the OCR text detected, and the match candidates.
-- **Manual Upload**: You can upload a static image file to test the scanner without a webcam.
+## 2. Scanning Workflow
 
-![Debug Lab](images/scanner_debug.png)
+### Step 1: Prepare
+Navigate to the **Scan Cards** tab. Select your webcam from the dropdown in the left panel.
+Select a **Target Collection** in the header (this is where confirmed cards will eventually go).
+
+### Step 2: Scan
+1. Place a card in the center of the camera view.
+2. Click **CAPTURE & SCAN** (or press Spacebar if focused).
+3. The system will:
+    - Detect and crop the card.
+    - Read the Set Code (e.g., `LOB-EN001`).
+    - Match the artwork to verify the identity.
+    - Check for "1st Edition" text.
+
+### Step 3: Review
+- **Success**: The card is automatically added to the **Recent Scans** list on the right.
+- **Ambiguous**: If the scanner is unsure (e.g., multiple rarities exist for that code), an **Ambiguity Dialog** will appear asking you to confirm the correct version.
+- **Failure**: A notification will alert you if no card was found. Try adjusting lighting or card angle.
+
+### Step 4: Commit
+The **Recent Scans** list acts as a staging area. You can:
+- **Edit**: Click a card to change condition/language.
+- **Batch Update**: Use the checkboxes in the header to set Language/Condition for all items.
+- **Commit**: Click the **COMMIT** button to move all recent scans into your Target Collection.
+
+## 3. Configuration & Debugging
+
+### Scan Settings
+- **OCR Engine**: Switch between EasyOCR (faster) and DocTR (more accurate).
+- **Preprocessing**: Adjust how the card is cropped (Classic vs AI).
+- **Art Matching**: Toggle artwork verification (slower but more accurate).
+
+### Debug Lab
+The **Debug Lab** tab allows you to visualize every step of the pipeline.
+- **Warped View**: See exactly what the OCR engine sees.
+- **ROI Visualization**: See where the scanner is looking for text.
+- **Log**: Detailed execution logs for troubleshooting.
+
+This is useful if specific cards are failing to scan.
