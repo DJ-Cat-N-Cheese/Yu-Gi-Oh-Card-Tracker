@@ -1213,6 +1213,16 @@ class ScanPage:
 
                 is_moving = score > self.motion_threshold
 
+                # Debug logging (throttled)
+                if int(time.time() * 10) % 10 == 0:
+                     logger.info(f"AutoLoop: Score={score:.2f} Moving={is_moving} Still={self.consecutive_still_frames} InProg={self.scan_in_progress}")
+
+                # Visual Feedback
+                if self.auto_mode_btn:
+                    status_icon = 'stop' if is_moving else 'camera'
+                    self.auto_mode_btn.text = f'Stop Auto (M: {score:.0f})'
+                    # self.auto_mode_btn.icon = status_icon # leads to flickering
+
                 # 2. State Machine
                 if self.waiting_for_movement:
                     if is_moving:
