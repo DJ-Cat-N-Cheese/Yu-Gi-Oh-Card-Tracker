@@ -244,12 +244,11 @@ class AmbiguityDialog(ui.dialog):
             # For "Other", we don't have a set code. Show all images for the CARD.
             relevant_vars = variants
         else:
-            relevant_vars = [v for v in variants if v['set_code'] == self.selected_set_code]
-            # Fallback: if selected_set_code (e.g. OCR) isn't in DB variants exactly,
-            # try to find variants with same base code.
-            if not relevant_vars:
-                 norm_sel = normalize_set_code(self.selected_set_code)
-                 relevant_vars = [v for v in variants if normalize_set_code(v['set_code']) == norm_sel]
+            # BROADENED SEARCH: Use normalized set code to find all equivalent variants (e.g. EN and DE)
+            # This ensures that if a non-English code is selected (which might lack images),
+            # we still show images from the English equivalent.
+            norm_sel = normalize_set_code(self.selected_set_code)
+            relevant_vars = [v for v in variants if normalize_set_code(v['set_code']) == norm_sel]
 
         # 1. Artstyles (Image IDs)
         # Create map: Image ID -> Label
