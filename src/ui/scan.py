@@ -419,6 +419,10 @@ class ScanPage:
                            value=self.default_condition,
                            on_change=lambda e: [setattr(self, 'default_condition', e.value), persistence.save_ui_state({'scan_default_cond': e.value})]).props('dense options-dense borderless').classes('w-28')
 
+                 # Ensure value is in options to prevent ValueError on render
+                 if self.default_storage not in self.target_storage_options:
+                     self.default_storage = None
+
                  ui.select(self.target_storage_options, label='Storage',
                            value=self.default_storage,
                            on_change=lambda e: [setattr(self, 'default_storage', e.value), persistence.save_ui_state({'scan_default_storage': e.value})]).props('dense options-dense borderless').classes('w-32')
