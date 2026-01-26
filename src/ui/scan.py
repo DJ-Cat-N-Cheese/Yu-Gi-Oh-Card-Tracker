@@ -2089,7 +2089,8 @@ def scan_page():
                         with ui.row().classes('w-full items-center gap-2'):
                              page.camera_select = ui.select(options={}, label='Camera').classes('flex-grow').props('dense options-dense')
                              page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam dense').classes('w-auto px-4')
-                             page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative dense').classes('w-auto px-4 hidden')
+                             page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative dense').classes('w-auto px-4')
+                             page.stop_btn.visible = False
 
                     # Status Bar
                     page.render_status_controls()
