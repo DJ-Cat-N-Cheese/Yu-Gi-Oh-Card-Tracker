@@ -274,6 +274,8 @@ class StoragePage:
         self.filter_dialog = None
 
         self.storage_dialog = StorageDialog(self.on_storage_save)
+        self.save_lock = asyncio.Lock()
+        self.save_task = None
 
     async def load_data(self):
         if self.state['selected_collection_file']:
@@ -316,9 +318,38 @@ class StoragePage:
             await self.load_detail_rows()
             self.render_content.refresh()
 
-    async def save_current_collection(self):
+    async def _perform_save(self):
+        """Internal method to perform the save with locking."""
         if self.state['current_collection'] and self.state['selected_collection_file']:
-            await run.io_bound(persistence.save_collection, self.state['current_collection'], self.state['selected_collection_file'])
+            async with self.save_lock:
+                await run.io_bound(persistence.save_collection, self.state['current_collection'], self.state['selected_collection_file'])
+                logger.info(f"Saved collection {self.state['selected_collection_file']}")
+
+    def schedule_save(self):
+        """Debounced save: schedules a save in the future, cancelling any pending one."""
+        if self.save_task:
+            self.save_task.cancel()
+
+        async def delayed_save():
+            try:
+                await asyncio.sleep(2.0)
+                await self._perform_save()
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:
+                logger.error(f"Error in debounced save: {e}")
+                ui.notify(f"Auto-save failed: {e}", type='negative')
+            finally:
+                self.save_task = None
+
+        self.save_task = asyncio.create_task(delayed_save())
+
+    async def save_immediately(self):
+        """Cancels any pending debounced save and saves immediately."""
+        if self.save_task:
+            self.save_task.cancel()
+            self.save_task = None
+        await self._perform_save()
 
     async def on_storage_save(self, original_name, data):
         col = self.state['current_collection']
@@ -342,7 +373,7 @@ class StoragePage:
                         ui.notify(f"Updated card references for rename.", type='positive')
 
                 # Save Collection
-                await self.save_current_collection()
+                await self.save_immediately()
 
                 # Update current_storage reference
                 if self.state['current_storage'] and self.state['current_storage']['name'] == original_name:
@@ -353,7 +384,7 @@ class StoragePage:
                 col, data['name'], data['type'], data['description'], data['image_path'], data['set_code']
             )
             if success:
-                await self.save_current_collection()
+                await self.save_immediately()
                 ui.notify('Storage created', type='positive')
 
         if not success:
@@ -839,7 +870,7 @@ class StoragePage:
                 msg = "Not enough copies in storage!"
 
         if success:
-            await self.save_current_collection()
+            self.schedule_save()
             ui.notify(msg, type='positive')
             await self.load_detail_rows()
             self.render_detail_grid.refresh()

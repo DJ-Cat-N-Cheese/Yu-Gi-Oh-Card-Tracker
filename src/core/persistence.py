@@ -1,6 +1,7 @@
 import json
 import yaml
 import os
+import time
 import logging
 from typing import List, Optional
 from src.core.models import Collection, Deck
@@ -62,7 +63,17 @@ class PersistenceManager:
                 f.flush()
                 os.fsync(f.fileno())
 
-            os.replace(temp_filepath, filepath)
+            # Retry logic for Windows file locking issues
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    os.replace(temp_filepath, filepath)
+                    break
+                except PermissionError as e:
+                    if attempt < max_retries - 1:
+                        time.sleep(0.1)  # Wait a bit before retrying
+                    else:
+                        raise e
         except Exception as e:
             logger.error(f"Error saving collection {filename}: {e}")
             if os.path.exists(temp_filepath):
