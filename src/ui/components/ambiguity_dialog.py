@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Optional, Callable
 import logging
 import asyncio
 
-from src.core.utils import is_set_code_compatible, normalize_set_code, REGION_TO_LANGUAGE_MAP
+from src.core.utils import is_set_code_compatible, normalize_set_code, transform_set_code, REGION_TO_LANGUAGE_MAP
 from src.services.ygo_api import ygo_service
 from src.services.image_manager import image_manager
 
@@ -200,6 +200,11 @@ class AmbiguityDialog(ui.dialog):
              if is_valid:
                  codes.add(self.ocr_set_id)
 
+             # Also add transformed set code if applicable
+             transformed_ocr = transform_set_code(self.ocr_set_id, self.selected_language)
+             if transformed_ocr != self.ocr_set_id:
+                 codes.add(transformed_ocr)
+
         # Also ensure current selected Set Code is preserved if valid (e.g. if it came from a candidate)
         if self.selected_set_code and self.selected_set_code != "Other":
              # Check if it matches any variant via normalization
@@ -265,6 +270,9 @@ class AmbiguityDialog(ui.dialog):
         if self.selected_image_id not in image_ids:
             if image_ids:
                 self.selected_image_id = image_ids[0]
+            elif self.full_card_data and self.full_card_data.card_images:
+                 # Fallback to card default if variants have no specific images
+                 self.selected_image_id = self.full_card_data.card_images[0].id
 
         self.artstyle_select.value = self.selected_image_id
         self.artstyle_select.update()
@@ -337,6 +345,10 @@ class AmbiguityDialog(ui.dialog):
 
         variant_id = None
         image_id = self.selected_image_id
+
+        # FAILSAFE: If no image_id selected, try to get one from full_card_data
+        if not image_id and self.full_card_data and self.full_card_data.card_images:
+            image_id = self.full_card_data.card_images[0].id
 
         if self.selected_set_code == "Other":
             final_set_code = self.other_set_code_val
