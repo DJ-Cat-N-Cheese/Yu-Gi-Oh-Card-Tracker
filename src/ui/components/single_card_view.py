@@ -25,7 +25,7 @@ class SingleCardView:
     def _is_variant_equivalent(self, variant_set_code: str, target_set_code: str, target_language: str) -> bool:
         """
         Checks if a variant's set code is equivalent to the target set code for a specific language.
-        Handles legacy region codes (e.g. 'G' vs 'DE').
+        Handles legacy region codes (e.g. 'G' vs 'DE') and cases where one code lacks a region.
         """
         if variant_set_code == target_set_code:
             return True
