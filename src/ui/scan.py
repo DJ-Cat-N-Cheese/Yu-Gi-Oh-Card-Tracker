@@ -556,6 +556,13 @@ class ScanPage:
             ui.notify(f"Failed to initialize data: {e}", type='negative')
 
     async def load_data(self):
+        # Reload from disk to ensure consistency if external changes happened or sync needed
+        # Actually, self.recent_collection should be the source of truth.
+        # But if 'load_recent_scans' wasn't called in init_data or constructor correctly, it might be stale?
+        # Constructor calls load_recent_scans().
+        # But let's reload just in case to match the persistence.
+        # self.load_recent_scans() # Warning: This is sync and might block IO if file is large.
+
         # Build view model from recent_collection
         entries = await run.io_bound(_build_collection_entries, self.recent_collection, self.api_card_map)
         self.col_state['collection_cards'] = entries
@@ -777,11 +784,11 @@ class ScanPage:
 
         # If target change is newer AND it's a Batch Add from Scan, undo it.
         if target_time > scan_time and last_target_change and last_target_change.get('description') == 'Batch Add from Scan':
-             self.undo_add_all()
+             await self.undo_add_all()
              return
 
         # Else undo recent scan action
-        self.undo_recent_scan()
+        await self.undo_recent_scan()
 
     async def process_batch_update(self, entries: List[BulkCollectionEntry]):
         if not self.recent_collection: return
@@ -1059,10 +1066,8 @@ class ScanPage:
         """Loads scans from temp file, handling migration from list to Collection."""
         temp_path = "data/scans/scans_temp.json"
 
-        # Reset
-        self.recent_collection = Collection(name="Recent Scans")
-
         if not os.path.exists(temp_path):
+            self.recent_collection = Collection(name="Recent Scans")
             return
 
         try:
@@ -1071,6 +1076,8 @@ class ScanPage:
 
             if isinstance(data, list):
                 logger.info("Migrating Recent Scans from List to Collection...")
+                # Reset
+                self.recent_collection = Collection(name="Recent Scans")
                 # Migration Logic
                 for item in data:
                      card_id = item.get('card_id')
@@ -2078,7 +2085,8 @@ def scan_page():
                     page.render_status_controls()
 
                     # Camera Feed
-                    with ui.card().classes('w-full flex-grow p-0 overflow-hidden relative bg-black border border-gray-700'):
+                    # Changed from flex-grow to aspect-video to match standard webcam 16:9 ratio and prevent vertical stretching
+                    with ui.card().classes('w-full aspect-video p-0 overflow-hidden relative bg-black border border-gray-700'):
                         ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
                         ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
 
