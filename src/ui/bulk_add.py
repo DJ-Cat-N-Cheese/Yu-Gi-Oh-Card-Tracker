@@ -5,7 +5,7 @@ from src.core.config import config_manager
 from src.services.ygo_api import ygo_service, ApiCard
 from src.services.image_manager import image_manager
 from src.services.collection_editor import CollectionEditor
-from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code, LANGUAGE_COUNTRY_MAP
+from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code, transform_set_code, LANGUAGE_COUNTRY_MAP
 from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
@@ -579,11 +579,17 @@ class BulkAddPage:
             if not image_id and api_card.card_images:
                 image_id = api_card.card_images[0].id
 
+            # Transform Set Code
+            final_set_code = transform_set_code(set_code, defaults['lang'])
+            if final_set_code != set_code:
+                # If set code changed, we cannot reuse the variant_id from the original set code
+                variant_id = None
+
             # Apply Change In-Memory
             CollectionEditor.apply_change(
                 collection=collection,
                 api_card=api_card,
-                set_code=set_code,
+                set_code=final_set_code,
                 rarity=rarity,
                 language=defaults['lang'],
                 quantity=qty,
@@ -598,7 +604,7 @@ class BulkAddPage:
             # Prepare log entry
             # Need variant_id if it was generated/found
             if not variant_id:
-                 variant_id = generate_variant_id(api_card.id, set_code, rarity, image_id)
+                 variant_id = generate_variant_id(api_card.id, final_set_code, rarity, image_id)
 
             processed_changes.append({
                 'action': 'ADD',
@@ -606,7 +612,7 @@ class BulkAddPage:
                 'card_data': {
                     'card_id': api_card.id,
                     'name': api_card.name,
-                    'set_code': set_code,
+                    'set_code': final_set_code,
                     'rarity': rarity,
                     'image_id': image_id,
                     'language': defaults['lang'],
@@ -635,9 +641,11 @@ class BulkAddPage:
             ui.notify("No valid cards found to add (check database update?)", type='warning')
 
     async def add_card_to_collection(self, entry: LibraryEntry, lang, cond, first, qty):
+        final_set_code = transform_set_code(entry.set_code, lang)
+
         success = await self._update_collection(
             api_card=entry.api_card,
-            set_code=entry.set_code,
+            set_code=final_set_code,
             rarity=entry.rarity,
             lang=lang,
             qty=qty,
@@ -650,11 +658,11 @@ class BulkAddPage:
 
         if success:
              # Log Change
-             var_id = generate_variant_id(entry.api_card.id, entry.set_code, entry.rarity, entry.image_id)
+             var_id = generate_variant_id(entry.api_card.id, final_set_code, entry.rarity, entry.image_id)
              card_data = {
                 'card_id': entry.api_card.id,
                 'name': entry.api_card.name,
-                'set_code': entry.set_code,
+                'set_code': final_set_code,
                 'rarity': entry.rarity,
                 'image_id': entry.image_id,
                 'language': lang,
@@ -841,20 +849,30 @@ class BulkAddPage:
             # So the Variant ID should be the SAME.
             # So we CAN reuse entry.variant_id.
 
+            final_set_code = transform_set_code(entry.set_code, new_lang)
+            final_variant_id = entry.variant_id
+
+            if final_set_code != entry.set_code:
+                # Set code changed (e.g. EN -> DE), so we need a new variant ID
+                final_variant_id = None
+
             CollectionEditor.apply_change(
                 collection=collection,
                 api_card=entry.api_card,
-                set_code=entry.set_code,
+                set_code=final_set_code,
                 rarity=entry.rarity,
                 language=new_lang,
                 quantity=qty,
                 condition=new_cond,
                 first_edition=new_first,
                 image_id=entry.image_id,
-                variant_id=entry.variant_id, # Re-use variant ID as basic properties (set/rarity) haven't changed
+                variant_id=final_variant_id, # Re-use variant ID as basic properties (set/rarity) haven't changed
                 mode='ADD',
                 storage_location=new_storage
             )
+
+            if not final_variant_id:
+                final_variant_id = generate_variant_id(entry.api_card.id, final_set_code, entry.rarity, entry.image_id)
 
             processed_changes.append({
                 'action': 'UPDATE',
@@ -862,13 +880,13 @@ class BulkAddPage:
                 'card_data': {
                     'card_id': entry.api_card.id,
                     'name': entry.api_card.name,
-                    'set_code': entry.set_code,
+                    'set_code': final_set_code,
                     'rarity': entry.rarity,
                     'image_id': entry.image_id,
                     'language': new_lang,
                     'condition': new_cond,
                     'first_edition': new_first,
-                    'variant_id': entry.variant_id,
+                    'variant_id': final_variant_id,
                     'storage_location': new_storage
                 },
                 'old_data': {
@@ -952,12 +970,13 @@ class BulkAddPage:
         collection = self.current_collection_obj
 
         for entry in entries:
-            variant_id = generate_variant_id(entry.api_card.id, entry.set_code, entry.rarity, entry.image_id)
+            final_set_code = transform_set_code(entry.set_code, lang)
+            variant_id = generate_variant_id(entry.api_card.id, final_set_code, entry.rarity, entry.image_id)
 
             CollectionEditor.apply_change(
                 collection=collection,
                 api_card=entry.api_card,
-                set_code=entry.set_code,
+                set_code=final_set_code,
                 rarity=entry.rarity,
                 language=lang,
                 quantity=1,
@@ -975,7 +994,7 @@ class BulkAddPage:
                 'card_data': {
                     'card_id': entry.api_card.id,
                     'name': entry.api_card.name,
-                    'set_code': entry.set_code,
+                    'set_code': final_set_code,
                     'rarity': entry.rarity,
                     'image_id': entry.image_id,
                     'language': lang,
