@@ -296,8 +296,16 @@ class ScanPage:
         self.recent_collection: Collection = Collection(name="Recent Scans")
         self.target_collection_file = None
         self.collections = persistence.list_collections()
+
+        # Load UI state for persistence
+        ui_state = persistence.load_ui_state()
+        saved_target = ui_state.get('scan_target_collection')
+
         if self.collections:
-            self.target_collection_file = self.collections[0]
+            if saved_target and saved_target in self.collections:
+                self.target_collection_file = saved_target
+            else:
+                self.target_collection_file = self.collections[0]
 
         self.camera_select = None
         self.start_btn = None
@@ -337,9 +345,6 @@ class ScanPage:
 
         # --- NEW: Filter & Gallery State (Ported from BulkAddPage) ---
         page_size = app_config.get_bulk_add_page_size() # Reuse setting
-
-        # Load UI state for persistence
-        ui_state = persistence.load_ui_state()
 
         # Initialize defaults from persistence
         self.default_language = ui_state.get('scan_default_lang', 'EN')
@@ -401,6 +406,7 @@ class ScanPage:
              if self.collections:
                  async def on_col_change(e):
                      self.target_collection_file = e.value
+                     persistence.save_ui_state({'scan_target_collection': e.value})
                      self.check_undo_add_all_availability()
                      await self.load_target_collection_storage()
 
@@ -2081,9 +2087,9 @@ def scan_page():
                     # Camera Controls & Status
                     with ui.card().classes('w-full p-2 bg-gray-900 border border-gray-700'):
                         with ui.row().classes('w-full items-center gap-2'):
-                             page.camera_select = ui.select(options={}, label='Camera').classes('w-full').props('dense options-dense')
-                             page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam dense').classes('w-full')
-                             page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative dense').classes('w-full hidden')
+                             page.camera_select = ui.select(options={}, label='Camera').classes('flex-grow').props('dense options-dense')
+                             page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam dense').classes('w-auto px-4')
+                             page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative dense').classes('w-auto px-4 hidden')
 
                     # Status Bar
                     page.render_status_controls()
