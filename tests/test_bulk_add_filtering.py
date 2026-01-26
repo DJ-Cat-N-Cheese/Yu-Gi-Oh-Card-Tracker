@@ -86,8 +86,15 @@ class TestBulkAddFiltering(unittest.TestCase):
 
         # Setup run.io_bound to return the collection
         # We patch the 'io_bound' method on the 'run' object in src.ui.bulk_add
+        from src.ui.bulk_add import _build_collection_entries
         with patch('src.ui.bulk_add.run.io_bound', new_callable=AsyncMock) as mock_io:
-            mock_io.return_value = col
+            def side_effect(func, *args, **kwargs):
+                if func == self.persistence_mock.load_collection:
+                    return col
+                if func == _build_collection_entries:
+                    return _build_collection_entries(*args, **kwargs)
+                return None
+            mock_io.side_effect = side_effect
 
             self.page.state['selected_collection'] = "Test Col"
 
@@ -109,7 +116,13 @@ class TestBulkAddFiltering(unittest.TestCase):
                     ])
                 ])
             ])
-            mock_io.return_value = col2
+            def side_effect_2(func, *args, **kwargs):
+                if func == self.persistence_mock.load_collection:
+                    return col2
+                if func == _build_collection_entries:
+                    return _build_collection_entries(*args, **kwargs)
+                return None
+            mock_io.side_effect = side_effect_2
             asyncio.run(self.page.load_collection_data())
 
             entries = self.page.col_state['collection_cards']
