@@ -42,6 +42,10 @@ The **Recent Scans** list acts as a staging area. You can:
 - **Batch Update**: Use the checkboxes in the header to set Language/Condition for all items.
 - **Commit**: Click the **COMMIT** button to move all recent scans into your Target Collection.
 
+### ⚠️ Important Warnings
+- **Multiple Tabs**: Do **NOT** open the Scan page in multiple browser tabs. The ambiguity popup may be sent to the wrong tab, causing the interface to hang or misbehave.
+- **Low Res Images**: Before using the "Art Style Match" feature (YOLO), ensure you have downloaded all low-resolution images from the **Settings** menu. The matcher needs these local files to function.
+
 ## 3. Configuration & Debugging
 
 ### Scan Settings
