@@ -13,7 +13,9 @@ DEFAULT_CONFIG = {
     "art_match_yolo": True,
     "ambiguity_threshold": 10.0,
     "rotation": 0,
-    "scan_overlay_duration": 1000
+    "scan_overlay_duration": 1000,
+    "auto_scan_timeout": 3.0,
+    "motion_threshold": 5.0
 }
 
 def load_config() -> Dict[str, Any]:
