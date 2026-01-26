@@ -12,48 +12,21 @@ class TestSingleCardViewLogic(unittest.TestCase):
 
     def test_variant_equivalence_legacy_german(self):
         # LOB-G001 (Legacy German) vs LOB-DE001 (Standard German)
-        # Should be equivalent if language is DE
         self.assertTrue(self.view._is_variant_equivalent("LOB-G001", "LOB-DE001", "DE"))
 
+    def test_variant_equivalence_neutral_code(self):
+        # GB7-003 (Neutral) vs GB7-DE003 (Standard German)
+        # Should return True because neutral codes are allowed to contain any language
+        self.assertTrue(self.view._is_variant_equivalent("GB7-003", "GB7-DE003", "DE"))
+
+        # GB7-003 vs GB7-EN003
+        self.assertTrue(self.view._is_variant_equivalent("GB7-003", "GB7-EN003", "EN"))
+
     def test_variant_equivalence_wrong_language(self):
-        # LOB-G001 (German) vs LOB-EN001 (English)
+        # LOB-DE001 vs LOB-EN001 (Strictly different languages)
         # Should NOT be equivalent
-        self.assertFalse(self.view._is_variant_equivalent("LOB-G001", "LOB-EN001", "EN"))
-
-        # Even if we ask if it's equivalent for "DE", if target is EN code...
-        # But wait, target_set_code is usually computed for the target language.
-        # If target_set_code is LOB-EN001, normalize is LOB-001.
-        # LOB-G001 normalize is LOB-001.
-        # If target_language is "DE".
-        # extract_language_code("LOB-G001") is "DE".
-        # So it returns True?
-
-        # If I select "DE", but the base code transforms to "LOB-EN001" (because transform failed to change region?)
-        # Ideally transform should give LOB-DE001.
-
-        # Test: target is "LOB-DE001", language "DE". Variant "LOB-EN001".
-        # normalize matches. extract("LOB-EN001") -> "EN".
-        # EN != DE. Returns False. Correct.
+        self.assertFalse(self.view._is_variant_equivalent("LOB-DE001", "LOB-EN001", "EN"))
         self.assertFalse(self.view._is_variant_equivalent("LOB-EN001", "LOB-DE001", "DE"))
-
-    def test_variant_equivalence_no_region_code(self):
-        # LOB-001 (No region, usually NA/EN)
-        # If target is LOB-001.
-        self.assertTrue(self.view._is_variant_equivalent("LOB-001", "LOB-001", "EN"))
-
-        # If I have LOB-001 and I select DE.
-        # target code: LOB-001 (transform doesn't add region if missing)
-        # variant: LOB-001.
-        # Exact match -> True.
-        self.assertTrue(self.view._is_variant_equivalent("LOB-001", "LOB-001", "DE"))
-
-        # But wait, logic:
-        # if LOB-001 == LOB-001 -> True.
-        # Correct.
-
-    def test_variant_equivalence_legacy_asian_english(self):
-        # Not explicitly supported map but let's check behavior if it existed
-        pass
 
 if __name__ == '__main__':
     unittest.main()

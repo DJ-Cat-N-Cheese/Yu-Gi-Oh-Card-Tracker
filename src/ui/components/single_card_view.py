@@ -29,9 +29,19 @@ class SingleCardView:
         """
         if variant_set_code == target_set_code:
             return True
-        if (normalize_set_code(variant_set_code) == normalize_set_code(target_set_code) and
-            extract_language_code(variant_set_code) == target_language):
-            return True
+        if normalize_set_code(variant_set_code) == normalize_set_code(target_set_code):
+            # If normalized codes match, we check if the language is compatible.
+            # 1. If the variant set code matches the target language (e.g. "LOB-DE001" vs "DE").
+            # 2. If the variant set code is "neutral" (no region, e.g. "LOB-001"), it can contain entries of ANY language.
+            #    So we trust the entry-level check (done later) and match here.
+
+            # Check for neutrality: If the code is already normalized, it has no region.
+            if variant_set_code == normalize_set_code(variant_set_code):
+                return True
+
+            if extract_language_code(variant_set_code) == target_language:
+                return True
+
         return False
 
     def _setup_high_res_image_logic(self, img_id: int, high_res_remote_url: str, low_res_url: str, image_element: ui.image, current_id_check: Callable[[], bool] = None):
