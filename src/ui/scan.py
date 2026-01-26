@@ -22,11 +22,88 @@ from src.core.models import Collection, CollectionCard, CollectionVariant, Colle
 from src.services.collection_editor import CollectionEditor
 from src.services.undo_service import UndoService
 from src.services.ygo_api import ygo_service
+from src.services.image_manager import image_manager
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
+from src.ui.components.filter_pane import FilterPane
+from src.ui.components.single_card_view import SingleCardView
 from src.core import config_manager
+from src.core.config import config_manager as app_config
 from src.core.changelog_manager import changelog_manager
+from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
+from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code, LANGUAGE_COUNTRY_MAP
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
+
+@dataclass
+class BulkCollectionEntry:
+    id: str # Unique ID for UI
+    api_card: ApiCard
+    quantity: int
+    set_code: str
+    set_name: str
+    rarity: str
+    language: str
+    condition: str
+    first_edition: bool
+    image_url: str
+    image_id: int
+    variant_id: str
+    storage_location: Optional[str] = None
+    price: float = 0.0
+
+def _build_collection_entries(col: Collection, api_card_map: Dict[int, ApiCard]) -> List[BulkCollectionEntry]:
+    entries = []
+    if not col or not col.cards:
+        return entries
+
+    for card in col.cards:
+        api_card = api_card_map.get(card.card_id)
+        if not api_card:
+            # Fallback if card not in map (shouldn't happen often if we load map correctly)
+            api_card = ApiCard(id=card.card_id, name=card.name, type="", frameType="", desc="")
+
+        for variant in card.variants:
+            img_id = variant.image_id
+            img_url = None
+            # Attempt to resolve URL
+            if api_card.card_images:
+                 if img_id:
+                     for img in api_card.card_images:
+                         if img.id == img_id:
+                             img_url = img.image_url_small
+                             break
+                 if not img_url:
+                     img_url = api_card.card_images[0].image_url_small
+
+            set_name = "Unknown Set"
+            if api_card.card_sets:
+                for s in api_card.card_sets:
+                     if s.set_code == variant.set_code:
+                         set_name = s.set_name
+                         break
+
+            for entry in variant.entries:
+                # Include storage_location in ID to distinguish stacks
+                loc_str = str(entry.storage_location) if entry.storage_location else "None"
+                unique_id = f"{variant.variant_id}_{entry.language}_{entry.condition}_{entry.first_edition}_{loc_str}"
+                entries.append(BulkCollectionEntry(
+                    id=unique_id,
+                    api_card=api_card,
+                    quantity=entry.quantity,
+                    set_code=variant.set_code,
+                    set_name=set_name,
+                    rarity=variant.rarity,
+                    language=entry.language,
+                    condition=entry.condition,
+                    first_edition=entry.first_edition,
+                    image_url=img_url,
+                    image_id=img_id,
+                    variant_id=variant.variant_id,
+                    storage_location=entry.storage_location,
+                    price=0.0
+                ))
+    return entries
 
 JS_CAMERA_CODE = """
 <script>
@@ -258,6 +335,649 @@ class ScanPage:
         self.expansion_states = {}
         self.undo_add_all_btn = None
 
+        # --- NEW: Filter & Gallery State (Ported from BulkAddPage) ---
+        page_size = app_config.get_bulk_add_page_size() # Reuse setting
+
+        # Load UI state for persistence
+        ui_state = persistence.load_ui_state()
+
+        # Initialize defaults from persistence
+        self.default_language = ui_state.get('scan_default_lang', 'EN')
+        self.default_condition = ui_state.get('scan_default_cond', 'Near Mint') # Replaces self.default_condition initialization above if different, but consistent
+        self.default_first_ed = ui_state.get('scan_default_first', False)
+        self.default_storage = ui_state.get('scan_default_storage', None)
+
+        self.update_apply_lang = ui_state.get('scan_update_apply_lang', False)
+        self.update_apply_cond = ui_state.get('scan_update_apply_cond', False)
+        self.update_apply_first = ui_state.get('scan_update_apply_first', False)
+        self.update_apply_storage = ui_state.get('scan_update_apply_storage', False)
+
+        self.col_state = {
+            'collection_cards': [], # List[BulkCollectionEntry]
+            'collection_filtered': [],
+            'collection_page': 1,
+            'collection_page_size': page_size,
+            'collection_total_pages': 1,
+            'search_text': '',
+            'sort_by': ui_state.get('scan_sort_by', 'Newest'),
+            'sort_desc': ui_state.get('scan_sort_desc', True),
+
+            # Filters
+            'filter_set': '',
+            'filter_rarity': '',
+            'filter_attr': '',
+            'filter_card_type': ['Monster', 'Spell', 'Trap'],
+            'filter_monster_race': '',
+            'filter_st_race': '',
+            'filter_archetype': '',
+            'filter_monster_category': [],
+            'filter_level': None,
+            'filter_atk_min': 0, 'filter_atk_max': 5000,
+            'filter_def_min': 0, 'filter_def_max': 5000,
+            'filter_price_min': 0.0, 'filter_price_max': 1000.0,
+            'filter_ownership_min': 0, 'filter_ownership_max': 100,
+            'filter_condition': [], 'filter_owned_lang': '',
+
+            # Metadata Placeholders (Will be populated by init_data)
+            'available_sets': [],
+            'available_monster_races': [],
+            'available_st_races': [],
+            'available_archetypes': [],
+            'available_card_types': ['Monster', 'Spell', 'Trap', 'Skill'],
+        }
+
+        self.single_card_view = SingleCardView()
+        self.collection_filter_pane = None
+        self.api_card_map = {} # Cache for fast lookup
+
+        # Debounced save task
+        self.save_task = None
+        self.target_storage_options = {None: 'None'}
+
+    @ui.refreshable
+    def render_header(self):
+        with ui.row().classes('w-full items-center justify-between p-2 bg-gray-900 border-b border-gray-800 gap-4'):
+             # Left: Collection Select
+             if self.collections:
+                 async def on_col_change(e):
+                     self.target_collection_file = e.value
+                     self.check_undo_add_all_availability()
+                     await self.load_target_collection_storage()
+
+                 ui.select(options=self.collections, value=self.target_collection_file, label='Target Collection',
+                           on_change=on_col_change).classes('w-64').props('outlined dense options-dense')
+
+             ui.space()
+
+             # Center: Defaults
+             with ui.row().classes('items-center gap-2 bg-gray-800 p-1 rounded border border-gray-700'):
+                 ui.label('DEFAULTS:').classes('text-accent font-bold text-xs mr-2')
+                 ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
+                           value=self.default_language,
+                           on_change=lambda e: [setattr(self, 'default_language', e.value), persistence.save_ui_state({'scan_default_lang': e.value})]).props('dense options-dense borderless').classes('w-16')
+                 ui.select(CARD_CONDITIONS, label='Cond',
+                           value=self.default_condition,
+                           on_change=lambda e: [setattr(self, 'default_condition', e.value), persistence.save_ui_state({'scan_default_cond': e.value})]).props('dense options-dense borderless').classes('w-28')
+
+                 # Ensure value is in options to prevent ValueError on render
+                 if self.default_storage not in self.target_storage_options:
+                     self.default_storage = None
+
+                 ui.select(self.target_storage_options, label='Storage',
+                           value=self.default_storage,
+                           on_change=lambda e: [setattr(self, 'default_storage', e.value), persistence.save_ui_state({'scan_default_storage': e.value})]).props('dense options-dense borderless').classes('w-32')
+
+             # Right: Commit
+             ui.button('COMMIT', on_click=self.commit_cards).props('color=positive icon=save').classes('font-bold px-6')
+
+    async def load_target_collection_storage(self):
+        if not self.target_collection_file:
+            self.target_storage_options = {None: 'None'}
+            return
+
+        try:
+            # We need to load the collection to get storage definitions
+            col = persistence.load_collection(self.target_collection_file)
+            opts = {None: 'None'}
+            for s in col.storage_definitions:
+                opts[s.name] = s.name
+            self.target_storage_options = opts
+
+            # Validate selected storage
+            if self.default_storage not in opts:
+                self.default_storage = None
+
+            self.render_header.refresh()
+        except Exception as e:
+            logger.error(f"Failed to load target collection storage: {e}")
+
+    @ui.refreshable
+    def render_recent_scans_header(self):
+        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('text-h6 font-bold whitespace-nowrap')
+
+            with ui.row().classes('items-center gap-1 flex-nowrap'):
+                # Undo
+                ui.button(icon='undo', on_click=self.undo_last_action).props('flat dense color=white').tooltip("Undo last action")
+
+                ui.separator().props('vertical')
+
+                # Update Controls
+                with ui.row().classes('gap-1 items-center bg-gray-800 rounded px-1 border border-gray-700'):
+                    ui.button("UPDATE", on_click=self.on_update_all_click).props('flat dense color=warning size=sm').classes('font-bold')
+                    ui.checkbox('Lang', value=self.update_apply_lang,
+                                on_change=lambda e: [setattr(self, 'update_apply_lang', e.value), persistence.save_ui_state({'scan_update_apply_lang': e.value})]).props('dense size=xs').classes('text-[10px]')
+                    ui.checkbox('Cond', value=self.update_apply_cond,
+                                on_change=lambda e: [setattr(self, 'update_apply_cond', e.value), persistence.save_ui_state({'scan_update_apply_cond': e.value})]).props('dense size=xs').classes('text-[10px]')
+                    ui.checkbox('Storage', value=self.update_apply_storage,
+                                on_change=lambda e: [setattr(self, 'update_apply_storage', e.value), persistence.save_ui_state({'scan_update_apply_storage': e.value})]).props('dense size=xs').classes('text-[10px]')
+
+                ui.button("REMOVE ALL", on_click=self.on_remove_all_click).props('flat dense color=negative size=sm').classes('font-bold')
+
+                ui.separator().props('vertical')
+
+                # Search
+                ui.input(placeholder='Search...',
+                         on_change=lambda e: self.apply_scan_filters()) \
+                    .bind_value(self.col_state, 'search_text') \
+                    .props('dense borderless dark debounce=300') \
+                    .classes('w-32 text-sm')
+
+                ui.separator().props('vertical')
+
+                # Pagination (Mini)
+                async def change_page(delta):
+                     new_p = max(1, min(self.col_state['collection_total_pages'], self.col_state['collection_page'] + delta))
+                     if new_p != self.col_state['collection_page']:
+                         self.col_state['collection_page'] = new_p
+                         self.render_live_list.refresh()
+
+                with ui.row().classes('gap-0 items-center'):
+                    ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense color=white size=sm')
+                    ui.label().bind_text_from(self.col_state, 'collection_page', lambda p: f"{p}/{self.col_state['collection_total_pages']}").classes('text-xs font-mono')
+                    ui.button(icon='chevron_right', on_click=lambda: change_page(1)).props('flat dense color=white size=sm')
+
+                ui.separator().props('vertical')
+
+                # Sort
+                col_sort_opts = ['Newest', 'Name', 'Set Code', 'Quantity', 'Rarity']
+                async def on_sort(e):
+                    self.col_state['sort_by'] = e.value
+                    persistence.save_ui_state({'scan_sort_by': e.value})
+                    await self.apply_scan_filters()
+
+                ui.select(col_sort_opts, value=self.col_state['sort_by'], on_change=on_sort).props('dense options-dense borderless').classes('w-24 text-xs')
+
+                async def toggle_sort():
+                    self.col_state['sort_desc'] = not self.col_state['sort_desc']
+                    persistence.save_ui_state({'scan_sort_desc': self.col_state['sort_desc']})
+                    await self.apply_scan_filters()
+
+                ui.button(on_click=toggle_sort).props('flat dense color=white size=sm').bind_icon_from(self.col_state, 'sort_desc', lambda d: 'arrow_downward' if d else 'arrow_upward')
+
+                # Filter
+                ui.button(icon='filter_list', on_click=self.open_filter_dialog).props('flat dense color=white size=sm')
+
+    async def init_data(self):
+        try:
+            # Load API cards (needed for filters and metadata)
+            lang_code = app_config.get_language().lower()
+            api_cards = await ygo_service.load_card_database(lang_code)
+            self.api_card_map = {c.id: c for c in api_cards}
+
+            # Populate Metadata for Filters
+            sets = set()
+            m_races = set()
+            st_races = set()
+            archetypes = set()
+
+            for c in api_cards:
+                if c.card_sets:
+                    for s in c.card_sets:
+                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
+                if c.archetype: archetypes.add(c.archetype)
+                if "Monster" in c.type: m_races.add(c.race)
+                elif "Spell" in c.type or "Trap" in c.type:
+                    if c.race: st_races.add(c.race)
+
+            self.col_state['available_sets'] = sorted(list(sets))
+            self.col_state['available_monster_races'] = sorted(list(m_races))
+            self.col_state['available_st_races'] = sorted(list(st_races))
+            self.col_state['available_archetypes'] = sorted(list(archetypes))
+
+            # Initial Data Load (Recent Scans -> View Model)
+            await self.load_data()
+
+            # Load Storage for Dropdown
+            await self.load_target_collection_storage()
+
+            # Update Filter Pane if exists
+            if self.collection_filter_pane:
+                self.collection_filter_pane.update_options()
+
+        except Exception as e:
+            logger.error(f"Error in init_data: {e}")
+            ui.notify(f"Failed to initialize data: {e}", type='negative')
+
+    async def load_data(self):
+        # Reload from disk to ensure consistency if external changes happened or sync needed
+        # Actually, self.recent_collection should be the source of truth.
+        # But if 'load_recent_scans' wasn't called in init_data or constructor correctly, it might be stale?
+        # Constructor calls load_recent_scans().
+        # But let's reload just in case to match the persistence.
+        # self.load_recent_scans() # Warning: This is sync and might block IO if file is large.
+
+        # Build view model from recent_collection
+        entries = await run.io_bound(_build_collection_entries, self.recent_collection, self.api_card_map)
+        self.col_state['collection_cards'] = entries
+        await self.apply_scan_filters()
+
+    def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
+        if not card: return
+        target_img = card.card_images[0] if card.card_images else None
+        if specific_image_id and card.card_images:
+            for img in card.card_images:
+                if img.id == specific_image_id:
+                    target_img = img
+                    break
+        if not target_img: return
+
+        img_id = target_img.id
+        high_res_url = target_img.image_url
+        low_res_url = target_img.image_url_small
+        is_local = image_manager.image_exists(img_id, high_res=True)
+        initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+
+        with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none').props('style="max-width: none" delay=5000') as tooltip:
+            if initial_src:
+                ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl').props('fit=contain')
+            if not is_local and high_res_url:
+                async def ensure_high():
+                    if not image_manager.image_exists(img_id, high_res=True):
+                         await image_manager.ensure_image(img_id, high_res_url, high_res=True)
+                tooltip.on('show', ensure_high)
+
+    async def open_single_view_collection(self, entry: BulkCollectionEntry):
+        async def on_save(card, set_code, rarity, language, quantity, condition, first_edition, image_id, variant_id, mode, **kwargs):
+             success = CollectionEditor.apply_change(
+                 collection=self.recent_collection,
+                 api_card=card,
+                 set_code=set_code,
+                 rarity=rarity,
+                 language=language,
+                 quantity=quantity,
+                 condition=condition,
+                 first_edition=first_edition,
+                 image_id=image_id,
+                 variant_id=variant_id,
+                 mode=mode,
+                 storage_location=entry.storage_location
+             )
+
+             if success:
+                 card_data = {
+                    'card_id': card.id,
+                    'name': card.name,
+                    'set_code': set_code,
+                    'rarity': rarity,
+                    'image_id': image_id,
+                    'language': language,
+                    'condition': condition,
+                    'first_edition': first_edition,
+                    'variant_id': variant_id,
+                    'storage_location': entry.storage_location
+                 }
+                 changelog_manager.log_change('scan_temp', mode, card_data, quantity)
+
+                 self.save_recent_scans()
+                 await self.load_data()
+                 ui.notify('Entry updated.', type='positive')
+
+        await self.single_card_view.open_collectors(
+            card=entry.api_card,
+            owned_count=entry.quantity,
+            set_code=entry.set_code,
+            rarity=entry.rarity,
+            set_name=entry.set_name,
+            language=entry.language,
+            condition=entry.condition,
+            first_edition=entry.first_edition,
+            image_url=entry.image_url,
+            image_id=entry.image_id,
+            set_price=entry.price,
+            current_collection=self.recent_collection,
+            save_callback=on_save,
+            variant_id=entry.variant_id,
+            hide_header_stats=False
+        )
+
+    async def reduce_collection_card_qty(self, entry: BulkCollectionEntry):
+        success = CollectionEditor.apply_change(
+            collection=self.recent_collection,
+            api_card=entry.api_card,
+            set_code=entry.set_code,
+            rarity=entry.rarity,
+            language=entry.language,
+            quantity=-1,
+            condition=entry.condition,
+            first_edition=entry.first_edition,
+            image_id=entry.image_id,
+            variant_id=entry.variant_id,
+            mode='ADD',
+            storage_location=entry.storage_location
+        )
+
+        if success:
+             card_data = {
+                'card_id': entry.api_card.id,
+                'name': entry.api_card.name,
+                'set_code': entry.set_code,
+                'rarity': entry.rarity,
+                'image_id': entry.image_id,
+                'language': entry.language,
+                'condition': entry.condition,
+                'first_edition': entry.first_edition,
+                'variant_id': entry.variant_id,
+                'storage_location': entry.storage_location
+             }
+             changelog_manager.log_change('scan_temp', 'REMOVE', card_data, 1)
+             self.save_recent_scans()
+             await self.load_data()
+             ui.notify(f"Removed 1x {entry.api_card.name}", type='info')
+
+    async def apply_scan_filters(self):
+        source = self.col_state['collection_cards']
+        res = list(source)
+        s = self.col_state
+
+        txt = s['search_text'].lower()
+        if txt:
+            def matches(e: BulkCollectionEntry):
+                return (txt in e.api_card.name.lower() or
+                        txt in e.set_code.lower() or
+                        txt in e.api_card.desc.lower())
+            res = [e for e in res if matches(e)]
+
+        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
+        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
+        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
+        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        if s['filter_set']:
+             target = s['filter_set'].split('|')[0].strip().lower()
+             res = [e for e in res if target in e.set_name.lower() or target in e.set_code.lower()]
+        if s['filter_rarity']:
+             target = s['filter_rarity'].lower()
+             res = [e for e in res if e.rarity.lower() == target]
+        if s['filter_monster_category']:
+             cats = s['filter_monster_category']
+             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
+        if s['filter_owned_lang']:
+             res = [e for e in res if e.language == s['filter_owned_lang']]
+        if s['filter_condition']:
+             res = [e for e in res if e.condition in s['filter_condition']]
+
+        key = s['sort_by']
+        reverse = s['sort_desc']
+        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
+        elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
+        elif key == 'Rarity': res.sort(key=lambda x: x.rarity, reverse=reverse)
+        elif key == 'Newest':
+             # Assuming natural order is Oldest -> Newest
+             if reverse:
+                 res.reverse()
+
+        self.col_state['collection_filtered'] = res
+        self.col_state['collection_page'] = 1
+        self.update_pagination()
+        self.render_live_list.refresh()
+
+    def update_pagination(self):
+        count = len(self.col_state['collection_filtered'])
+        self.col_state['collection_total_pages'] = max(1, (count + self.col_state['collection_page_size'] - 1) // self.col_state['collection_page_size'])
+
+    async def reset_scan_filters(self):
+        s = self.col_state
+        s['search_text'] = ''
+        s['filter_set'] = ''
+        s['filter_rarity'] = ''
+        s['filter_attr'] = ''
+        s['filter_card_type'] = ['Monster', 'Spell', 'Trap']
+        s['filter_monster_race'] = ''
+        s['filter_st_race'] = ''
+        s['filter_archetype'] = ''
+        s['filter_monster_category'] = []
+        s['filter_level'] = None
+        s['filter_atk_min'] = 0
+        s['filter_atk_max'] = 5000
+        s['filter_def_min'] = 0
+        s['filter_def_max'] = 5000
+        s['filter_price_min'] = 0.0
+        s['filter_price_max'] = 1000.0
+        s['filter_ownership_min'] = 0
+        s['filter_ownership_max'] = 100
+        s['filter_condition'] = []
+        s['filter_owned_lang'] = ''
+
+        if self.collection_filter_pane:
+            self.collection_filter_pane.reset_ui_elements()
+
+        await self.apply_scan_filters()
+
+    def build_filter_dialog(self):
+        self.collection_filter_dialog = ui.dialog().props('position=right')
+        with self.collection_filter_dialog, ui.card().classes('h-full w-96 bg-gray-900 border-l border-gray-700 p-0 flex flex-col'):
+             with ui.scroll_area().classes('flex-grow w-full'):
+                 self.collection_filter_pane = FilterPane(self.col_state, self.apply_scan_filters, self.reset_scan_filters)
+                 self.collection_filter_pane.build()
+
+    def open_filter_dialog(self):
+        self.collection_filter_dialog.open()
+
+    async def undo_last_action(self):
+        # 1. Check if we should undo a Commit (Add All) - Prioritize commit undo if it's the last action on target
+        last_scan_change = changelog_manager.get_last_change('scan_temp')
+        last_target_change = None
+        if self.target_collection_file:
+            last_target_change = changelog_manager.get_last_change(self.target_collection_file)
+
+        # Compare timestamps
+        scan_time = last_scan_change.get('timestamp', 0) if last_scan_change else 0
+        target_time = last_target_change.get('timestamp', 0) if last_target_change else 0
+
+        # If target change is newer AND it's a Batch Add from Scan, undo it.
+        if target_time > scan_time and last_target_change and last_target_change.get('description') == 'Batch Add from Scan':
+             await self.undo_add_all()
+             return
+
+        # Else undo recent scan action
+        await self.undo_recent_scan()
+
+    async def process_batch_update(self, entries: List[BulkCollectionEntry]):
+        if not self.recent_collection: return
+
+        apply_lang = self.update_apply_lang
+        apply_cond = self.update_apply_cond
+        apply_first = self.update_apply_first
+        apply_storage = self.update_apply_storage # Storage checkmark in update section
+
+        if not (apply_lang or apply_cond or apply_first or apply_storage):
+            ui.notify("No update options selected.", type='warning')
+            return
+
+        defaults = {
+            'lang': self.default_language,
+            'cond': self.default_condition,
+            'first': self.default_first_ed,
+            'storage': self.default_storage
+        }
+
+        processed_changes = []
+        updated_count = 0
+        collection = self.recent_collection
+
+        for entry in entries:
+            new_lang = defaults['lang'] if apply_lang else entry.language
+            new_cond = defaults['cond'] if apply_cond else entry.condition
+            new_storage = defaults['storage'] if apply_storage else entry.storage_location
+            # Logic for first ed? "First Edition" checkbox value.
+            # entry.first_edition is bool. defaults['first'] is bool.
+            new_first = defaults['first'] if apply_first else entry.first_edition
+
+            if (new_lang == entry.language and
+                new_cond == entry.condition and
+                new_first == entry.first_edition and
+                new_storage == entry.storage_location):
+                continue
+
+            qty = entry.quantity
+            if qty <= 0: continue
+
+            # Remove Old
+            CollectionEditor.apply_change(
+                collection=collection,
+                api_card=entry.api_card,
+                set_code=entry.set_code,
+                rarity=entry.rarity,
+                language=entry.language,
+                quantity=-qty,
+                condition=entry.condition,
+                first_edition=entry.first_edition,
+                image_id=entry.image_id,
+                variant_id=entry.variant_id,
+                mode='ADD',
+                storage_location=entry.storage_location
+            )
+
+            # Add New
+            CollectionEditor.apply_change(
+                collection=collection,
+                api_card=entry.api_card,
+                set_code=entry.set_code,
+                rarity=entry.rarity,
+                language=new_lang,
+                quantity=qty,
+                condition=new_cond,
+                first_edition=new_first,
+                image_id=entry.image_id,
+                variant_id=entry.variant_id,
+                mode='ADD',
+                storage_location=new_storage
+            )
+
+            processed_changes.append({
+                'action': 'UPDATE',
+                'quantity': qty,
+                'card_data': {
+                    'card_id': entry.api_card.id,
+                    'name': entry.api_card.name,
+                    'set_code': entry.set_code,
+                    'rarity': entry.rarity,
+                    'image_id': entry.image_id,
+                    'language': new_lang,
+                    'condition': new_cond,
+                    'first_edition': new_first,
+                    'variant_id': entry.variant_id,
+                    'storage_location': new_storage
+                },
+                'old_data': {
+                    'language': entry.language,
+                    'condition': entry.condition,
+                    'first_edition': entry.first_edition,
+                    'storage_location': entry.storage_location
+                }
+            })
+            updated_count += qty
+
+        if processed_changes:
+            self.save_recent_scans()
+            changelog_manager.log_batch_change('scan_temp', f"Batch Update {len(processed_changes)} stacks", processed_changes)
+            ui.notify(f"Updated {len(processed_changes)} entries", type='positive')
+            await self.load_data()
+        else:
+            ui.notify("No entries updated.", type='info')
+
+    async def process_batch_remove(self, entries: List[BulkCollectionEntry]):
+        processed_changes = []
+        collection = self.recent_collection
+
+        for entry in entries:
+            qty = entry.quantity
+            if qty <= 0: continue
+
+            CollectionEditor.apply_change(
+                collection=collection,
+                api_card=entry.api_card,
+                set_code=entry.set_code,
+                rarity=entry.rarity,
+                language=entry.language,
+                quantity=-qty,
+                condition=entry.condition,
+                first_edition=entry.first_edition,
+                image_id=entry.image_id,
+                variant_id=entry.variant_id,
+                mode='ADD',
+                storage_location=entry.storage_location
+            )
+
+            processed_changes.append({
+                'action': 'REMOVE',
+                'quantity': qty,
+                'card_data': {
+                    'card_id': entry.api_card.id,
+                    'name': entry.api_card.name,
+                    'set_code': entry.set_code,
+                    'rarity': entry.rarity,
+                    'image_id': entry.image_id,
+                    'language': entry.language,
+                    'condition': entry.condition,
+                    'first_edition': entry.first_edition,
+                    'variant_id': entry.variant_id,
+                    'storage_location': entry.storage_location
+                }
+            })
+
+        if processed_changes:
+            self.save_recent_scans()
+            changelog_manager.log_batch_change('scan_temp', f"Batch Remove {len(processed_changes)} entries", processed_changes)
+            ui.notify(f"Removed {len(processed_changes)} entries", type='positive')
+            await self.load_data()
+
+    async def on_update_all_click(self):
+        count = len(self.col_state['collection_filtered'])
+        if count == 0:
+            ui.notify("No cards to update.", type='warning')
+            return
+
+        if not (self.update_apply_lang or self.update_apply_cond or self.update_apply_first or self.update_apply_storage):
+            ui.notify("Select at least one property to update.", type='warning')
+            return
+
+        with ui.dialog() as d, ui.card():
+             ui.label(f"Update {count} entries?").classes('text-lg')
+             with ui.row().classes('justify-end'):
+                 ui.button("Cancel", on_click=d.close).props('flat')
+                 async def confirm():
+                     d.close()
+                     await self.process_batch_update(self.col_state['collection_filtered'])
+                 ui.button("Update All", on_click=confirm).props('color=warning')
+        d.open()
+
+    async def on_remove_all_click(self):
+        count = len(self.col_state['collection_filtered'])
+        if count == 0: return
+
+        with ui.dialog() as d, ui.card():
+             ui.label(f"Remove {count} entries?").classes('text-lg')
+             with ui.row().classes('justify-end'):
+                 ui.button("Cancel", on_click=d.close).props('flat')
+                 async def confirm():
+                     d.close()
+                     await self.process_batch_remove(self.col_state['collection_filtered'])
+                 ui.button("Remove All", on_click=confirm).props('color=negative')
+        d.open()
+
     def check_undo_add_all_availability(self):
         if not self.target_collection_file:
             if self.undo_add_all_btn: self.undo_add_all_btn.visible = False
@@ -271,7 +991,7 @@ class ScanPage:
         if self.undo_add_all_btn:
             self.undo_add_all_btn.visible = can_undo
 
-    def undo_add_all(self):
+    async def undo_add_all(self):
         if not self.target_collection_file: return
 
         last_change = changelog_manager.get_last_change(self.target_collection_file)
@@ -321,7 +1041,7 @@ class ScanPage:
                  count += qty
 
             self.save_recent_scans()
-            self.render_live_list.refresh()
+            await self.load_data()
             ui.notify(f"Restored {count} cards to Recent Scans.", type='positive')
 
             self.check_undo_add_all_availability()
@@ -350,10 +1070,8 @@ class ScanPage:
         """Loads scans from temp file, handling migration from list to Collection."""
         temp_path = "data/scans/scans_temp.json"
 
-        # Reset
-        self.recent_collection = Collection(name="Recent Scans")
-
         if not os.path.exists(temp_path):
+            self.recent_collection = Collection(name="Recent Scans")
             return
 
         try:
@@ -362,6 +1080,8 @@ class ScanPage:
 
             if isinstance(data, list):
                 logger.info("Migrating Recent Scans from List to Collection...")
+                # Reset
+                self.recent_collection = Collection(name="Recent Scans")
                 # Migration Logic
                 for item in data:
                      card_id = item.get('card_id')
@@ -427,7 +1147,7 @@ class ScanPage:
             self.debug_report = event.snapshot.model_dump()
         self.event_queue.put(event)
 
-    def on_card_confirmed(self, result_dict: Dict[str, Any]):
+    async def on_card_confirmed(self, result_dict: Dict[str, Any]):
         """Callback from Ambiguity Dialog or direct addition."""
 
         # Save Warped Image logic
@@ -560,7 +1280,7 @@ class ScanPage:
             )
 
             self.save_recent_scans()
-            self.render_live_list.refresh()
+            await self.load_data()
             ui.notify(f"Added: {result_dict.get('name')}", type='positive')
 
     async def event_consumer(self):
@@ -623,14 +1343,14 @@ class ScanPage:
                     dialog.open()
                 else:
                     ui.notify("Scan Successful!", type='positive', timeout=3000)
-                    self.on_card_confirmed(res)
+                    await self.on_card_confirmed(res)
 
                 self.refresh_debug_ui() # Ensure final result is shown
 
         except Exception as e:
             logger.error(f"Error in event_consumer: {e}")
 
-    def undo_recent_scan(self):
+    async def undo_recent_scan(self):
         last_change = changelog_manager.undo_last_change('scan_temp')
         if not last_change:
             ui.notify("Nothing to undo.", type='info')
@@ -645,7 +1365,7 @@ class ScanPage:
                 self._update_entry_timestamp(card_data.get('card_id'), card_data, datetime.now().isoformat())
 
             self.save_recent_scans()
-            self.render_live_list.refresh()
+            await self.load_data()
             ui.notify("Undid last action.", type='positive')
         except Exception as e:
             logger.error(f"Undo failed: {e}")
@@ -843,7 +1563,7 @@ class ScanPage:
             self.recent_collection = Collection(name="Recent Scans")
             self.save_recent_scans()
 
-            self.render_live_list.refresh()
+            await self.load_data()
             self.check_undo_add_all_availability()
 
         except Exception as e:
@@ -983,46 +1703,55 @@ class ScanPage:
 
     @ui.refreshable
     def render_live_list(self):
-        if not self.recent_collection.cards:
-            ui.label("No cards scanned.").classes('text-gray-400 italic')
+        start = (self.col_state['collection_page'] - 1) * self.col_state['collection_page_size']
+        end = min(start + self.col_state['collection_page_size'], len(self.col_state['collection_filtered']))
+        items = self.col_state['collection_filtered'][start:end]
+
+        url_map = {}
+        for item in items:
+            if item.image_url: url_map[item.image_id] = item.image_url
+        if url_map:
+            asyncio.create_task(image_manager.download_batch(url_map, concurrency=5))
+
+        if not items:
+            ui.label('No recent scans found.').classes('text-gray-500 italic w-full text-center mt-10')
             return
 
-        # Flatten entries for display
-        flat_entries = []
-        for card in self.recent_collection.cards:
-            for variant in card.variants:
-                for entry in variant.entries:
-                    flat_entries.append({
-                        'card': card,
-                        'variant': variant,
-                        'entry': entry,
-                        'timestamp': entry.purchase_date or ""
-                    })
+        with ui.grid(columns='repeat(auto-fill, minmax(110px, 1fr))').classes('w-full gap-2 p-2').props('id="scan-list"'):
+            for item in items:
+                img_src = f"/images/{item.image_id}.jpg" if image_manager.image_exists(item.image_id) else item.image_url
 
-        # Sort by timestamp (recency)
-        flat_entries.sort(key=lambda x: x['timestamp'], reverse=True)
+                cond_short = CONDITION_ABBREVIATIONS.get(item.condition, item.condition[:2].upper())
 
-        for item in flat_entries:
-            card = item['card']
-            variant = item['variant']
-            entry = item['entry']
+                with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-accent w-full aspect-[2/3] select-none') \
+                        .on('click', lambda i=item: self.open_single_view_collection(i)) \
+                        .on('contextmenu.prevent', lambda i=item: self.reduce_collection_card_qty(i)):
 
-            with ui.card().classes('w-full mb-2 p-2 flex flex-row items-center gap-4'):
-                # Image
-                if variant.image_id:
-                     # Use official image
-                     ui.image(f"https://images.ygoprodeck.com/images/cards_small/{variant.image_id}.jpg").classes('w-12 h-16 object-contain')
-                else:
-                     ui.icon('image_not_supported').classes('text-4xl text-gray-500')
+                    with ui.element('div').classes('relative w-full h-full'):
+                         ui.image(img_src).classes('w-full h-full object-cover')
 
-                with ui.column().classes('flex-grow'):
-                    ui.label(card.name).classes('font-bold')
-                    ui.label(f"{variant.set_code} - {variant.rarity}").classes('text-xs text-gray-500')
-                    if entry.quantity > 1:
-                        ui.badge(f"x{entry.quantity}", color='red')
+                         lang_code = item.language.strip().upper()
+                         country_code = LANGUAGE_COUNTRY_MAP.get(lang_code)
+                         if country_code:
+                             ui.element('img').props(f'src="https://flagcdn.com/h24/{country_code}.png" alt="{lang_code}"').classes('absolute top-[1px] left-[1px] h-4 w-6 shadow-black drop-shadow-md rounded bg-black/30')
+                         else:
+                             ui.label(lang_code).classes('absolute top-[1px] left-[1px] text-xs font-bold shadow-black drop-shadow-md bg-black/30 rounded px-1')
 
-                ui.button(icon='delete', color='negative',
-                          on_click=lambda c=card, v=variant, e=entry: self.remove_card(c, v, e)).props('flat')
+                         ui.label(f"{item.quantity}").classes('absolute top-1 right-1 bg-accent text-dark font-bold px-2 rounded-full text-xs shadow-md')
+
+                         with ui.column().classes('absolute bottom-0 left-0 bg-black/80 text-white text-[9px] px-1 gap-0 w-full'):
+                             ui.label(item.api_card.name).classes('text-[9px] font-bold text-white leading-none truncate w-full')
+                             with ui.row().classes('w-full justify-between items-center'):
+                                 with ui.row().classes('gap-1'):
+                                     ui.label(cond_short).classes('font-bold text-yellow-500')
+                                     if item.first_edition:
+                                         ui.label('1st').classes('font-bold text-orange-400')
+                                 ui.label(item.set_code).classes('font-mono')
+                             with ui.row().classes('w-full justify-between items-center gap-1'):
+                                 ui.label(item.rarity).classes('text-[8px] text-gray-300 truncate flex-shrink')
+                                 ui.label(item.storage_location or "None").classes('text-[8px] text-gray-400 font-mono truncate flex-shrink text-right')
+
+                    self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
 
     @ui.refreshable
     def render_debug_results(self):
@@ -1339,57 +2068,52 @@ def scan_page():
     with ui.tab_panels(tabs, value=live_tab).classes('w-full h-full'):
 
         # --- TAB 1: LIVE SCAN ---
-        with ui.tab_panel(live_tab):
-            with ui.row().classes('w-full gap-4 items-center mb-4'):
-                if page.collections:
-                    ui.select(options=page.collections, value=page.target_collection_file, label='Collection',
-                              on_change=lambda e: (setattr(page, 'target_collection_file', e.value), page.check_undo_add_all_availability())).classes('w-48')
+        with ui.tab_panel(live_tab).classes('p-0 gap-0'):
+            # Top Header Bar
+            page.render_header()
 
-                page.camera_select = ui.select(options={}, label='Camera').classes('w-48')
-                page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam')
-                page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative')
-                page.stop_btn.visible = False
+            # Main Content Area (50/50 Split)
+            with ui.row().classes('w-full h-[calc(100vh-140px)] gap-0 flex-nowrap'):
 
-                ui.separator().props('vertical')
+                # LEFT PANEL: Camera & Status
+                with ui.column().classes('w-1/2 h-full p-2 gap-2 bg-black'):
 
-                # --- NEW: Status Controls in Live Scan ---
-                page.render_status_controls()
+                    # Camera Controls & Status
+                    with ui.card().classes('w-full p-2 bg-gray-900 border border-gray-700'):
+                        with ui.row().classes('w-full items-center gap-2'):
+                             page.camera_select = ui.select(options={}, label='Camera').classes('w-full').props('dense options-dense')
+                             page.start_btn = ui.button('Start', on_click=page.start_camera).props('icon=videocam dense').classes('w-full')
+                             page.stop_btn = ui.button('Stop', on_click=page.stop_camera).props('icon=videocam_off color=negative dense').classes('w-full hidden')
 
-                # Replaced Auto Scan with Manual Scan Button
-                ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black')
+                    # Status Bar
+                    page.render_status_controls()
 
-                ui.space()
+                    # Camera Feed
+                    # Changed from flex-grow to aspect-video to match standard webcam 16:9 ratio and prevent vertical stretching
+                    with ui.card().classes('w-full aspect-video p-0 overflow-hidden relative bg-black border border-gray-700'):
+                        ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
+                        ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
 
-                ui.select(options=["Mint", "Near Mint", "Excellent", "Good", "Light Played", "Played", "Poor", "Damaged"],
-                          value=page.default_condition, label="Default Condition",
-                          on_change=lambda e: setattr(page, 'default_condition', e.value)).classes('w-32')
+                    # Capture Button
+                    ui.button('CAPTURE & SCAN', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg').classes('w-full font-bold')
 
-                page.undo_add_all_btn = ui.button('Undo Add All', on_click=page.undo_add_all).props('color=warning icon=undo').tooltip("Undo last 'Add All'").classes('hidden')
-                # Initialize visibility
-                page.check_undo_add_all_availability()
+                # RIGHT PANEL: Recent Scans Gallery
+                with ui.column().classes('w-1/2 h-full bg-dark border-l border-gray-800 flex flex-col overflow-hidden'):
+                    page.render_recent_scans_header()
 
-                ui.button('Add All', on_click=page.commit_cards).props('color=primary icon=save')
-
-            with ui.row().classes('w-full h-[calc(100vh-250px)] gap-4'):
-                # Camera View
-                with ui.card().classes('flex-1 h-full p-0 overflow-hidden relative bg-black'):
-                    ui.html('<video id="scanner-video" autoplay playsinline muted style="width: 100%; height: 100%; object-fit: contain;"></video>', sanitize=False)
-                    ui.html('<canvas id="overlay-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></canvas>', sanitize=False)
-
-                # List View
-                with ui.column().classes('w-96 h-full'):
-                    with ui.row().classes('w-full items-center justify-between'):
-                        ui.label("Recent Scans").classes('text-xl font-bold')
-                        ui.button(icon='undo', on_click=page.undo_recent_scan).props('flat round color=grey').tooltip("Undo last scan action")
-
-                    with ui.scroll_area().classes('w-full flex-grow border rounded p-2'):
-                        page.render_live_list()
+                    with ui.column().classes('w-full flex-grow relative bg-black/20 overflow-hidden'):
+                        with ui.scroll_area().classes('w-full h-full'):
+                            page.render_live_list()
 
         # --- TAB 2: DEBUG LAB ---
         with ui.tab_panel(debug_tab):
              page.render_debug_lab()
 
+    # Build Filter Dialog
+    page.build_filter_dialog()
+
     ui.timer(1.0, page.init_cameras, once=True)
+    ui.timer(0.1, page.init_data, once=True)
 
     # Use fast consumer loop instead of slow polling
     ui.timer(0.1, page.event_consumer)
