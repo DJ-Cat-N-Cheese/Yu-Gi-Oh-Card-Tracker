@@ -1187,6 +1187,11 @@ class ScanPage:
                 self.waiting_for_movement = False # Reset state
                 self.consecutive_still_frames = 0
                 self.scan_in_progress = False
+
+                # Ensure scanner is running
+                if scanner_service.scanner_manager.is_paused():
+                    scanner_service.scanner_manager.resume()
+
                 ui.notify("Auto Mode Started", type='positive')
                 self.auto_scan_task = asyncio.create_task(self.auto_scan_loop())
             else:
