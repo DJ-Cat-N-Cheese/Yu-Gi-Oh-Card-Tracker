@@ -443,7 +443,8 @@ class YugiohService:
                 f.write(orjson.dumps(data))
         else:
             with open(filepath, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
+                # Use standard separators to match orjson compactness
+                json.dump(data, f, separators=(',', ':'))
 
     def get_card(self, card_id: int, language: str = "en") -> Optional[ApiCard]:
         cards = self._cards_cache.get(language, [])
