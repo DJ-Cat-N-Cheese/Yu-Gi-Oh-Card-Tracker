@@ -27,8 +27,10 @@ if SCANNER_AVAILABLE:
     from src.services.scanner.models import (
         ScanRequest, ScanResult, ScanDebugReport, OCRResult, ScanStep, ScanEvent
     )
+    from src.services.scanner.text_engine import TextMatcher
 else:
     CardScanner = None
+    TextMatcher = None
     # Dummy models if needed, but we check availability first
     # Need to define dummies for type hinting if module not avail
     class ScanEvent: pass
@@ -49,6 +51,7 @@ class ScannerManager:
     def __init__(self):
         self.running = False
         self.scanner = CardScanner() if SCANNER_AVAILABLE else None
+        self.text_matcher = TextMatcher() if SCANNER_AVAILABLE else None
 
         # Queues
         self.scan_queue: List[ScanRequest] = []
@@ -250,6 +253,19 @@ class ScannerManager:
         path = os.path.join(self.debug_dir, filename)
         cv2.imwrite(path, image, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
         return f"/debug/scans/{filename}"
+
+    def rebuild_text_index(self, force=False):
+        """Public method to rebuild the text embedding index."""
+        if not self.text_matcher: return
+        threading.Thread(target=self._build_text_index, args=(force,), daemon=True).start()
+
+    def _build_text_index(self, force=False):
+        if not self.text_matcher: return
+        asyncio.run(self._build_text_index_async(force))
+
+    async def _build_text_index_async(self, force=False):
+        cards = await ygo_service.load_card_database("en")
+        self.text_matcher.build_index(cards, force_rebuild=force)
 
     def rebuild_art_index(self, force=False):
         """Public method to rebuild the art index, possibly forcing a refresh."""
@@ -460,6 +476,8 @@ class ScannerManager:
                             lookup_data = {
                                 "ocr_result": best_res.model_dump(),
                                 "art_match": report.get('art_match_yolo'),
+                                "embedding_matches": report.get('embedding_matches'),
+                                "embedding_candidate_count": task.options.get("embedding_candidate_count", 3),
                                 "visual_rarity": report.get('visual_rarity', 'Common'),
                                 "first_edition": report.get('first_edition', False),
                                 "warped_image": warped,
@@ -682,6 +700,49 @@ class ScannerManager:
              else:
                   report["steps"].append(ScanStep(name="Art Match", status="FAIL", details="No Warped Image"))
 
+        # Text Embedding Match
+        if options.get("text_embedding_match", False) and self.text_matcher:
+             check_pause()
+             set_step("Analysis: Text Embedding")
+
+             # Rebuild index if needed (lazy)
+             # Note: This might be slow on first run if not triggered manually.
+             # We should probably trigger it on app start or UI init.
+             # Check if index is loaded
+             if not self.text_matcher.index:
+                  # We can't easily await here as this is sync.
+                  # But we can try loading from disk.
+                  self.text_matcher.load_index()
+                  if not self.text_matcher.index:
+                        # Fallback: Trigger build in background? No, we need it now.
+                        # We skip for now and warn user to build index.
+                        report["steps"].append(ScanStep(name="Text Match", status="SKIP", details="Index empty (Build in Debug Lab)"))
+
+             if self.text_matcher.index:
+                 # Get best text
+                 best_text = ""
+                 # Prefer full text from t1 or t2
+                 t1 = report.get("t1_full")
+                 t2 = report.get("t2_full")
+
+                 if t1 and len(t1.raw_text) > len(best_text): best_text = t1.raw_text
+                 if t2 and len(t2.raw_text) > len(best_text): best_text = t2.raw_text
+
+                 # If full text is bad, try crop
+                 if len(best_text) < 5:
+                     t1c = report.get("t1_crop")
+                     t2c = report.get("t2_crop")
+                     if t1c and len(t1c.raw_text) > len(best_text): best_text = t1c.raw_text
+                     if t2c and len(t2c.raw_text) > len(best_text): best_text = t2c.raw_text
+
+                 if len(best_text) > 5:
+                     top_k = options.get("embedding_match_top_k", 10) # View limit
+                     matches = self.text_matcher.search(best_text, top_k=top_k)
+                     report["embedding_matches"] = matches
+                     if self.debug_state: self.debug_state.embedding_matches = matches
+                 else:
+                     report["steps"].append(ScanStep(name="Text Match", status="FAIL", details="No sufficient text extracted"))
+
         return report
 
     def _pick_best_result(self, report):
@@ -711,6 +772,8 @@ class ScannerManager:
 
             ocr_res = OCRResult(**data.get('ocr_result'))
             art_match = data.get('art_match')
+            embedding_matches = data.get('embedding_matches')
+            embedding_candidate_count = data.get('embedding_candidate_count', 3)
             warped = data.pop('warped_image', None)
             threshold = data.get('threshold', 10.0)
             art_threshold = data.get('art_threshold', 0.42)
@@ -734,7 +797,7 @@ class ScannerManager:
                 result.scan_image_path = os.path.join(self.debug_dir, filename)
 
             # Find Best Match
-            match_res = await self.find_best_match(ocr_res, art_match, threshold, art_threshold)
+            match_res = await self.find_best_match(ocr_res, art_match, threshold, art_threshold, embedding_matches, embedding_candidate_count)
 
             if match_res:
                 # If ambiguity or match found
@@ -801,7 +864,8 @@ class ScannerManager:
 
         return 0.0
 
-    async def find_best_match(self, ocr_res: 'OCRResult', art_match: Dict, threshold: float = 10.0, art_threshold: float = 0.42) -> Dict[str, Any]:
+    async def find_best_match(self, ocr_res: 'OCRResult', art_match: Dict, threshold: float = 10.0, art_threshold: float = 0.42,
+                              embedding_matches: List[Dict] = None, embedding_candidate_count: int = 3) -> Dict[str, Any]:
         """
         Weighted matching algorithm.
         Returns dict with 'ambiguity' (bool) and 'candidates' (List).
@@ -830,6 +894,15 @@ class ScannerManager:
             else:
                 logger.info(f"Art Match Discarded: Score {score:.3f} < Threshold {art_threshold}")
 
+        # Embedding Match IDs
+        embedding_ids = set()
+        embedding_scores = {}
+        if embedding_matches:
+            # Take top K
+            for m in embedding_matches[:embedding_candidate_count]:
+                embedding_ids.add(m['card_id'])
+                embedding_scores[m['card_id']] = m['score']
+
         potential_cards = []
 
         for card in cards:
@@ -853,6 +926,10 @@ class ScannerManager:
                      is_candidate = True
                  elif card.card_sets and any(s.image_id == art_id for s in card.card_sets):
                      is_candidate = True
+
+            # Check Embedding Match
+            if not is_candidate and card.id in embedding_ids:
+                 is_candidate = True
 
             if is_candidate:
                 potential_cards.append(card)
@@ -910,6 +987,11 @@ class ScannerManager:
                         val = str(card.def_) if card.def_ is not None else "?"
                         if val == ocr_res.def_val: score += 15.0
                      except: pass
+
+                # E. Embedding Match
+                emb_score_val = embedding_scores.get(card.id, 0.0)
+                if emb_score_val > 0:
+                     score += (emb_score_val * 50.0)
 
                 if score > 30.0: # Minimum threshold
                     # Debug log for Art-Only matches
