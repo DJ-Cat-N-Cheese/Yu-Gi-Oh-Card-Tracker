@@ -381,10 +381,12 @@ class ScanPage:
 
         self.preprocessing_mode = self.config.get('preprocessing_mode', 'classic')
         self.art_match_yolo = self.config.get('art_match_yolo', True)
+        self.text_embedding_match = self.config.get('text_embedding_match', False)
         self.ambiguity_threshold = self.config.get('ambiguity_threshold', 10.0)
         self.save_warped_scan = self.config.get('save_warped_scan', True)
         self.save_raw_scan = self.config.get('save_raw_scan', True)
         self.art_match_threshold = self.config.get('art_match_threshold', 0.42)
+        self.embedding_candidate_count = self.config.get('embedding_candidate_count', 3)
         self.rotation = self.config.get('rotation', 0)
         self.scan_overlay_duration = self.config.get('scan_overlay_duration', 1000)
 
@@ -1119,10 +1121,12 @@ class ScanPage:
         self.config['ocr_tracks'] = [self.selected_track]
         self.config['preprocessing_mode'] = self.preprocessing_mode
         self.config['art_match_yolo'] = self.art_match_yolo
+        self.config['text_embedding_match'] = self.text_embedding_match
         self.config['ambiguity_threshold'] = self.ambiguity_threshold
         self.config['save_warped_scan'] = self.save_warped_scan
         self.config['save_raw_scan'] = self.save_raw_scan
         self.config['art_match_threshold'] = self.art_match_threshold
+        self.config['embedding_candidate_count'] = self.embedding_candidate_count
         self.config['rotation'] = self.rotation
         self.config['scan_overlay_duration'] = self.scan_overlay_duration
 
@@ -1655,10 +1659,12 @@ class ScanPage:
                 "tracks": [self.selected_track], # Use the single selected track
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
+                "text_embedding_match": self.text_embedding_match,
                 "ambiguity_threshold": self.ambiguity_threshold,
                 "save_warped_scan": self.save_warped_scan,
                 "save_raw_scan": self.save_raw_scan,
                 "art_match_threshold": self.art_match_threshold,
+                "embedding_candidate_count": self.embedding_candidate_count,
                 "rotation": self.rotation
             }
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -1696,9 +1702,11 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
+                "text_embedding_match": self.text_embedding_match,
                 "ambiguity_threshold": self.ambiguity_threshold,
                 "save_warped_scan": self.save_warped_scan,
                 "art_match_threshold": self.art_match_threshold,
+                "embedding_candidate_count": self.embedding_candidate_count,
                 "rotation": 0 # Explicitly 0 for uploads
             }
             # Use dynamic import access
@@ -1754,9 +1762,11 @@ class ScanPage:
                 "tracks": [self.selected_track],
                 "preprocessing": self.preprocessing_mode,
                 "art_match_yolo": self.art_match_yolo,
+                "text_embedding_match": self.text_embedding_match,
                 "ambiguity_threshold": self.ambiguity_threshold,
                 "save_warped_scan": self.save_warped_scan,
                 "art_match_threshold": self.art_match_threshold,
+                "embedding_candidate_count": self.embedding_candidate_count,
                 "rotation": self.rotation
             }
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
@@ -1902,6 +1912,24 @@ class ScanPage:
         else:
             ui.label("No Match Candidates Found").classes('text-gray-500 italic mb-4')
 
+        # Embedding Matches
+        emb_matches = self.debug_report.get('embedding_matches')
+        if emb_matches:
+            with ui.card().classes('w-full bg-gray-900 border border-blue-900 p-2 mb-4'):
+                ui.label("Top 10 Embedding Matches").classes('font-bold text-lg mb-2 text-blue-400')
+
+                # Header
+                with ui.grid(columns=4).classes('w-full gap-2 border-b border-gray-600 pb-1 mb-1'):
+                    ui.label("Name").classes('font-bold text-xs text-gray-400 col-span-2')
+                    ui.label("ID").classes('font-bold text-xs text-gray-400')
+                    ui.label("Sim").classes('font-bold text-xs text-gray-400 text-right')
+
+                for m in emb_matches:
+                    with ui.grid(columns=4).classes('w-full gap-2 items-center hover:bg-gray-800 p-1 rounded'):
+                        ui.label(m.get('name', '')).classes('text-xs break-all leading-tight col-span-2')
+                        ui.label(str(m.get('card_id', ''))).classes('text-xs font-mono text-gray-400')
+                        ui.label(f"{m.get('score', 0):.3f}").classes('text-xs font-mono text-blue-300 text-right')
+
         # 4 Collapsable Zones
         def render_zone(title, key):
             data = self.debug_report.get(key)
@@ -2036,6 +2064,20 @@ class ScanPage:
                          ui.button('Index Images', icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_art_index(force=True)).props('dense color=purple').tooltip("Rebuild Art Index from data/images")
                          ui.switch(value=self.art_match_yolo,
                                   on_change=lambda e: (setattr(self, 'art_match_yolo', e.value), self.save_settings())).props('color=purple')
+
+                # Text Embedding Match
+                with ui.row().classes('items-center justify-between w-full'):
+                    ui.label("Text Embedding Match:").classes('font-bold text-gray-300 text-sm')
+                    with ui.row().classes('items-center gap-2'):
+                         ui.button('Index Text', icon='refresh', on_click=lambda: scanner_service.scanner_manager.rebuild_text_index(force=True)).props('dense color=blue').tooltip("Rebuild Text Index from DB")
+                         ui.switch(value=self.text_embedding_match,
+                                  on_change=lambda e: (setattr(self, 'text_embedding_match', e.value), self.save_settings())).props('color=blue')
+
+                if self.text_embedding_match:
+                    with ui.row().classes('w-full items-center justify-between'):
+                        ui.label("Embed Match Candidates:").classes('font-bold text-gray-300 text-xs ml-4')
+                        ui.number(value=self.embedding_candidate_count, min=1, max=20, step=1,
+                                 on_change=lambda e: (setattr(self, 'embedding_candidate_count', e.value), self.save_settings())).classes('w-20')
 
                 # Tracks Selector (Radio)
                 ui.label("Active Track:").classes('font-bold text-gray-300 text-sm')

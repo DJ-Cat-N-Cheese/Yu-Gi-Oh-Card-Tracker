@@ -79,6 +79,9 @@ class ScanDebugReport(BaseModel):
     # Final Match Candidates
     match_candidates: List[Dict[str, Any]] = []
 
+    # Text Embedding Matches
+    embedding_matches: Optional[List[Dict[str, Any]]] = None
+
 class ScanEvent(BaseModel):
     type: str # 'status_update', 'scan_queued', 'scan_finished', 'error'
     data: Dict[str, Any] # Flexible payload
