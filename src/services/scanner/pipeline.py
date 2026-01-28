@@ -102,6 +102,12 @@ class CardScanner:
             'ñ': 'n', 'Ñ': 'N', 'ß': 's'
         })
 
+        # Typo Map for ID/Passcode corrections
+        self.TYPO_MAP = {
+            'S': '5', 'I': '1', 'O': '0', 'Z': '7',
+            'B': '8', 'G': '6', 'Q': '0', 'D': '0'
+        }
+
         self._load_validation_data()
 
     def _normalize_card_name(self, text: str) -> str:
@@ -553,6 +559,7 @@ class CardScanner:
         set_id_conf = 0.0
         lang = "EN"
         card_name = None
+        card_passcode = None
 
         try:
             # Resize for better small text detection (standard strategy)
@@ -593,6 +600,9 @@ class CardScanner:
             # Parse Set ID (pass full_text for global regex fallback)
             set_id, set_id_conf, lang = self._parse_set_id(raw_text_list, confidences, full_text)
 
+            # Parse Passcode
+            card_passcode = self._parse_passcode(raw_text_list)
+
         except Exception as e:
             logger.error(f"OCR Scan Error ({engine}): {e}")
             full_text = " | ".join(raw_text_list)
@@ -606,6 +616,7 @@ class CardScanner:
             scope=scope,
             raw_text=full_text,
             set_id=set_id,
+            card_passcode=card_passcode,
             card_name=card_name,
             set_id_conf=set_id_conf * 100, # Normalize to 0-100
             language=lang,
@@ -682,6 +693,38 @@ class CardScanner:
 
         return None
 
+    def _parse_passcode(self, texts: List[str]) -> Optional[str]:
+        """Extracts 8-digit passcode from text, handling typos."""
+
+        def normalize_number(txt):
+            res = ""
+            for char in txt:
+                res += self.TYPO_MAP.get(char, char)
+            return res
+
+        candidates = []
+        # Regex for 8 digits. We use word boundary to avoid partial matches of longer numbers if any.
+        pattern = re.compile(r'\b\d{8}\b')
+
+        for text in texts:
+             # Normalize first
+             text_norm = normalize_number(text.upper())
+
+             # Standard regex
+             matches = pattern.findall(text_norm)
+             candidates.extend(matches)
+
+             # Also try removing spaces for the whole line (e.g. 1234 5678)
+             text_nospace = text_norm.replace(" ", "")
+             matches_ns = pattern.findall(text_nospace)
+             candidates.extend(matches_ns)
+
+        if candidates:
+            # Return the last one found (likely bottom of text)
+            return candidates[-1]
+
+        return None
+
     def _parse_set_id(self, texts: List[str], confs: List[float], full_text: str = "") -> Tuple[Optional[str], float, str]:
         """Extracts Set ID and Language from text lines."""
         # Groups: 1=Prefix, 2=Region(Optional), 3=Number
@@ -690,15 +733,10 @@ class CardScanner:
 
         candidates = []
 
-        typo_map = {
-            'S': '5', 'I': '1', 'O': '0', 'Z': '7',
-            'B': '8', 'G': '6', 'Q': '0', 'D': '0'
-        }
-
         def normalize_number_part(txt):
             res = ""
             for char in txt:
-                res += typo_map.get(char, char)
+                res += self.TYPO_MAP.get(char, char)
             return res
 
         def validate_and_score(raw_code, region_part, base_conf, list_index):
