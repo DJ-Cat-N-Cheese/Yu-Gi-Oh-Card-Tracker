@@ -96,6 +96,40 @@ class YugipediaService:
     async def get_structure_decks(self) -> List[StructureDeck]:
         return await self.get_all_decks()
 
+    async def get_set_image_url(self, set_name: str) -> Optional[str]:
+        """
+        Fetches the image URL for a set from Yugipedia.
+        """
+        params = {
+            "action": "query",
+            "titles": set_name,
+            "prop": "pageimages",
+            "format": "json",
+            "pithumbsize": 500 # Request a reasonable size (500px width/height constraint)
+        }
+
+        try:
+            if hasattr(run, 'io_bound'):
+                response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+            else:
+                response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+
+            if response.status_code == 200:
+                data = response.json()
+                pages = data.get("query", {}).get("pages", {})
+
+                for pid, page in pages.items():
+                    if pid == "-1": continue # Not found
+
+                    if "thumbnail" in page:
+                        return page["thumbnail"]["source"]
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error fetching set image for {set_name}: {e}")
+            return None
+
     async def get_deck_list(self, page_title: str) -> Dict[str, List[DeckCard]]:
         """
         Fetches the card list for a structure deck.
