@@ -1127,51 +1127,66 @@ class SingleCardView:
                         # --- Variant List ---
                         with ui.card().classes('w-full bg-gray-800 p-0 flex-grow overflow-hidden flex flex-col'):
                             # Table Header
-                            with ui.row().classes('w-full bg-gray-700 p-2 items-center text-gray-300 font-bold text-sm'):
+                            with ui.grid(columns=12).classes('w-full bg-gray-700 p-2 items-center text-gray-300 font-bold text-sm gap-2'):
                                 # Select All Checkbox
-                                select_all_cb = ui.checkbox(value=False).props('dense dark')
-                                ui.label('Select All').classes('ml-2')
-                                ui.space()
-                                ui.label('Set Code').classes('w-32')
-                                ui.label('Rarity').classes('w-32')
-                                ui.label('Image ID').classes('w-24')
+                                select_all_cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
+                                ui.label('Set Code').classes('col-span-4')
+                                ui.label('Rarity').classes('col-span-4')
+                                ui.label('Image ID').classes('col-span-3 text-right')
 
                             # Scrollable List Area
                             with ui.scroll_area().classes('flex-grow w-full p-2'):
                                 checkboxes = {}
+                                updating_batch = [False]  # Mutable flag for closure
 
                                 for v in sorted_variants:
-                                    with ui.row().classes('w-full p-2 items-center hover:bg-gray-700 rounded transition border-b border-gray-700'):
-                                        cb = ui.checkbox(value=False).props('dense dark')
+                                    with ui.grid(columns=12).classes('w-full p-2 items-center hover:bg-gray-700 rounded transition border-b border-gray-700 gap-2'):
+                                        cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
                                         checkboxes[v.variant_id] = cb
 
                                         def on_cb_change(e, vid=v.variant_id):
+                                            if updating_batch[0]:
+                                                return
+
                                             if e.value:
                                                 state['selected_variant_ids'].add(vid)
+                                                # Check if all selected now? (Optional optimization)
                                             else:
                                                 state['selected_variant_ids'].discard(vid)
                                                 state['all_selected'] = False
-                                                select_all_cb.value = False
+                                                if select_all_cb.value:
+                                                    updating_batch[0] = True
+                                                    select_all_cb.value = False
+                                                    updating_batch[0] = False
 
-                                        cb.on('change', on_cb_change)
+                                        cb.on_value_change(on_cb_change)
 
                                         # Row Content
-                                        ui.label(v.set_code).classes('font-mono text-yellow-500 w-32 font-bold')
-                                        ui.label(v.rarity).classes('w-32')
-                                        ui.label(str(v.image_id)).classes('text-gray-400 w-24')
+                                        ui.label(v.set_code).classes('col-span-4 font-mono text-yellow-500 font-bold')
+                                        ui.label(v.rarity).classes('col-span-4 truncate')
+                                        ui.label(str(v.image_id)).classes('col-span-3 text-gray-400 text-right font-mono')
 
                                 # Select All Logic
                                 def toggle_select_all(e):
+                                    if updating_batch[0]:
+                                        return
+
                                     is_checked = e.value
                                     state['all_selected'] = is_checked
                                     state['selected_variant_ids'] = set()
 
-                                    for vid, cb in checkboxes.items():
-                                        cb.value = is_checked
-                                        if is_checked:
-                                            state['selected_variant_ids'].add(vid)
+                                    updating_batch[0] = True
+                                    try:
+                                        for vid, cb in checkboxes.items():
+                                            if cb.value != is_checked:
+                                                cb.value = is_checked
+                                                cb.update() # Ensure UI update
+                                            if is_checked:
+                                                state['selected_variant_ids'].add(vid)
+                                    finally:
+                                        updating_batch[0] = False
 
-                                select_all_cb.on('change', toggle_select_all)
+                                select_all_cb.on_value_change(toggle_select_all)
 
 
                         # --- Controls Panel ---
