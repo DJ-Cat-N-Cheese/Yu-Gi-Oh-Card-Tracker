@@ -1057,3 +1057,184 @@ class SingleCardView:
 
         except Exception as e:
             logger.error(f"Error opening db edit view: {e}", exc_info=True)
+
+    async def open_db_consolidated_view(
+        self,
+        card: ApiCard,
+        variants: List[Any],
+        on_apply_art: Callable[[List[str], int], Any],
+        on_add_variant: Callable[[List[Any], int], Any]
+    ):
+        try:
+            # Prepare initial state
+            # Sort variants by Set Code
+            sorted_variants = sorted(variants, key=lambda x: x.set_code)
+
+            # Default selected image ID (first available)
+            default_image_id = None
+            if card.card_images:
+                default_image_id = card.card_images[0].id
+            elif variants:
+                default_image_id = variants[0].image_id
+
+            state = {
+                'selected_image_id': default_image_id,
+                'selected_variant_ids': set(),  # Set of selected variant IDs
+                'all_selected': False
+            }
+
+            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+                d.open()
+                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+
+                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                    # --- Left Column: Image Preview ---
+                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
+                        image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+
+                        def update_preview_image():
+                            img_id = state['selected_image_id']
+                            high_res_remote_url = None
+                            low_res_url = None
+
+                            if card.card_images:
+                                for img in card.card_images:
+                                    if img.id == img_id:
+                                        high_res_remote_url = img.image_url
+                                        low_res_url = img.image_url_small
+                                        break
+
+                            # Fallback
+                            if not low_res_url:
+                                low_res_url = card.card_images[0].image_url_small if card.card_images else None
+
+                            self._setup_high_res_image_logic(
+                                img_id,
+                                high_res_remote_url,
+                                low_res_url,
+                                image_element,
+                                current_id_check=lambda: state['selected_image_id'] == img_id
+                            )
+
+                        update_preview_image()
+
+                    # --- Right Column: List & Controls ---
+                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                        # Header
+                        ui.label(f"Consolidated View: {card.name}").classes('text-3xl font-bold text-white q-mb-md')
+                        ui.label(f"Total Variants: {len(sorted_variants)}").classes('text-gray-400 q-mb-lg')
+
+                        # --- Variant List ---
+                        with ui.card().classes('w-full bg-gray-800 p-0 flex-grow overflow-hidden flex flex-col'):
+                            # Table Header
+                            with ui.grid(columns=12).classes('w-full bg-gray-700 p-2 items-center text-gray-300 font-bold text-sm gap-2'):
+                                # Select All Checkbox
+                                select_all_cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
+                                ui.label('Set Code').classes('col-span-4')
+                                ui.label('Rarity').classes('col-span-4')
+                                ui.label('Image ID').classes('col-span-3 text-right')
+
+                            # Scrollable List Area
+                            with ui.scroll_area().classes('flex-grow w-full p-2'):
+                                checkboxes = {}
+                                updating_batch = [False]  # Mutable flag for closure
+
+                                for v in sorted_variants:
+                                    with ui.grid(columns=12).classes('w-full p-2 items-center hover:bg-gray-700 rounded transition border-b border-gray-700 gap-2'):
+                                        cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
+                                        checkboxes[v.variant_id] = cb
+
+                                        def on_cb_change(e, vid=v.variant_id):
+                                            if updating_batch[0]:
+                                                return
+
+                                            if e.value:
+                                                state['selected_variant_ids'].add(vid)
+                                                # Check if all selected now? (Optional optimization)
+                                            else:
+                                                state['selected_variant_ids'].discard(vid)
+                                                state['all_selected'] = False
+                                                if select_all_cb.value:
+                                                    updating_batch[0] = True
+                                                    select_all_cb.value = False
+                                                    updating_batch[0] = False
+
+                                        cb.on_value_change(on_cb_change)
+
+                                        # Row Content
+                                        ui.label(v.set_code).classes('col-span-4 font-mono text-yellow-500 font-bold')
+                                        ui.label(v.rarity).classes('col-span-4 truncate')
+                                        ui.label(str(v.image_id)).classes('col-span-3 text-gray-400 text-right font-mono')
+
+                                # Select All Logic
+                                def toggle_select_all(e):
+                                    if updating_batch[0]:
+                                        return
+
+                                    is_checked = e.value
+                                    state['all_selected'] = is_checked
+                                    state['selected_variant_ids'] = set()
+
+                                    updating_batch[0] = True
+                                    try:
+                                        for vid, cb in checkboxes.items():
+                                            if cb.value != is_checked:
+                                                cb.value = is_checked
+                                                cb.update() # Ensure UI update
+                                            if is_checked:
+                                                state['selected_variant_ids'].add(vid)
+                                    finally:
+                                        updating_batch[0] = False
+
+                                select_all_cb.on_value_change(toggle_select_all)
+
+
+                        # --- Controls Panel ---
+                        with ui.card().classes('w-full bg-gray-800 p-4 mt-4 border-t border-gray-600'):
+                            ui.label('Batch Actions').classes('text-h6 text-white mb-2')
+
+                            with ui.row().classes('w-full items-end gap-4'):
+                                # Art Style Selector
+                                art_options = {}
+                                if card.card_images:
+                                    for i, img in enumerate(card.card_images):
+                                        art_options[img.id] = f"Artwork {i+1} (ID: {img.id})"
+
+                                # Ensure default is in options
+                                if state['selected_image_id'] and state['selected_image_id'] not in art_options:
+                                    art_options[state['selected_image_id']] = f"Custom ({state['selected_image_id']})"
+
+                                def on_art_change(e):
+                                    state['selected_image_id'] = e.value
+                                    update_preview_image()
+
+                                ui.select(art_options, label='Target Art Style', value=state['selected_image_id'],
+                                          on_change=on_art_change).classes('flex-grow').props('dark')
+
+                                # Buttons
+                                async def do_apply():
+                                    selected = list(state['selected_variant_ids'])
+                                    if not selected:
+                                        ui.notify('No variants selected.', type='warning')
+                                        return
+
+                                    await on_apply_art(selected, state['selected_image_id'])
+                                    d.close()
+
+                                async def do_add():
+                                    selected_ids = list(state['selected_variant_ids'])
+                                    if not selected_ids:
+                                        ui.notify('No variants selected.', type='warning')
+                                        return
+
+                                    # Find the actual variant objects
+                                    selected_objs = [v for v in sorted_variants if v.variant_id in state['selected_variant_ids']]
+
+                                    await on_add_variant(selected_objs, state['selected_image_id'])
+                                    d.close()
+
+                                ui.button('Apply Art', on_click=do_apply).props('color=primary icon=brush')
+                                ui.button('Add as New Variant', on_click=do_add).props('color=secondary icon=add_circle')
+
+        except Exception as e:
+            logger.error(f"Error opening consolidated view: {e}", exc_info=True)
