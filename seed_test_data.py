@@ -2,8 +2,7 @@ import json
 import os
 
 DB_DIR = "data/db"
-LANG = "en"
-FILENAME = f"card_db_{LANG}.json"
+FILENAME = "card_db.json"
 FILEPATH = os.path.join(DB_DIR, FILENAME)
 
 mock_cards = [
@@ -11,6 +10,7 @@ mock_cards = [
         "id": 12345678,
         "name": "Dark Magician",
         "type": "Normal Monster",
+        "frameType": "normal",
         "desc": "The ultimate wizard.",
         "atk": 2500,
         "def": 2100,
@@ -37,6 +37,7 @@ mock_cards = [
         "id": 87654321,
         "name": "Blue-Eyes White Dragon",
         "type": "Normal Monster",
+        "frameType": "normal",
         "desc": "Powerful engine of destruction.",
         "atk": 3000,
         "def": 2500,

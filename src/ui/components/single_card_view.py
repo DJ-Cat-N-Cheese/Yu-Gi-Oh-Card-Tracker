@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, run
 from src.core.models import ApiCardSet
 from src.services.ygo_api import ApiCard, ygo_service
 from src.services.image_manager import image_manager
@@ -7,6 +7,11 @@ from src.core.constants import CARD_CONDITIONS
 from typing import List, Optional, Dict, Set, Callable, Any
 import logging
 import asyncio
+import random
+import requests
+import os
+from PIL import Image
+import io
 
 logger = logging.getLogger(__name__)
 
@@ -1001,12 +1006,96 @@ class SingleCardView:
                             if input_state['image_id'] not in art_options:
                                 art_options[input_state['image_id']] = f"Custom/Unknown (ID: {input_state['image_id']})"
 
-                            def on_art_change(e):
-                                input_state['image_id'] = e.value
-                                update_image()
+                            art_options['NEW'] = "+ New Artstyle"
 
-                            ui.select(art_options, label='Artwork / Image ID', value=input_state['image_id'],
-                                      on_change=on_art_change).classes('w-full').props('dark')
+                            art_select = ui.select(art_options, label='Artwork / Image ID', value=input_state['image_id'])
+                            art_select.classes('w-full').props('dark')
+
+                            def open_new_art_dialog():
+                                with ui.dialog() as new_art_d, ui.card().classes('w-96 bg-gray-900 border border-gray-700'):
+
+                                    def on_close():
+                                        # Reset selection if still NEW (i.e. cancelled)
+                                        if art_select.value == 'NEW':
+                                           art_select.value = input_state['image_id']
+
+                                    new_art_d.on('close', on_close)
+
+                                    ui.label('Add New Artstyle').classes('text-h6 text-white')
+
+                                    # URL Input
+                                    url_input = ui.input('Image URL').props('dark').classes('w-full')
+
+                                    def save_new_image(content: bytes):
+                                        # Generate ID
+                                        while True:
+                                            new_id = random.randint(100000000, 999999999)
+                                            if not image_manager.image_exists(new_id):
+                                                break
+
+                                        path = image_manager.get_local_path(new_id)
+                                        # Ensure directory exists
+                                        os.makedirs(os.path.dirname(path), exist_ok=True)
+
+                                        try:
+                                            img = Image.open(io.BytesIO(content))
+                                            img = img.convert('RGB')
+                                            img.save(path, 'JPEG', quality=90)
+                                        except Exception as e:
+                                             logger.error(f"Error saving image: {e}")
+                                             ui.notify(f"Error processing image: {e}", type='negative')
+                                             return
+
+                                        # Update UI
+                                        ui.notify('New artwork added!', type='positive')
+                                        art_options[new_id] = f"Custom Art (ID: {new_id})"
+
+                                        # Update Dropdown
+                                        art_select.options = art_options
+                                        art_select.value = new_id
+                                        art_select.update()
+
+                                        new_art_d.close()
+
+                                    async def download_from_url():
+                                        url = url_input.value
+                                        if not url: return
+
+                                        ui.notify('Downloading...', type='info')
+                                        try:
+                                            # Download
+                                            resp = await run.io_bound(requests.get, url)
+                                            if resp.status_code == 200:
+                                                content = resp.content
+                                                save_new_image(content)
+                                            else:
+                                                ui.notify(f"Download failed: {resp.status_code}", type='negative')
+                                        except Exception as e:
+                                            ui.notify(f"Error: {e}", type='negative')
+
+                                    ui.button('Download URL', on_click=download_from_url).props('color=secondary icon=cloud_download').classes('w-full')
+
+                                    ui.separator().classes('my-2 bg-gray-600')
+                                    ui.label('OR Upload File').classes('text-white text-sm')
+
+                                    # File Upload
+                                    def handle_upload(e):
+                                        content = e.content.read()
+                                        save_new_image(content)
+
+                                    ui.upload(on_upload=handle_upload, auto_upload=True).props('accept=".jpg,.jpeg,.png,.webp" dark').classes('w-full')
+
+                                    ui.button('Cancel', on_click=new_art_d.close).props('flat color=white')
+                                new_art_d.open()
+
+                            def on_art_change(e):
+                                if e.value == 'NEW':
+                                    open_new_art_dialog()
+                                else:
+                                    input_state['image_id'] = e.value
+                                    update_image()
+
+                            art_select.on_value_change(on_art_change)
 
                             ui.separator().classes('q-my-md bg-gray-600')
 
