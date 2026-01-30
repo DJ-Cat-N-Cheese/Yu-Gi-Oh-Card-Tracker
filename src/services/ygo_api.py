@@ -12,6 +12,7 @@ import logging
 from typing import List, Optional, Callable, Dict, Any, Tuple
 from src.core.models import ApiCard, ApiCardSet
 from src.services.image_manager import image_manager
+from src.services.yugipedia_service import yugipedia_service
 from src.core.persistence import persistence
 from src.core.utils import generate_variant_id
 from src.core.constants import RARITY_RANKING, RARITY_ABBREVIATIONS
@@ -708,6 +709,57 @@ class YugiohService:
         await asyncio.gather(*tasks)
 
         logger.info("Set statistics and images download complete.")
+
+    async def download_set_images_from_yugipedia(self, progress_callback: Optional[Callable[[float], None]] = None):
+        """
+        Downloads set images from Yugipedia, replacing existing ones.
+        """
+        logger.info("Updating set information from Yugipedia...")
+        if progress_callback:
+            progress_callback(0.0)
+
+        # Ensure we have the list of sets
+        await self.fetch_all_sets()
+
+        sets = list(self._sets_cache.values())
+        total = len(sets)
+
+        # Concurrency limit
+        semaphore = asyncio.Semaphore(5)
+        completed = 0
+
+        async def _download_task(set_info):
+            nonlocal completed
+            async with semaphore:
+                try:
+                    set_name = set_info.get("name")
+                    set_code = set_info.get("code")
+
+                    if set_name and set_code:
+                        url = await yugipedia_service.get_set_image_url(set_name)
+                        if url:
+                            # Found on Yugipedia!
+                            # Force replacement: delete existing file
+                            local_path = image_manager.get_set_image_path(set_code)
+                            if os.path.exists(local_path):
+                                try:
+                                    os.remove(local_path)
+                                except OSError:
+                                    pass
+
+                            # Download (ensure_set_image will download since file is gone)
+                            await image_manager.ensure_set_image(set_code, url)
+                except Exception as e:
+                    logger.error(f"Error downloading Yugipedia image for {set_info.get('name')}: {e}")
+
+                completed += 1
+                if progress_callback:
+                    progress_callback(completed / total)
+
+        tasks = [_download_task(s) for s in sets]
+        await asyncio.gather(*tasks)
+
+        logger.info("Yugipedia set images download complete.")
 
     async def get_real_set_counts(self, language: str = "en") -> Dict[str, int]:
         """
