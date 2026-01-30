@@ -1132,9 +1132,17 @@ class SingleCardView:
                                     ui.button('Paste from Clipboard', on_click=paste_from_clipboard).props('color=accent icon=content_paste').classes('w-full')
 
                                     # File Upload
-                                    def handle_upload(e):
-                                        content = e.content.read()
-                                        save_new_image(content)
+                                    async def handle_upload(e):
+                                        try:
+                                            file_obj = getattr(e, 'content', getattr(e, 'file', None))
+                                            if not file_obj:
+                                                ui.notify("No file content found", type='negative')
+                                                return
+                                            content = await file_obj.read()
+                                            save_new_image(content)
+                                        except Exception as err:
+                                            logger.error(f"Upload error: {err}")
+                                            ui.notify(f"Upload failed: {err}", type='negative')
 
                                     ui.upload(on_upload=handle_upload, auto_upload=True).props('accept=".jpg,.jpeg,.png,.webp" dark').classes('w-full')
 
