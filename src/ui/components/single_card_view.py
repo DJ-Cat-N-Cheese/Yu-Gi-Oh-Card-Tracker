@@ -172,10 +172,30 @@ class SingleCardView:
                 ui.number('Quantity', min=0, value=input_state['quantity'],
                             on_change=lambda e: input_state.update({'quantity': int(e.value or 0)})).classes('col-span-2').props('dense dark')
 
-                if card.card_images and len(card.card_images) > 1:
-                    art_options = {img.id: f"Artwork {i+1} (ID: {img.id})" for i, img in enumerate(card.card_images)}
-                    # Ensure image_id is int for matching
-                    current_img_id = int(input_state['image_id']) if input_state['image_id'] is not None else None
+                # Build Artwork Options
+                art_options = {}
+                # 1. Official Images
+                if card.card_images:
+                    for i, img in enumerate(card.card_images):
+                        art_options[img.id] = f"Artwork {i+1} (ID: {img.id})"
+
+                # 2. Collection Variants (Custom Arts)
+                if current_collection:
+                    for c in current_collection.cards:
+                        if c.card_id == card.id:
+                            for v in c.variants:
+                                if v.image_id and v.image_id not in art_options:
+                                    art_options[v.image_id] = f"Custom Art (ID: {v.image_id})"
+                            break
+
+                # 3. Ensure Current ID is present
+                current_img_id = int(input_state['image_id']) if input_state['image_id'] is not None else None
+                if current_img_id is not None and current_img_id not in art_options:
+                     art_options[current_img_id] = f"Custom/Unknown (ID: {current_img_id})"
+
+                # Render if we have options (usually > 1, but if current is custom and only 1 official exists, we have 2)
+                # Or if we have 1 custom option and no official?
+                if len(art_options) > 1:
                     ui.select(art_options, label='Artwork', value=current_img_id,
                                 on_change=lambda e: [input_state.update({'image_id': e.value}), on_change_callback()]).classes('col-span-12').props('dense options-dense dark')
 
