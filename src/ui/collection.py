@@ -1147,12 +1147,18 @@ class CollectionPage:
                  for c in self.state['current_collection'].cards:
                      if c.card_id == card.id:
                          for v in c.variants:
-                             for e in v.entries:
-                                 owned_breakdown[e.language] = owned_breakdown.get(e.language, 0) + e.quantity
-                                 total_owned += e.quantity
+                             qty = v.total_quantity
+                             if qty > 0:
+                                 # Format: "SetCode (Rarity)"
+                                 key = f"{v.set_code} ({v.rarity})"
+                                 owned_breakdown[key] = owned_breakdown.get(key, 0) + qty
+                                 total_owned += qty
                          break
 
-            await self.single_card_view.open_consolidated(card, total_owned, owned_breakdown, on_save, current_collection=self.state['current_collection'])
+            # Sort breakdown by key (Set Code)
+            sorted_breakdown = dict(sorted(owned_breakdown.items()))
+
+            await self.single_card_view.open_consolidated(card, total_owned, sorted_breakdown, on_save, current_collection=self.state['current_collection'])
             return
 
         if self.state['view_scope'] == 'collectors':
