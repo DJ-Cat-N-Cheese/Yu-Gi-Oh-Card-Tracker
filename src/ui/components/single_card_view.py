@@ -355,7 +355,7 @@ class SingleCardView:
                 with ui.row().classes('w-full h-full no-wrap gap-0'):
                     # Image Column
                     with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
-                        img_id = card.card_images[0].id if card.card_images else card.id
+                        img_id = card.get_best_image_id()
                         high_res_url = card.card_images[0].image_url if card.card_images else None
                         low_res_url = card.card_images[0].image_url_small if card.card_images else None
 
@@ -880,7 +880,7 @@ class SingleCardView:
                 with ui.row().classes('w-full h-full no-wrap gap-0'):
                     # Image Column (Simplified, just use default/first image)
                     with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
-                         img_id = card.card_images[0].id if card.card_images else card.id
+                         img_id = card.get_best_image_id()
                          url = card.card_images[0].image_url if card.card_images else None
                          small_url = card.card_images[0].image_url_small if card.card_images else None
                          image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
