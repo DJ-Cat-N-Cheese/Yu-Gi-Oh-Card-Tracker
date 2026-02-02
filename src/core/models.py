@@ -132,6 +132,22 @@ class ApiCard(BaseModel):
     card_sets: List[ApiCardSet] = []
     card_prices: List[ApiCardPrice] = []
 
+    def get_best_image_id(self) -> int:
+        """
+        Returns the best available image ID for the card.
+        Prioritizes official images, then custom variant images, then falls back to card ID.
+        """
+        if self.card_images:
+            return self.card_images[0].id
+
+        # Check variants for custom images (e.g. imported cards)
+        if self.card_sets:
+            for s in self.card_sets:
+                if s.image_id:
+                    return s.image_id
+
+        return self.id
+
     def matches_category(self, category: str) -> bool:
         """
         Checks if the card belongs to the specified monster category (e.g., 'Normal', 'Effect', 'Synchro').

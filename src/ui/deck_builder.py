@@ -852,7 +852,7 @@ class DeckBuilderPage:
     def _setup_card_tooltip(self, card: ApiCard):
         if not card: return
 
-        img_id = card.card_images[0].id if card.card_images else card.id
+        img_id = card.get_best_image_id()
         high_res_url = card.card_images[0].image_url if card.card_images else None
         low_res_url = card.card_images[0].image_url_small if card.card_images else None
 
@@ -913,7 +913,7 @@ class DeckBuilderPage:
 
                 with ui.grid(columns='repeat(auto-fill, minmax(120px, 1fr))').classes('w-full gap-2').props('id="gallery-list"'):
                     for card in items:
-                         img_id = card.card_images[0].id if card.card_images else card.id
+                         img_id = card.get_best_image_id()
                          img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (card.card_images[0].image_url_small if card.card_images else None)
 
                          owned_qty = owned_map.get(card.id, 0)
@@ -957,7 +957,7 @@ class DeckBuilderPage:
         card = self.api_card_map.get(card_id)
         if not card: return None
 
-        img_id = card.card_images[0].id if card.card_images else card.id
+        img_id = card.get_best_image_id()
         img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (card.card_images[0].image_url_small if card.card_images else None)
 
         # Ownership
