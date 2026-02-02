@@ -959,7 +959,8 @@ class SingleCardView:
         image_id: int,
         on_save_callback: Callable[[str, str, int], Any],
         on_delete_callback: Callable[[], Any] = None,
-        on_add_callback: Callable[[str, str, int], Any] = None
+        on_add_callback: Callable[[str, str, int], Any] = None,
+        known_variants: List[Any] = None
     ):
         try:
             input_state = {
@@ -1028,6 +1029,19 @@ class SingleCardView:
                             if card.card_images:
                                 for i, img in enumerate(card.card_images):
                                     art_options[img.id] = f"Artwork {i+1} (ID: {img.id})"
+
+                            # Add custom arts from other variants
+                            if known_variants:
+                                for v in known_variants:
+                                    vid = v.image_id
+                                    if vid and vid not in art_options:
+                                        art_options[vid] = f"Custom (ID: {vid})"
+
+                            if card.card_sets:
+                                for cset in card.card_sets:
+                                    vid = cset.image_id
+                                    if vid and vid not in art_options:
+                                        art_options[vid] = f"Custom (ID: {vid})"
 
                             # Ensure current image_id is in options
                             if input_state['image_id'] not in art_options:
@@ -1435,6 +1449,12 @@ class SingleCardView:
                                 if card.card_images:
                                     for i, img in enumerate(card.card_images):
                                         art_options[img.id] = f"Artwork {i+1} (ID: {img.id})"
+
+                                # Add custom arts from other variants
+                                for v in variants:
+                                    vid = v.image_id
+                                    if vid and vid not in art_options:
+                                        art_options[vid] = f"Custom (ID: {vid})"
 
                                 # Ensure default is in options
                                 if state['selected_image_id'] and state['selected_image_id'] not in art_options:

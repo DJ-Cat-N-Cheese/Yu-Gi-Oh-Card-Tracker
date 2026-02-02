@@ -372,6 +372,10 @@ class DbEditorPage:
 
     async def open_edit_view(self, row: DbEditorRow):
         logger.info(f"Opening edit view for card: {row.api_card.name}, Variant: {row.variant_id}")
+
+        # Find all variants for this card
+        all_card_rows = [r for r in self.state['cards_rows'] if r.api_card.id == row.api_card.id]
+
         async def on_save(set_code, rarity, image_id):
             logger.info(f"Saving changes for variant {row.variant_id}")
             success = await ygo_service.update_card_variant(
@@ -430,7 +434,8 @@ class DbEditorPage:
                 image_id=row.image_id,
                 on_save_callback=on_save,
                 on_delete_callback=on_delete,
-                on_add_callback=on_add
+                on_add_callback=on_add,
+                known_variants=all_card_rows
             )
             logger.info("Edit view opened successfully")
         except Exception as e:
