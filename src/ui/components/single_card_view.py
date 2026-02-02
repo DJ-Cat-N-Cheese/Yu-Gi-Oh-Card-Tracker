@@ -1313,7 +1313,8 @@ class SingleCardView:
         card: ApiCard,
         variants: List[Any],
         on_apply_art: Callable[[List[str], int], Any],
-        on_add_variant: Callable[[List[Any], int], Any]
+        on_add_variant: Callable[[List[Any], int], Any],
+        on_id_change: Callable[[int], Any] = None
     ):
         try:
             # Prepare initial state
@@ -1371,7 +1372,35 @@ class SingleCardView:
                     # --- Right Column: List & Controls ---
                     with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
                         # Header
-                        ui.label(f"Consolidated View: {card.name}").classes('text-3xl font-bold text-white q-mb-md')
+                        with ui.row().classes('items-center justify-between w-full'):
+                            ui.label(f"Consolidated View: {card.name}").classes('text-3xl font-bold text-white')
+
+                        # ID Display and Edit
+                        with ui.row().classes('items-center gap-2 q-mb-md'):
+                             ui.label(f"ID: {card.id}").classes('text-gray-400 font-mono text-sm')
+                             if on_id_change:
+                                 async def edit_id():
+                                     with ui.dialog() as id_d, ui.card():
+                                         ui.label(f"Edit ID for {card.name}").classes('text-lg font-bold')
+                                         ui.label("Changing the ID will update all variants.").classes('text-sm text-gray-500')
+                                         new_id_input = ui.number('New ID', value=card.id, format='%d').props('autofocus')
+
+                                         async def save_id():
+                                             new_val = int(new_id_input.value)
+                                             if new_val == card.id:
+                                                 id_d.close()
+                                                 return
+                                             id_d.close()
+                                             d.close() # Close main dialog as data will reload
+                                             await on_id_change(new_val)
+
+                                         with ui.row().classes('w-full justify-end'):
+                                             ui.button('Cancel', on_click=id_d.close).props('flat')
+                                             ui.button('Save', on_click=save_id).props('color=primary')
+                                     id_d.open()
+
+                                 ui.button(icon='edit', on_click=edit_id).props('flat round dense color=white size=sm')
+
                         ui.label(f"Total Variants: {len(sorted_variants)}").classes('text-gray-400 q-mb-lg')
 
                         # --- Variant List ---

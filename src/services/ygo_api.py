@@ -491,6 +491,38 @@ class YugiohService:
         logger.info(f"Deleted variant {variant_id} from card {card_id}")
         return True
 
+    async def update_card_id(self, old_id: int, new_id: int, language: str = "en") -> bool:
+        """
+        Updates the ID of a card in the database.
+        Regenerates variant IDs for all its variants.
+        """
+        cards = await self.load_card_database(language)
+
+        # Check if new ID exists
+        if any(c.id == new_id for c in cards):
+            logger.warning(f"Cannot update card ID: New ID {new_id} already exists.")
+            return False
+
+        card = next((c for c in cards if c.id == old_id), None)
+        if not card:
+            logger.error(f"Card {old_id} not found for ID update.")
+            return False
+
+        # Update ID
+        card.id = new_id
+
+        # Regenerate Variant IDs
+        if card.card_sets:
+            for s in card.card_sets:
+                # Use the new card ID to generate the variant ID
+                s.variant_id = generate_variant_id(
+                    card.id, s.set_code, s.set_rarity, s.image_id
+                )
+
+        await self.save_card_database(cards, language)
+        logger.info(f"Updated card ID from {old_id} to {new_id} and regenerated variants.")
+        return True
+
     async def load_card_database(self, language: str = "en") -> List[ApiCard]:
         """Loads the database from disk. If missing, fetches it."""
         if language in self._cards_cache:
