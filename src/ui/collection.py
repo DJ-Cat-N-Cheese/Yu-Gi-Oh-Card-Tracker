@@ -506,15 +506,24 @@ class CollectionPage:
                 elif not image_id:
                      image_id = card.id
                 url = item.image_url
-            else:
-                if card.card_images:
-                    image_id = card.card_images[0].id
-                    url = card.card_images[0].image_url_small
-                else:
-                    image_id = card.id
 
-            if image_id and url:
-                url_map[image_id] = url
+                if image_id and url:
+                    url_map[image_id] = url
+            else:
+                # Consolidated View: Prioritize Best Image, but ensure fallback default is available
+                best_id = card.get_best_image_id()
+
+                if card.card_images:
+                    # 1. Ensure default image is downloaded (fallback)
+                    def_id = card.card_images[0].id
+                    def_url = card.card_images[0].image_url_small
+                    url_map[def_id] = def_url
+
+                    # 2. If best image is official (has URL), ensure it is downloaded too
+                    if best_id != def_id:
+                         img_obj = next((img for img in card.card_images if img.id == best_id), None)
+                         if img_obj:
+                             url_map[best_id] = img_obj.image_url_small
 
         if url_map:
              await image_manager.download_batch(url_map, concurrency=10)
@@ -1170,26 +1179,32 @@ class CollectionPage:
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
 
-        # Default to first image
-        target_img = card.card_images[0] if card.card_images else None
+        # Determine target ID
+        if specific_image_id:
+            img_id = specific_image_id
+        else:
+            img_id = card.get_best_image_id()
 
-        # If specific ID provided, try to find it
-        if specific_image_id and card.card_images:
-            for img in card.card_images:
-                if img.id == specific_image_id:
-                    target_img = img
-                    break
+        high_res_url = None
+        low_res_url = None
 
-        if not target_img:
-             return
-
-        img_id = target_img.id
-        high_res_url = target_img.image_url
-        low_res_url = target_img.image_url_small
+        # Try to find URL for this ID
+        if card.card_images:
+            target_img = next((img for img in card.card_images if img.id == img_id), None)
+            if target_img:
+                high_res_url = target_img.image_url
+                low_res_url = target_img.image_url_small
+            else:
+                 # Fallback to default if specific/best ID has no URL (e.g. custom) but we need a fallback for non-local
+                 high_res_url = card.card_images[0].image_url
+                 low_res_url = card.card_images[0].image_url_small
 
         # Check local high-res existence immediately
         is_local = image_manager.image_exists(img_id, high_res=True)
         initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+
+        if not initial_src:
+             return
 
         # Create tooltip with transparent background and no padding
         with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none') \
@@ -1203,8 +1218,24 @@ class CollectionPage:
             if not is_local and high_res_url:
                 async def ensure_high():
                     # Check again to avoid redundant downloads
-                    if not image_manager.image_exists(img_id, high_res=True):
-                         await image_manager.ensure_image(img_id, high_res_url, high_res=True)
+                    # Only download if we are not using a fallback URL for a custom ID
+
+                    real_target_id = img_id
+
+                    # Check if img_id corresponds to the URL
+                    is_exact_match = False
+                    if card.card_images:
+                        for img in card.card_images:
+                            if img.id == img_id:
+                                is_exact_match = True
+                                break
+
+                    if not is_exact_match and card.card_images:
+                        # We are using fallback. Download to default ID instead.
+                        real_target_id = card.card_images[0].id
+
+                    if not image_manager.image_exists(real_target_id, high_res=True):
+                         await image_manager.ensure_image(real_target_id, high_res_url, high_res=True)
 
                 tooltip.on('show', ensure_high)
 
@@ -1220,10 +1251,8 @@ class CollectionPage:
                 with ui.card().classes(f'collection-card w-full p-0 cursor-pointer {opacity} border {border} hover:scale-105 transition-transform') \
                         .on('click', lambda c=vm: self.open_single_view(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
 
-                    img_src = card.card_images[0].image_url_small if card.card_images else None
-                    img_id = card.card_images[0].id if card.card_images else card.id
-                    if image_manager.image_exists(img_id):
-                        img_src = f"/images/{img_id}.jpg"
+                    img_id = card.get_best_image_id()
+                    img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (card.card_images[0].image_url_small if card.card_images else None)
 
                     with ui.element('div').classes('relative w-full aspect-[2/3] bg-black'):
                         if img_src: ui.image(img_src).classes('w-full h-full object-cover')
@@ -1249,10 +1278,8 @@ class CollectionPage:
             for vm in items:
                 card = vm.api_card
                 bg = 'bg-gray-900' if not vm.is_owned else 'bg-gray-800 border border-accent'
-                img_src = card.card_images[0].image_url_small if card.card_images else None
-                img_id = card.card_images[0].id if card.card_images else card.id
-                if image_manager.image_exists(img_id):
-                    img_src = f"/images/{img_id}.jpg"
+                img_id = card.get_best_image_id()
+                img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (card.card_images[0].image_url_small if card.card_images else None)
 
                 with ui.grid(columns=cols).classes(f'w-full {bg} p-1 items-center rounded hover:bg-gray-700 transition cursor-pointer') \
                         .on('click', lambda c=vm: self.open_single_view(c.api_card, c.is_owned, c.owned_quantity, owned_languages=c.owned_languages)):
