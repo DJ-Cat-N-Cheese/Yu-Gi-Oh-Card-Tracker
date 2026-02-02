@@ -837,7 +837,7 @@ class DbEditorPage:
                 .classes('w-full mb-4').props('dark clearable')
 
             # Preview Area
-            preview_container = ui.column().classes('w-full gap-4 hidden')
+            preview_container = ui.column().classes('w-full gap-4').set_visibility(False)
 
             # State for preview
             preview_data = {"card": None, "sets": []}
@@ -867,7 +867,7 @@ class DbEditorPage:
 
                 # Render Preview
                 preview_container.clear()
-                preview_container.remove_classes('hidden')
+                preview_container.set_visibility(True)
 
                 with preview_container:
                     # Card Stats
