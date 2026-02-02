@@ -266,16 +266,33 @@ class ScannerManager:
         img_dir = "data/images"
 
         # Load Cache (if not forced)
+        current_model_name = getattr(self.scanner, 'yolo_cls_model_name', 'yolo26n-cls.pt') if self.scanner else 'yolo26n-cls.pt'
+
         if not force and os.path.exists(index_path) and not self.art_index:
             try:
                 with open(index_path, "rb") as f:
-                    loaded_index = pickle.load(f)
+                    data = pickle.load(f)
+
+                    # Backward compatibility or new format check
+                    if isinstance(data, dict) and "index" in data and "model_name" in data:
+                        loaded_index = data["index"]
+                        cached_model = data["model_name"]
+
+                        if cached_model != current_model_name:
+                             logger.warning(f"Art Index Model Mismatch (Cached: {cached_model}, Current: {current_model_name}). Rebuilding...")
+                             loaded_index = None # Force Rebuild
+
+                    else:
+                        # Old format (just dict)
+                        logger.info("Old Art Index format detected. Rebuilding for versioning...")
+                        loaded_index = None
+
                     if loaded_index and len(loaded_index) > 0:
                         self.art_index = loaded_index
-                        logger.info(f"Loaded Art Index: {len(self.art_index)} items")
+                        logger.info(f"Loaded Art Index: {len(self.art_index)} items (Model: {current_model_name})")
                         return
                     else:
-                        logger.info("Cached Art Index is empty. Rebuilding...")
+                        logger.info("Cached Art Index is empty or invalid. Rebuilding...")
             except Exception as e:
                 logger.error(f"Failed to load cache: {e}")
 
@@ -329,8 +346,13 @@ class ScannerManager:
 
         # Save Cache
         try:
+            current_model_name = getattr(self.scanner, 'yolo_cls_model_name', 'yolo26n-cls.pt')
+            cache_data = {
+                "model_name": current_model_name,
+                "index": self.art_index
+            }
             with open(index_path, "wb") as f:
-                pickle.dump(self.art_index, f)
+                pickle.dump(cache_data, f)
         except Exception as e:
             logger.error(f"Failed to save cache: {e}")
 

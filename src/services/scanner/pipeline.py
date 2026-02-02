@@ -221,7 +221,7 @@ class CardScanner:
                     raise
         return self.yolo_model
 
-    def get_yolo_cls(self, model_name: str = 'yolo26l-cls.pt'):
+    def get_yolo_cls(self, model_name: str = 'yolo26n-cls.pt'):
         # If model is not loaded or loaded model is different from requested
         if self.yolo_cls_model is None or self.yolo_cls_model_name != model_name:
             logger.info(f"Initializing YOLO CLS model ({model_name})...")
@@ -237,7 +237,7 @@ class CardScanner:
                 raise
         return self.yolo_cls_model
 
-    def extract_yolo_features(self, image: Any, model_name: str = 'yolo26l-cls.pt') -> Optional[Any]:
+    def extract_yolo_features(self, image: Any, model_name: str = 'yolo26n-cls.pt') -> Optional[Any]:
         """
         Extracts feature embedding from the image using the classification model.
         Returns a numpy array (1D vector).
