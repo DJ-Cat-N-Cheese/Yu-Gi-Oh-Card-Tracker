@@ -51,16 +51,7 @@ class ImageManager:
 
         # Check existing
         if os.path.exists(local_path):
-             # Verify resolution of existing file
-             is_good = await run.io_bound(self.check_image_resolution, local_path)
-             if is_good:
-                 return local_path
-             else:
-                 self.logger.info(f"Existing image for {set_code} is low resolution (<240p). Deleting.")
-                 try:
-                    os.remove(local_path)
-                 except OSError:
-                    pass
+             return local_path
 
         # Download
         try:
