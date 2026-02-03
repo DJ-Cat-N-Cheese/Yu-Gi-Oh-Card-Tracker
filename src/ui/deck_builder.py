@@ -420,6 +420,10 @@ class DeckBuilderPage:
         self.deck_changelog_manager.log_change(filename, action, card_data, quantity)
         self.render_header.refresh() # Update Undo button state
 
+    async def fast_add_to_deck(self, card: ApiCard):
+        target = 'extra' if card.is_extra_deck else 'main'
+        await self.add_card_to_deck(card.id, 1, target)
+
     async def add_card_to_deck(self, card_id: int, quantity: int, target: str):
         if not self.state['current_deck']:
             ui.notify("Please select or create a deck first.", type='warning')
@@ -920,7 +924,8 @@ class DeckBuilderPage:
 
                          with ui.card().classes('p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-800 w-full h-full select-none') \
                             .props(f'data-id="{card.id}"') \
-                            .on('click', lambda c=card: self.open_deck_builder_wrapper(c)):
+                            .on('click', lambda c=card: self.open_deck_builder_wrapper(c)) \
+                            .on('contextmenu.prevent', lambda _, c=card: self.fast_add_to_deck(c)):
 
                              with ui.element('div').classes('relative w-full aspect-[2/3]'):
                                  ui.image(img_src).classes('w-full h-full object-cover')
