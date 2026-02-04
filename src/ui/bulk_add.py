@@ -2,7 +2,7 @@ from nicegui import ui, run
 from src.core.persistence import persistence
 from src.core.changelog_manager import changelog_manager
 from src.core.config import config_manager
-from src.services.ygo_api import ygo_service, ApiCard
+from src.services.ygo_api import ygo_service, ApiCard, ApiCardSet
 from src.services.image_manager import image_manager
 from src.services.collection_editor import CollectionEditor
 from src.core.utils import generate_variant_id, normalize_set_code, extract_language_code, transform_set_code, LANGUAGE_COUNTRY_MAP
@@ -229,6 +229,7 @@ class BulkAddPage:
         self.current_collection_obj = None
         self.api_card_map = {} # id -> ApiCard
         self.set_code_map = {} # set_code (normalized or exact) -> ApiCard
+        self.name_map = {} # name (lower) -> ApiCard
 
         # Load available collections
         self.state['available_collections'] = persistence.list_collections()
@@ -542,6 +543,235 @@ class BulkAddPage:
         else:
             ui.notify("Nothing to undo.", type='warning')
 
+    def open_structure_deck_preview_dialog(self, deck_name: str, pending_items: List[Dict[str, Any]]):
+        # pending_items: list of dicts with keys: api_card, set_code, rarity, quantity, name, status, include, image_id
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-6xl bg-dark border border-gray-700'):
+            ui.label(f"Import Preview: {deck_name}").classes('text-h6')
+            ui.label("Review items before importing. Uncheck to exclude.").classes('text-caption text-grey')
+
+            rows_container = None
+
+            def render_rows():
+                if not rows_container: return
+                rows_container.clear()
+                with rows_container:
+                    for item in pending_items:
+                        # Color code status
+                        status_color = 'text-green-400'
+                        if item['status'] == 'New Variant': status_color = 'text-yellow-400'
+                        elif item['status'] == 'Card Not Found': status_color = 'text-red-400'
+
+                        with ui.row().classes('w-full items-center gap-2 q-mb-sm border-b border-gray-800 pb-2'):
+                            # Disable checkbox if fatal error
+                            is_disabled = item['status'] == 'Card Not Found'
+
+                            ui.checkbox(value=item['include'],
+                                        on_change=lambda e, it=item: it.update({'include': e.value})) \
+                                .classes('w-10 justify-center') \
+                                .props('disable' if is_disabled else '')
+
+                            ui.label(str(item['quantity'])).classes('w-10 text-center')
+                            ui.label(item['name']).classes('w-1/3 font-bold truncate')
+                            ui.label(item['set_code']).classes('w-1/4 text-sm font-mono')
+                            ui.label(item['rarity']).classes('w-1/6 text-sm')
+                            ui.label(item['status']).classes(f'w-1/6 text-xs font-bold {status_color}')
+
+            def toggle_all(e):
+                for item in pending_items:
+                    if item['status'] != 'Card Not Found':
+                        item['include'] = e.value
+                render_rows()
+
+            with ui.scroll_area().classes('h-96 w-full q-my-md'):
+                 # Header
+                with ui.row().classes('w-full items-center gap-2 font-bold text-grey-4 q-mb-sm border-b border-gray-600 pb-2'):
+                    ui.checkbox(value=True, on_change=toggle_all).classes('w-10 justify-center').props('dense')
+                    ui.label("Qty").classes('w-10 text-center')
+                    ui.label("Card").classes('w-1/3')
+                    ui.label("Set Code").classes('w-1/4')
+                    ui.label("Rarity").classes('w-1/6')
+                    ui.label("Status").classes('w-1/6')
+
+                rows_container = ui.column().classes('w-full')
+                render_rows()
+
+            with ui.row().classes('w-full justify-end gap-4 q-mt-md'):
+                ui.button("Cancel", on_click=dialog.close).props('outline color=white')
+
+                async def confirm():
+                    dialog.close()
+                    await self.execute_structure_deck_import(deck_name, pending_items)
+
+                # Disable import if no valid items included
+                # (Logic handled in execute but good to disable button visually?
+                #  Simpler to let execute handle it and show 0 imported)
+                ui.button("Import Selected", on_click=confirm).classes('bg-primary text-white')
+
+        dialog.open()
+
+    async def execute_structure_deck_import(self, deck_name: str, items: List[Dict[str, Any]]):
+        if not self.current_collection_obj or not self.state['selected_collection']:
+            return
+
+        collection = self.current_collection_obj
+        defaults = {
+            'lang': self.state['default_language'],
+            'cond': self.state['default_condition'],
+            'first': self.state['default_first_ed'],
+            'storage': self.state['default_storage']
+        }
+
+        processed_changes = []
+        added_count = 0
+        failed_rows = []
+        modified_card_ids = set()
+
+        for item in items:
+            if not item['include']:
+                if item['status'] == 'Card Not Found':
+                    failed_rows.append(f"{item['quantity']}x {item['name']} ({item['set_code']}): Card Not Found")
+                else:
+                    failed_rows.append(f"{item['quantity']}x {item['name']} ({item['set_code']}): Excluded by user")
+                continue
+
+            if not item.get('api_card'):
+                # Should be caught by 'Card Not Found' check above, but safety first
+                failed_rows.append(f"{item['quantity']}x {item['name']}: Missing API Card Data")
+                continue
+
+            # Handle New Variant Creation
+            if item['status'] == 'New Variant':
+                try:
+                    # Create new variant on the fly
+                    new_id = str(uuid.uuid4())
+                    rarity_code = "" # We don't have abbreviation map handy here easily, but it's optional
+
+                    # Try to match image from existing sets of same card if missing
+                    img_id = item['image_id']
+                    if not img_id and item['api_card'].card_images:
+                        img_id = item['api_card'].card_images[0].id
+
+                    new_set = ApiCardSet(
+                        variant_id=new_id,
+                        set_name=f"{deck_name} (Imported)", # Use deck name as set name fallback? Or just "Custom"
+                        set_code=item['set_code'],
+                        set_rarity=item['rarity'],
+                        set_rarity_code=rarity_code,
+                        set_price="0.00",
+                        image_id=img_id
+                    )
+
+                    # Check duplication just in case
+                    exists = False
+                    for s in item['api_card'].card_sets:
+                        if s.set_code == item['set_code'] and s.set_rarity == item['rarity']:
+                            exists = True
+                            # If existing, use its variant ID?
+                            # But we marked it as New Variant because we didn't find it?
+                            # Maybe we should double check here.
+                            item['variant_id'] = s.variant_id
+                            break
+
+                    if not exists:
+                        item['api_card'].card_sets.append(new_set)
+                        modified_card_ids.add(item['api_card'].id)
+                        item['variant_id'] = new_id # Assign new variant ID for collection
+
+                except Exception as e:
+                    logger.error(f"Failed to create variant for {item['name']}: {e}")
+                    failed_rows.append(f"{item['quantity']}x {item['name']}: Failed to create variant - {e}")
+                    continue
+            else:
+                 # Ready status - variant should exist
+                 # Find variant ID if not set
+                 if not item.get('variant_id'):
+                     for s in item['api_card'].card_sets:
+                         if s.set_code == item['set_code'] and s.set_rarity == item['rarity']:
+                             item['variant_id'] = s.variant_id
+                             break
+
+            # Apply to Collection
+            # We use defaults for lang/cond/first/storage as strictly defined by user settings
+            # Structure decks are usually Sealed/Near Mint, 1st Ed.
+
+            try:
+                CollectionEditor.apply_change(
+                    collection=collection,
+                    api_card=item['api_card'],
+                    set_code=item['set_code'],
+                    rarity=item['rarity'],
+                    language=defaults['lang'],
+                    quantity=item['quantity'],
+                    condition=defaults['cond'],
+                    first_edition=defaults['first'],
+                    image_id=item.get('image_id'),
+                    variant_id=item.get('variant_id'), # Important: pass the ID we found/created!
+                    storage_location=defaults['storage'],
+                    mode='ADD'
+                )
+
+                processed_changes.append({
+                    'action': 'ADD',
+                    'quantity': item['quantity'],
+                    'card_data': {
+                        'card_id': item['api_card'].id,
+                        'name': item['api_card'].name,
+                        'set_code': item['set_code'],
+                        'rarity': item['rarity'],
+                        'image_id': item.get('image_id'),
+                        'language': defaults['lang'],
+                        'condition': defaults['cond'],
+                        'first_edition': defaults['first'],
+                        'variant_id': item.get('variant_id')
+                    }
+                })
+                added_count += item['quantity']
+
+            except Exception as e:
+                logger.error(f"Error adding {item['name']}: {e}")
+                failed_rows.append(f"{item['quantity']}x {item['name']}: Collection Update Error - {e}")
+
+        # Save DB Updates (New Variants)
+        if modified_card_ids:
+            for lang, cards in ygo_service._cards_cache.items():
+                ids_in_lang = {c.id for c in cards}
+                if not ids_in_lang.isdisjoint(modified_card_ids):
+                    await ygo_service.save_card_database(cards, lang)
+                    logger.info(f"Saved updated DB for language: {lang}")
+
+        # Save Collection & Log
+        if processed_changes:
+            await run.io_bound(persistence.save_collection, collection, self.state['selected_collection'])
+
+            changelog_manager.log_batch_change(
+                self.state['selected_collection'],
+                f"Imported {deck_name}",
+                processed_changes
+            )
+
+            self.render_header.refresh()
+            await self.refresh_collection_view_from_memory()
+
+        # Report Popup
+        with ui.dialog() as d, ui.card():
+            ui.label("Import Result").classes('text-h6')
+            if added_count > 0:
+                ui.label(f"Successfully added {added_count} cards.").classes('text-positive font-bold')
+            else:
+                ui.label("No cards were added.").classes('text-warning')
+
+            if failed_rows:
+                ui.separator().classes('my-2')
+                ui.label(f"{len(failed_rows)} items skipped/failed:").classes('text-negative font-bold')
+                with ui.scroll_area().classes('h-32 w-full border border-red-900 bg-red-900/10 p-2'):
+                    for row in failed_rows:
+                        ui.label(row).classes('text-xs text-red-300')
+
+            ui.button("Close", on_click=d.close).classes('w-full mt-4')
+        d.open()
+
+
     async def process_structure_deck_add(self, deck_name: str, cards: List[Dict[str, Any]]):
         if not self.current_collection_obj or not self.state['selected_collection']:
             ui.notify("No collection selected", type='negative')
@@ -554,109 +784,72 @@ class BulkAddPage:
             'storage': self.state['default_storage']
         }
 
-        processed_changes = []
-        added_count = 0
-
-        # We need to perform all additions in memory first, then save once.
-        # But _update_collection saves every time.
-        # Ideally, we should update the in-memory object multiple times and then save once.
-        # However, _update_collection logic is coupled with persistence.
-        # Refactoring _update_collection to support a 'save=False' flag would be best.
-        # For now, I will modify _update_collection locally or override behavior.
-        # Actually, let's just create a modified version or use CollectionEditor directly and save at the end.
-
-        collection = self.current_collection_obj
+        pending_items = []
 
         for card_info in cards:
             set_code = card_info['set_code']
             qty = card_info['quantity']
             rarity = card_info['rarity']
+            name = card_info.get('name', 'Unknown Card')
 
-            # Find ApiCard
+            # 1. Resolve ApiCard
             api_card = self.set_code_map.get(set_code)
 
-            # If not found by exact match, try normalized
             if not api_card:
-                 # Check if the set code exists in our known sets?
-                 # If the card is not in our DB, we skip it as per instructions.
-                 logger.warning(f"Card {set_code} not found in local DB. Skipping.")
-                 continue
+                # Fallback: Lookup by Name
+                api_card = self.name_map.get(name.lower())
+                if api_card:
+                    logger.info(f"Resolved {name} (Code: {set_code}) by name fallback.")
+                else:
+                    logger.warning(f"Could not resolve card: {name} ({set_code})")
+                    pending_items.append({
+                        'api_card': None,
+                        'set_code': set_code,
+                        'rarity': rarity,
+                        'quantity': qty,
+                        'name': name,
+                        'status': 'Card Not Found',
+                        'include': False, # Default to excluded for errors
+                        'image_id': None
+                    })
+                    continue
 
-            # Determine Image ID
-            # Look for the specific set variant in api_card
+            # 2. Determine Target Set Code (Apply Language Transform)
+            final_set_code = transform_set_code(set_code, defaults['lang'])
+
+            # 3. Check Variant Status
+            status = 'Ready'
+            variant_exists = False
             image_id = None
-            variant_id = None
 
             if api_card.card_sets:
                 for s in api_card.card_sets:
-                    if s.set_code == set_code:
+                    if s.set_code == final_set_code and s.set_rarity == rarity:
+                        variant_exists = True
                         image_id = s.image_id
-                        variant_id = s.variant_id
                         break
+                    # Fallback image: if we find the exact set code but different rarity, or just same set code
+                    if s.set_code == set_code: # original set code
+                        if not image_id: image_id = s.image_id
 
             if not image_id and api_card.card_images:
                 image_id = api_card.card_images[0].id
 
-            # Transform Set Code
-            final_set_code = transform_set_code(set_code, defaults['lang'])
-            if final_set_code != set_code:
-                # If set code changed, we cannot reuse the variant_id from the original set code
-                variant_id = None
+            if not variant_exists:
+                status = 'New Variant'
 
-            # Apply Change In-Memory
-            CollectionEditor.apply_change(
-                collection=collection,
-                api_card=api_card,
-                set_code=final_set_code,
-                rarity=rarity,
-                language=defaults['lang'],
-                quantity=qty,
-                condition=defaults['cond'],
-                first_edition=defaults['first'],
-                image_id=image_id,
-                variant_id=variant_id,
-                storage_location=defaults['storage'],
-                mode='ADD'
-            )
-
-            # Prepare log entry
-            # Need variant_id if it was generated/found
-            if not variant_id:
-                 variant_id = generate_variant_id(api_card.id, final_set_code, rarity, image_id)
-
-            processed_changes.append({
-                'action': 'ADD',
+            pending_items.append({
+                'api_card': api_card,
+                'set_code': final_set_code,
+                'rarity': rarity,
                 'quantity': qty,
-                'card_data': {
-                    'card_id': api_card.id,
-                    'name': api_card.name,
-                    'set_code': final_set_code,
-                    'rarity': rarity,
-                    'image_id': image_id,
-                    'language': defaults['lang'],
-                    'condition': defaults['cond'],
-                    'first_edition': defaults['first'],
-                    'variant_id': variant_id
-                }
+                'name': api_card.name,
+                'status': status,
+                'include': True,
+                'image_id': image_id
             })
-            added_count += qty
 
-        if processed_changes:
-            # Save Collection
-            await run.io_bound(persistence.save_collection, collection, self.state['selected_collection'])
-
-            # Log Batch
-            changelog_manager.log_batch_change(
-                self.state['selected_collection'],
-                f"Imported {deck_name}",
-                processed_changes
-            )
-
-            ui.notify(f"Added {added_count} cards from {deck_name}", type='positive')
-            self.render_header.refresh()
-            await self.refresh_collection_view_from_memory()
-        else:
-            ui.notify("No valid cards found to add (check database update?)", type='warning')
+        self.open_structure_deck_preview_dialog(deck_name, pending_items)
 
     async def add_card_to_collection(self, entry: LibraryEntry, lang, cond, first, qty):
         final_set_code = transform_set_code(entry.set_code, lang)
@@ -1297,7 +1490,9 @@ class BulkAddPage:
             # Build Set Code Map
             # Note: Set codes in DB might be "SDAZ-EN001" or "SDAZ-EN001"
             self.set_code_map = {}
+            self.name_map = {}
             for c in api_cards:
+                self.name_map[c.name.lower()] = c
                 if c.card_sets:
                     for s in c.card_sets:
                         self.set_code_map[s.set_code] = c
