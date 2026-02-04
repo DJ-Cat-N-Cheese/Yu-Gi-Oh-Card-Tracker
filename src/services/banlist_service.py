@@ -3,7 +3,7 @@ import json
 import requests
 import logging
 from nicegui import run
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 logger = logging.getLogger(__name__)
 
@@ -28,12 +28,6 @@ class BanlistService:
     async def fetch_default_banlists(self):
         """Downloads TCG, OCG, and Goat banlists from the API."""
         if self._fetched: return
-
-        # Also skip if files exist and are recent?
-        # For simplicity, we just use session-based caching (one fetch per server run).
-        # But if files exist, we might skip entirely to speed up dev?
-        # User requirement: "Automatically download".
-        # Safe bet: fetch once per session.
 
         logger.info("Fetching default banlists...")
         await self._fetch_and_save("TCG", "tcg")
@@ -63,7 +57,8 @@ class BanlistService:
                          ban_map[str(card['id'])] = status
 
                 if ban_map:
-                    await self.save_banlist(name, ban_map)
+                    # Default downloaded lists are always classic
+                    await self.save_banlist(name, ban_map, banlist_type="classic")
                     logger.info(f"Updated banlist: {name} ({len(ban_map)} cards)")
                 else:
                     logger.warning(f"No cards found for banlist {name}")
@@ -72,29 +67,36 @@ class BanlistService:
         except Exception as e:
             logger.error(f"Error fetching {name} banlist: {e}")
 
-    async def save_banlist(self, name: str, data: Dict[str, str]):
-        """Saves a banlist (id -> status map) to a JSON file."""
+    async def save_banlist(self, name: str, data: Dict[str, str], banlist_type: str = "classic", max_points: Optional[int] = None):
+        """Saves a banlist to a JSON file."""
         self._ensure_directory()
         filepath = os.path.join(BANLIST_DIR, f"{name}.json")
         content = {
             "name": name,
+            "type": banlist_type,
             "cards": data
         }
+        if max_points is not None:
+            content["max_points"] = max_points
+
         await run.io_bound(self._write_json, filepath, content)
 
     def _write_json(self, filepath, content):
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(content, f, indent=2)
 
-    async def load_banlist(self, name: str) -> Dict[str, str]:
-        """Loads a banlist map (id -> status) from JSON."""
+    async def load_banlist(self, name: str) -> Dict[str, Any]:
+        """
+        Loads a banlist from JSON.
+        Returns the full dictionary content (including 'type', 'max_points', 'cards').
+        """
         filepath = os.path.join(BANLIST_DIR, f"{name}.json")
         if not os.path.exists(filepath):
             return {}
 
         try:
             content = await run.io_bound(self._read_json, filepath)
-            return content.get("cards", {})
+            return content
         except Exception as e:
             logger.error(f"Error loading banlist {name}: {e}")
             return {}
@@ -108,5 +110,35 @@ class BanlistService:
         if not os.path.exists(BANLIST_DIR): return []
         files = [f.replace('.json', '') for f in os.listdir(BANLIST_DIR) if f.endswith('.json')]
         return sorted(files)
+
+    def get_banlists_metadata(self) -> List[Dict[str, Any]]:
+        """
+        Returns metadata for all available banlists.
+        Useful for UI selection logic (showing icons for types).
+        """
+        if not os.path.exists(BANLIST_DIR): return []
+
+        result = []
+        files = sorted([f for f in os.listdir(BANLIST_DIR) if f.endswith('.json')])
+
+        for f in files:
+            filepath = os.path.join(BANLIST_DIR, f)
+            try:
+                # We read synchronously here because this is likely called during UI init
+                # or we can assume local FS reads for small JSONs are fast enough.
+                # If performance issues arise, we can make this async or cache it.
+                with open(filepath, 'r', encoding='utf-8') as file:
+                    content = json.load(file)
+
+                meta = {
+                    "name": content.get("name", f.replace('.json', '')),
+                    "type": content.get("type", "classic"),
+                    "max_points": content.get("max_points")
+                }
+                result.append(meta)
+            except Exception as e:
+                logger.error(f"Error reading banlist metadata {f}: {e}")
+
+        return result
 
 banlist_service = BanlistService()

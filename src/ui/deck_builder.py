@@ -130,8 +130,11 @@ class DeckBuilderPage:
             'available_collections': [],
 
             'available_banlists': [],
+            'available_banlists_metadata': [], # List[Dict]
             'current_banlist_name': last_banlist,
             'current_banlist_map': {}, # id -> status
+            'current_banlist_type': 'classic',
+            'current_banlist_max_points': None,
 
             'all_api_cards': [], # List[ApiCard]
             'filtered_items': [], # List[ApiCard] for search results
@@ -285,6 +288,23 @@ class DeckBuilderPage:
 
         return "\n".join(lines)
 
+    def calculate_deck_points(self) -> int:
+        deck = self.state['current_deck']
+        if not deck: return 0
+
+        points = 0
+        ban_map = self.state['current_banlist_map']
+
+        # Sum points for all cards in Main, Extra, and Side
+        all_ids = deck.main + deck.extra + deck.side
+        for cid in all_ids:
+            val = ban_map.get(str(cid))
+            # Points are stored as string numbers in the map
+            if val and val.isdigit():
+                 points += int(val)
+
+        return points
+
     def calculate_missing_deck(self) -> Deck:
         """
         Creates a new Deck object containing only the cards missing from the reference collection,
@@ -341,6 +361,7 @@ class DeckBuilderPage:
             # Load Banlists
             await banlist_service.fetch_default_banlists()
             self.state['available_banlists'] = banlist_service.get_banlists()
+            self.state['available_banlists_metadata'] = banlist_service.get_banlists_metadata()
 
             # Load default banlist
             # If current selection is invalid (e.g. file deleted), revert to None (No Banlist)
@@ -349,9 +370,14 @@ class DeckBuilderPage:
 
             # Load the actual map if a banlist is selected
             if self.state['current_banlist_name']:
-                 self.state['current_banlist_map'] = await banlist_service.load_banlist(self.state['current_banlist_name'])
+                 bl_data = await banlist_service.load_banlist(self.state['current_banlist_name'])
+                 self.state['current_banlist_map'] = bl_data.get('cards', {})
+                 self.state['current_banlist_type'] = bl_data.get('type', 'classic')
+                 self.state['current_banlist_max_points'] = bl_data.get('max_points')
             else:
                  self.state['current_banlist_map'] = {}
+                 self.state['current_banlist_type'] = 'classic'
+                 self.state['current_banlist_max_points'] = None
 
             # Setup Filters Metadata
             sets = set()
@@ -834,8 +860,25 @@ class DeckBuilderPage:
 
             # Banlist Selection
             banlist_options = {None: 'No Banlist'}
+
+            # Metadata lookup
+            meta_map = {m['name']: m for m in self.state.get('available_banlists_metadata', [])}
+
             for b in sorted(self.state['available_banlists']):
-                banlist_options[b] = b
+                label = b
+                meta = meta_map.get(b)
+                if meta:
+                    b_type = meta.get('type', 'classic')
+                    if b_type == 'points':
+                        label = f"🟢 {b}" # Green Circle for Points/Genesys
+                    elif b_type == 'classic':
+                         label = f"🚫 {b}" # Prohibition for Classic
+                    else:
+                         label = f"📄 {b}"
+                else:
+                     label = f"🚫 {b}" # Default to classic icon if no metadata found
+
+                banlist_options[b] = label
 
             # Ensure current value is in options to prevent 'Invalid value' error
             # This handles the initial load state where available_banlists might be empty
@@ -848,9 +891,14 @@ class DeckBuilderPage:
                 persistence.save_ui_state({'deck_builder_last_banlist': val})
                 self.state['current_banlist_name'] = val
                 if val:
-                     self.state['current_banlist_map'] = await banlist_service.load_banlist(val)
+                     bl_data = await banlist_service.load_banlist(val)
+                     self.state['current_banlist_map'] = bl_data.get('cards', {})
+                     self.state['current_banlist_type'] = bl_data.get('type', 'classic')
+                     self.state['current_banlist_max_points'] = bl_data.get('max_points')
                 else:
                      self.state['current_banlist_map'] = {}
+                     self.state['current_banlist_type'] = 'classic'
+                     self.state['current_banlist_max_points'] = None
 
                 self.refresh_deck_area()
                 self.refresh_search_results()
@@ -863,8 +911,14 @@ class DeckBuilderPage:
                     name_input = ui.input('New Name')
                     async def save():
                         if not name_input.value: return
-                        await banlist_service.save_banlist(name_input.value, self.state['current_banlist_map'])
+                        await banlist_service.save_banlist(
+                            name_input.value,
+                            self.state['current_banlist_map'],
+                            banlist_type=self.state.get('current_banlist_type', 'classic'),
+                            max_points=self.state.get('current_banlist_max_points')
+                        )
                         self.state['available_banlists'] = banlist_service.get_banlists()
+                        self.state['available_banlists_metadata'] = banlist_service.get_banlists_metadata()
                         self.state['current_banlist_name'] = name_input.value
                         self.render_header.refresh()
                         d.close()
@@ -904,6 +958,9 @@ class DeckBuilderPage:
              elif status == "Semi-Limited":
                  with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
                      ui.label('2')
+             elif self.state.get('current_banlist_type') == 'points' and status.isdigit():
+                 with ui.element('div').classes('w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold text-xs border-2 border-white shadow-md'):
+                     ui.label(status)
 
     def _setup_card_tooltip(self, card: ApiCard):
         if not card: return
@@ -1110,6 +1167,17 @@ class DeckBuilderPage:
                  if count > 15: is_invalid = True
 
             lbl.text = f"({count})"
+
+            # Points System Display (Main Deck Header)
+            if target == 'main' and self.state.get('current_banlist_type') == 'points':
+                current_points = self.calculate_deck_points()
+                max_points = self.state.get('current_banlist_max_points') or 0
+
+                lbl.text += f" - Pts: {current_points}/{max_points}"
+
+                if current_points > max_points:
+                    is_invalid = True
+
             if is_invalid:
                 lbl.classes(remove='text-white', add='text-red-400')
             else:
