@@ -18,7 +18,6 @@ class StructureDeckDialog:
         self.decks = []
         self.selected_deck_title: Optional[str] = None
         self.main_deck_cards: List[DeckCard] = []
-        self.filter_mode = 'ALL' # ALL, STRUCTURE, STARTER, SPEED
 
         # UI Elements
         self.deck_select: Optional[ui.select] = None
@@ -33,13 +32,6 @@ class StructureDeckDialog:
             ui.label('Note: Promo / Bonus cards have to be added manually.').classes('text-sm text-gray-400 italic mb-2')
 
             with ui.column().classes('w-full flex-grow gap-4'):
-                # 0. Filter
-                ui.toggle(
-                    {'ALL': 'All', 'STARTER': 'Starter', 'STRUCTURE': 'Structure', 'SPEED': 'Speed Duel'},
-                    value=self.filter_mode,
-                    on_change=self._on_filter_change
-                ).props('no-caps spread color=accent').classes('w-full border border-gray-700 rounded')
-
                 # 1. Deck Selector
                 self.deck_select = ui.select(
                     options={},
@@ -60,55 +52,35 @@ class StructureDeckDialog:
                     self.add_btn.disable()
 
         # Start loading decks
-        self.filter_mode = 'ALL' # Reset filter on open
         ui.timer(0.1, self._load_decks, once=True)
 
-    def _on_filter_change(self, e):
-        self.filter_mode = e.value
-        self._update_deck_options()
-
     async def _load_decks(self):
-        if self.deck_select:
-            self.deck_select.disable()
-        if self.deck_loading:
-            self.deck_loading.classes(remove='hidden')
+        self.deck_select.disable()
+        self.deck_loading.classes(remove='hidden')
 
-        self.decks = await yugipedia_service.get_all_decks()
-
-        self._update_deck_options()
-
-        if self.deck_select:
-            self.deck_select.enable()
-        if self.deck_loading:
-            self.deck_loading.classes(add='hidden')
-
-    def _update_deck_options(self):
-        if not self.deck_select: return
-
-        filtered_decks = []
-        for d in self.decks:
-            if self.filter_mode == 'ALL':
-                pass
-            elif self.filter_mode == 'SPEED':
-                if d.deck_type != 'SPEED': continue
-            elif self.filter_mode == 'STRUCTURE':
-                if d.deck_type != 'STRUCTURE': continue
-            elif self.filter_mode == 'STARTER':
-                if d.deck_type != 'STARTER': continue
-            filtered_decks.append(d)
-
-        # Sort alphabetically by Title
-        filtered_decks.sort(key=lambda x: x.title)
+        decks = await yugipedia_service.get_all_decks()
+        self.decks = decks
 
         options = {}
-        for d in filtered_decks:
-            label = d.title
-            if d.code:
-                label = f"[{d.code}] {d.title}"
-            options[d.title] = label
+        for d in decks:
+            display = d.title
+
+            # Determine prefix based on type
+            # Safe defaults if deck_type missing (legacy/fallback)
+            d_type = getattr(d, 'deck_type', 'STRUCTURE')
+            prefix = "Structure Deck: " if d_type == 'STRUCTURE' else "Starter Deck: "
+            phrase = "Structure Deck" if d_type == 'STRUCTURE' else "Starter Deck"
+
+            # Remove existing phrase (case insensitive) to avoid duplication
+            cleaned = re.sub(re.escape(phrase), '', display, flags=re.IGNORECASE).strip()
+            # Remove leading/trailing colons, hyphens, spaces
+            cleaned = re.sub(r'^[:\-\s]+', '', cleaned).strip()
+
+            options[d.title] = f"{prefix}{cleaned}"
 
         self.deck_select.options = options
-        self.deck_select.update()
+        self.deck_select.enable()
+        self.deck_loading.classes(add='hidden')
 
     async def _on_deck_selected(self, e):
         title = e.value
