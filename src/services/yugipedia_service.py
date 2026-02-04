@@ -12,7 +12,8 @@ logger = logging.getLogger(__name__)
 class StructureDeck:
     page_id: int
     title: str
-    deck_type: str = 'STRUCTURE' # 'STRUCTURE' or 'STARTER'
+    deck_type: str = 'STRUCTURE' # 'STRUCTURE', 'STARTER', 'SPEED'
+    code: Optional[str] = None
 
 @dataclass
 class DeckCard:
@@ -50,44 +51,95 @@ class YugipediaService:
     }
 
     async def get_all_decks(self) -> List[StructureDeck]:
-        """Fetches list of TCG Structure Decks and Starter Decks."""
-        async def fetch_category(category: str, deck_type: str) -> List[StructureDeck]:
-            params = {
-                "action": "query",
-                "list": "categorymembers",
-                "cmtitle": category,
-                "cmlimit": "500",
-                "format": "json"
-            }
-            try:
-                if hasattr(run, 'io_bound'):
-                    response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
-                else:
-                    response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+        """Fetches list of TCG Structure Decks and Starter Decks including Set Codes."""
+        async def fetch_category_smw(category: str, default_type: str) -> List[StructureDeck]:
+            decks = []
+            offset = 0
+            limit = 500
 
-                if response.status_code == 200:
-                    data = response.json()
-                    members = data.get("query", {}).get("categorymembers", [])
-                    # Filter out "Category:" subcategories if any, keep pages (ns=0)
-                    return [
-                        StructureDeck(page_id=m['pageid'], title=m['title'], deck_type=deck_type)
-                        for m in members if m['ns'] == 0
-                    ]
-                else:
-                    logger.error(f"Yugipedia API error for {category}: {response.status_code}")
-                    return []
-            except Exception as e:
-                logger.error(f"Failed to fetch {category}: {e}")
-                return []
+            while True:
+                # Query SMW for properties
+                query = f"[[{category}]]|?English set prefix|?North American English set prefix|?European English set prefix|limit={limit}|offset={offset}"
+                params = {
+                    "action": "ask",
+                    "query": query,
+                    "format": "json"
+                }
+
+                try:
+                    if hasattr(run, 'io_bound'):
+                        response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+                    else:
+                        response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        results = data.get("query", {}).get("results", {})
+
+                        if not results:
+                             break
+
+                        count_added = 0
+                        if isinstance(results, dict):
+                            for title, info in results.items():
+                                printouts = info.get('printouts', {})
+                                code = None
+                                # Try English, then NA, then EU
+                                for key in ['English set prefix', 'North American English set prefix', 'European English set prefix']:
+                                    val = printouts.get(key)
+                                    if val and isinstance(val, list) and len(val) > 0:
+                                        code = val[0]
+                                        break
+
+                                # Determine Deck Type
+                                d_type = default_type
+                                if "Speed Duel" in title:
+                                    d_type = 'SPEED'
+
+                                decks.append(StructureDeck(
+                                    page_id=0, # Unused
+                                    title=title,
+                                    deck_type=d_type,
+                                    code=code
+                                ))
+                                count_added += 1
+
+                        # Pagination check
+                        continue_offset = data.get("query-continue-offset")
+                        if continue_offset:
+                            offset = int(continue_offset)
+                            # Safety break if no items added to prevent infinite loop if offset doesn't advance logic
+                            if count_added == 0:
+                                break
+                        else:
+                            break
+                    else:
+                        logger.error(f"SMW API error for {category}: {response.status_code}")
+                        break
+                except Exception as e:
+                    logger.error(f"Failed to fetch {category} via SMW: {e}")
+                    break
+            return decks
 
         # Fetch both categories concurrently
         results = await asyncio.gather(
-            fetch_category("Category:TCG_Structure_Decks", 'STRUCTURE'),
-            fetch_category("Category:TCG_Starter_Decks", 'STARTER')
+            fetch_category_smw("Category:TCG_Structure_Decks", 'STRUCTURE'),
+            fetch_category_smw("Category:TCG_Starter_Decks", 'STARTER')
         )
 
-        # Flatten list
-        all_decks = results[0] + results[1]
+        # Merge and Deduplicate (by title)
+        # Prefer SPEED type if duplicate exists
+        deck_map = {}
+        for deck_list in results:
+            for d in deck_list:
+                if d.title in deck_map:
+                    # If existing is not speed but new is, update
+                    if deck_map[d.title].deck_type != 'SPEED' and d.deck_type == 'SPEED':
+                        deck_map[d.title] = d
+                else:
+                    deck_map[d.title] = d
+
+        all_decks = list(deck_map.values())
 
         # Sort by title
         return sorted(all_decks, key=lambda x: x.title)
