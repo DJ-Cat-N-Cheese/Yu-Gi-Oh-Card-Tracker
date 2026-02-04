@@ -100,7 +100,8 @@ class BanlistService:
 
             # Parse Table using Regex
             # Pattern: <tr>\s*<td>(.*?)</td>\s*<td>(\d+)</td>\s*</tr>
-            pattern = re.compile(r'<tr>\s*<td>(.*?)</td>\s*<td>(\d+)</td>\s*</tr>', re.IGNORECASE | re.DOTALL)
+            # Updated to allow attributes in tags
+            pattern = re.compile(r'<tr[^>]*>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(\d+)</td>\s*</tr>', re.IGNORECASE | re.DOTALL)
             matches = pattern.findall(html)
 
             points_map = {}
