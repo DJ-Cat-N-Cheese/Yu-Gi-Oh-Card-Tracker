@@ -834,7 +834,7 @@ class DeckBuilderPage:
 
             # Banlist Selection
             banlist_options = {None: 'No Banlist'}
-            for b in sorted(self.state['available_banlists']):
+            for b in sorted(self.state['available_banlists'], reverse=True): # Newest first
                 banlist_options[b] = b
 
             # Ensure current value is in options to prevent 'Invalid value' error
@@ -855,7 +855,21 @@ class DeckBuilderPage:
                 self.refresh_deck_area()
                 self.refresh_search_results()
 
-            ui.select(banlist_options, value=curr_ban, label='Banlist', on_change=on_banlist_change).classes('min-w-[150px]')
+            async def fetch_banlists():
+                n = ui.notification('Fetching banlists...', type='info', spinner=True, timeout=None)
+                try:
+                    await banlist_service.fetch_default_banlists()
+                    self.state['available_banlists'] = banlist_service.get_banlists()
+                    self.render_header.refresh()
+                    n.dismiss()
+                    ui.notify('Banlists updated.', type='positive')
+                except Exception as e:
+                    n.dismiss()
+                    ui.notify(f'Failed to fetch banlists: {e}', type='negative')
+
+            with ui.row().classes('items-center gap-1'):
+                ui.button(icon='cloud_download', on_click=fetch_banlists).props('flat round color=white').tooltip('Fetch Latest Banlists')
+                ui.select(banlist_options, value=curr_ban, label='Banlist', on_change=on_banlist_change).classes('min-w-[150px]')
 
             async def save_banlist_as():
                 with ui.dialog() as d, ui.card():
@@ -896,7 +910,11 @@ class DeckBuilderPage:
         if not status: return
 
         with ui.element('div').classes('absolute top-1 left-1 z-10 pointer-events-none'):
-             if status in ["Forbidden", "Banned"]:
+             if status.isdigit(): # Genesys Points
+                 with ui.element('div').classes('flex items-center justify-center bg-white rounded px-1 shadow-sm border border-yellow-600 h-5'):
+                     ui.icon('star', color='yellow-600').classes('text-xs')
+                     ui.label(status).classes('text-xs font-bold text-black ml-0.5 leading-none')
+             elif status in ["Forbidden", "Banned"]:
                  ui.icon('block', color='red').classes('text-xl bg-white rounded-full shadow-sm')
              elif status == "Limited":
                  with ui.element('div').classes('w-5 h-5 rounded-full bg-orange-600 text-white flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
