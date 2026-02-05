@@ -307,46 +307,162 @@ class YugipediaService:
             'bonus': sorted(bonus_cards, key=lambda c: c.name) # Sort bonus for UI
         }
 
+    def _extract_set_list_blocks(self, text: str) -> List[str]:
+        """
+        Extracts content of {{Set list|...}} blocks using brace counting
+        to correctly handle nested templates like {{=}} or {{Link}}.
+        """
+        blocks = []
+        # Find all start indices
+        matches = list(re.finditer(r'\{\{Set list\|', text, re.IGNORECASE))
+
+        for match in matches:
+            start_idx = match.start()
+            # Find matching closing braces
+            open_braces = 0
+            curr = start_idx
+            content_start = match.end() # Start after {{Set list|
+            found_end = False
+
+            # Start counting from the beginning of the match
+            # But simpler: start loop at start_idx
+
+            i = start_idx
+            while i < len(text):
+                # Check for {{
+                if text[i:i+2] == '{{':
+                    open_braces += 2
+                    i += 2
+                # Check for }}
+                elif text[i:i+2] == '}}':
+                    open_braces -= 2
+                    i += 2
+                    if open_braces == 0:
+                        found_end = True
+                        # Current i is just after }}
+                        # Content is between content_start and i-2
+                        blocks.append(text[content_start : i - 2])
+                        break
+                else:
+                    i += 1
+
+            # Note: malformed blocks are ignored or handled by next iteration
+
+        return blocks
+
+    def _smart_split_params(self, text: str) -> List[str]:
+        """
+        Splits text by pipe '|', but respects nested braces {{ }} and brackets [[ ]].
+        """
+        parts = []
+        start = 0
+        curr = 0
+        braces = 0
+        brackets = 0
+
+        while curr < len(text):
+            char = text[curr]
+
+            if char == '{':
+                if curr + 1 < len(text) and text[curr+1] == '{':
+                    braces += 2
+                    curr += 1
+                else:
+                    braces += 1
+            elif char == '}':
+                if curr + 1 < len(text) and text[curr+1] == '}':
+                    braces -= 2
+                    curr += 1
+                else:
+                    braces -= 1
+            elif char == '[':
+                 if curr + 1 < len(text) and text[curr+1] == '[':
+                    brackets += 2
+                    curr += 1
+                 else:
+                    brackets += 1
+            elif char == ']':
+                 if curr + 1 < len(text) and text[curr+1] == ']':
+                    brackets -= 2
+                    curr += 1
+                 else:
+                    brackets -= 1
+            elif char == '|':
+                if braces == 0 and brackets == 0:
+                    parts.append(text[start:curr])
+                    start = curr + 1
+
+            curr += 1
+
+        parts.append(text[start:])
+        return parts
+
     def _extract_cards_from_block(self, text: str) -> List[DeckCard]:
-        pattern = r'\{\{Set list\|(.*?)\}\}'
-        matches = re.findall(pattern, text, re.DOTALL)
+        # Use brace counting instead of regex
+        matches = self._extract_set_list_blocks(text)
 
         cards = []
 
+        known_params = [
+            'region', 'rarities', 'qty', 'options', 'width',
+            'class', 'style', 'header', 'footer'
+        ]
+
         for block in matches:
-            parts = block.split('|')
+            # Smart split respecting nested templates
+            parts = self._smart_split_params(block)
+
             list_content = ""
             default_qty = 1
             default_rarity = "Common" # Fallback
 
+            # Heuristic: Find the part that is most likely the card list
+            # It usually contains many semicolons and is NOT a known param.
+
+            best_content_candidate = ""
+            max_semicolons = 0
+
             for part in parts:
                 part = part.strip()
+                is_param = False
+
+                # Check for key=value
                 if '=' in part:
-                    key, val = part.split('=', 1)
-                    key = key.strip().lower()
-                    val = val.strip()
-                    if key == 'qty':
-                        try: default_qty = int(val)
-                        except: pass
-                    elif key == 'rarities':
-                        # Example: rarities=Common
-                        # If comma separated, it might be list of rarities for the set, but here we want default?
-                        # Usually rarities param defines the columns or general rarity?
-                        # Actually in the example: "rarities=Common" -> cards are Common unless specified.
-                        # "rarities=Secret Rare, Quarter Century..." -> Just info?
-                        # If multiple rarities are listed (e.g. for promos), take the first one as default
-                        if ',' in val:
-                             val = val.split(',')[0].strip()
-                        default_rarity = self._map_rarity(val)
-                else:
-                    if ';' in part:
-                        list_content = part
+                    # Check if it looks like a known param
+                    # Split only on the first =
+                    key_cand, val_cand = part.split('=', 1)
+                    key_cand = key_cand.strip().lower()
+
+                    if key_cand in known_params:
+                        is_param = True
+                        if key_cand == 'qty':
+                            try: default_qty = int(val_cand)
+                            except: pass
+                        elif key_cand == 'rarities':
+                            if ',' in val_cand:
+                                 val_cand = val_cand.split(',')[0].strip()
+                            default_rarity = self._map_rarity(val_cand)
+
+                if not is_param:
+                    # Potential list content
+                    semicolon_count = part.count(';')
+                    if semicolon_count > 0:
+                        # If multiple candidates, pick the one with most semicolons
+                        if semicolon_count > max_semicolons:
+                            max_semicolons = semicolon_count
+                            best_content_candidate = part
+
+            list_content = best_content_candidate
 
             card_lines = list_content.split('\n')
 
             for line in card_lines:
                 line = line.strip()
                 if not line: continue
+
+                # Basic cleanup of line if it contains templates like {{=}}
+                # Replace {{=}} with = for display (though we split by ;)
+                line = line.replace('{{=}}', '=')
 
                 columns = [c.strip() for c in line.split(';')]
                 if len(columns) < 2: continue
