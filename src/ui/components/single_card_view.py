@@ -2,7 +2,7 @@ from nicegui import ui, run
 from src.core.models import ApiCardSet
 from src.services.ygo_api import ApiCard, ygo_service
 from src.services.image_manager import image_manager
-from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, extract_language_code
+from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, extract_language_code, LANGUAGE_FLAG_MAP
 from src.core.constants import CARD_CONDITIONS
 from typing import List, Optional, Dict, Set, Callable, Any
 import logging
@@ -432,8 +432,13 @@ class SingleCardView:
 
                             if owned_breakdown:
                                 for lang, count in owned_breakdown.items():
-                                    with ui.chip(icon='layers').props('color=secondary text-color=white'):
-                                        ui.label(f"{lang}: {count}").classes('select-text')
+                                    flag = LANGUAGE_FLAG_MAP.get(lang)
+                                    if flag:
+                                        with ui.chip().props('color=secondary text-color=white'):
+                                            ui.label(f"{flag} {lang}: {count}").classes('select-text')
+                                    else:
+                                        with ui.chip(icon='layers').props('color=secondary text-color=white'):
+                                            ui.label(f"{lang}: {count}").classes('select-text')
                             elif total_owned == 0:
                                 ui.label('Not in collection').classes('text-gray-500 italic')
 
@@ -926,8 +931,13 @@ class SingleCardView:
 
                              if owned_breakdown:
                                  for lang, count in owned_breakdown.items():
-                                     with ui.chip(icon='layers').props('color=secondary text-color=white'):
-                                         ui.label(f"{lang}: {count}")
+                                     flag = LANGUAGE_FLAG_MAP.get(lang)
+                                     if flag:
+                                         with ui.chip().props('color=secondary text-color=white'):
+                                             ui.label(f"{flag} {lang}: {count}")
+                                     else:
+                                         with ui.chip(icon='layers').props('color=secondary text-color=white'):
+                                             ui.label(f"{lang}: {count}")
                              elif owned_count == 0:
                                  ui.label('Not in collection').classes('text-gray-500 italic')
 
