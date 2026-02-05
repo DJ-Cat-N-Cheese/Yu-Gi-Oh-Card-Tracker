@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 class StructureDeck:
     page_id: int
     title: str
-    deck_type: str = 'STRUCTURE' # 'STRUCTURE', 'STARTER', or 'PRECON'
+    deck_type: str = 'STRUCTURE' # 'STRUCTURE', 'STARTER', 'PRECON', 'BOOSTER', 'TOURNAMENT'
 
 @dataclass
 class DeckCard:
@@ -41,6 +41,7 @@ class YugipediaService:
         "PScR": "Prismatic Secret Rare",
         "QCScR": "Quarter Century Secret Rare",
         "QCC": "Quarter Century Secret Rare",
+        "PS": "Platinum Secret Rare",
         # Add full names to map to themselves to be safe
         "Common": "Common",
         "Rare": "Rare",
@@ -100,6 +101,60 @@ class YugipediaService:
 
         # Sort by title
         return sorted(unique_decks, key=lambda x: x.title)
+
+    async def get_all_tcg_sets(self) -> List[StructureDeck]:
+        """Fetches list of all relevant TCG Sets (Boosters, Structures, Tournaments)."""
+        async def fetch_category(category: str, deck_type: str) -> List[StructureDeck]:
+            params = {
+                "action": "query",
+                "list": "categorymembers",
+                "cmtitle": category,
+                "cmlimit": "500",
+                "format": "json"
+            }
+            try:
+                if hasattr(run, 'io_bound'):
+                    response = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+                else:
+                    response = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+
+                if response.status_code == 200:
+                    data = response.json()
+                    members = data.get("query", {}).get("categorymembers", [])
+                    return [
+                        StructureDeck(page_id=m['pageid'], title=m['title'], deck_type=deck_type)
+                        for m in members if m['ns'] == 0
+                    ]
+                return []
+            except Exception as e:
+                logger.error(f"Failed to fetch {category}: {e}")
+                return []
+
+        # Fetch categories concurrently
+        categories = [
+            ("Category:TCG_Structure_Decks", 'STRUCTURE'),
+            ("Category:TCG_Starter_Decks", 'STARTER'),
+            ("Category:TCG_Booster_Packs", 'BOOSTER'),
+            ("Category:TCG_Tournament_Packs", 'TOURNAMENT'),
+            ("Category:TCG_Reprint_Sets", 'REPRINT'),
+            ("Category:TCG_Compilation_Sets", 'COMPILATION')
+        ]
+
+        tasks = [fetch_category(c, t) for c, t in categories]
+        results = await asyncio.gather(*tasks)
+
+        all_sets = []
+        for r in results:
+            all_sets.extend(r)
+
+        seen_ids = set()
+        unique_sets = []
+        for d in all_sets:
+            if d.page_id not in seen_ids:
+                seen_ids.add(d.page_id)
+                unique_sets.append(d)
+
+        return sorted(unique_sets, key=lambda x: x.title)
 
     # Legacy alias for compatibility
     async def get_structure_decks(self) -> List[StructureDeck]:
@@ -183,7 +238,7 @@ class YugipediaService:
                 if pid == "-1": # Not found
                     # Try searching for it? Or maybe the title format is slightly different?
                     # Fallback: Search for "Set Card Lists:{Title}"
-                    logger.warning(f"Direct lookup failed for {list_title}. Trying search.")
+                    # logger.warning(f"Direct lookup failed for {list_title}. Trying search.")
                     return await self._search_and_fetch_list(page_title)
 
                 if "revisions" in page:
@@ -198,6 +253,10 @@ class YugipediaService:
         except Exception as e:
             logger.error(f"Error getting deck list for {page_title}: {e}")
             return {'main': [], 'bonus': []}
+
+    # Alias for broader usage
+    async def get_set_card_list(self, page_title: str) -> Dict[str, List[DeckCard]]:
+        return await self.get_deck_list(page_title)
 
     async def _search_and_fetch_list(self, deck_title: str) -> Dict[str, List[DeckCard]]:
         # Search for "Set Card Lists:{deck_title}"
@@ -389,6 +448,110 @@ class YugipediaService:
         # Fallback: Return as is, or try simple lookup
         return r
 
+    async def get_card_specific_image(self, card_name: str, set_code: str) -> Optional[str]:
+        """
+        Attempts to find the specific image URL for a card variant using 'Card Gallery'.
+        """
+        # Try finding the gallery page
+        titles = [f"Card Gallery:{card_name}", f"Card Galleries:{card_name}"]
+
+        content = None
+        for t in titles:
+             wikitext = await self._fetch_wikitext(t)
+             if wikitext:
+                 content = wikitext
+                 break
+
+        if not content:
+            return None
+
+        # Parse content for set_code
+        # Format usually: Code; Set; Rarity; Edition //extension
+        lines = content.split('\n')
+        target_filename = None
+
+        for line in lines:
+            if set_code in line:
+                # Found the line. Now try to infer filename.
+                # If template logic is complex, we might fail here.
+                # But sometimes it's explicit: Filename|Caption
+                if "File:" in line or "Image:" in line:
+                     match = re.search(r'(?:File|Image):([^|\]]+)', line, re.IGNORECASE)
+                     if match:
+                         target_filename = match.group(1).strip()
+                         break
+
+        # If not found explicitly, try to see if Yugipedia conventions help?
+        # Actually, if we can't find it in the gallery text, we might try searching.
+
+        if not target_filename:
+             # Try search API for images
+             target_filename = await self._search_image_file(card_name, set_code)
+
+        if target_filename:
+            return await self.get_image_url_by_filename(target_filename)
+
+        return None
+
+    async def _search_image_file(self, card_name: str, set_code: str) -> Optional[str]:
+        # Search for "CardName SetCode" in namespace 6 (File)
+        # Simplify card name (remove spaces) for some conventions?
+        # Try both "Card Name SetCode" and "CardName SetCode"
+        queries = [
+            f"{card_name} {set_code}",
+            f"{card_name.replace(' ', '')} {set_code}"
+        ]
+
+        for q in queries:
+            params = {
+                "action": "query",
+                "list": "search",
+                "srsearch": q,
+                "srnamespace": "6",
+                "srlimit": 1,
+                "format": "json"
+            }
+            try:
+                if hasattr(run, 'io_bound'):
+                    res = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+                else:
+                    res = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+
+                results = res.json().get("query", {}).get("search", [])
+                if results:
+                    return results[0]["title"].replace("File:", "")
+            except:
+                pass
+        return None
+
+    async def get_image_url_by_filename(self, filename: str) -> Optional[str]:
+        """Resolves a File:Name to a direct URL."""
+        if not filename.startswith("File:") and not filename.startswith("Image:"):
+            filename = f"File:{filename}"
+
+        params = {
+            "action": "query",
+            "titles": filename,
+            "prop": "imageinfo",
+            "iiprop": "url",
+            "format": "json"
+        }
+
+        try:
+            if hasattr(run, 'io_bound'):
+                res = await run.io_bound(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+            else:
+                res = await asyncio.to_thread(requests.get, self.API_URL, params=params, headers=self.HEADERS)
+
+            pages = res.json().get("query", {}).get("pages", {})
+            for pid, page in pages.items():
+                if pid == "-1": continue
+                if "imageinfo" in page:
+                    return page["imageinfo"][0]["url"]
+        except:
+            pass
+        return None
+
     async def get_card_details(self, url: str) -> Optional[Dict[str, Any]]:
         """
         Parses a Yugipedia card page URL and returns card details.
@@ -410,7 +573,16 @@ class YugipediaService:
             if not wikitext:
                 return None
 
-            return self._parse_card_table(wikitext, title)
+            data = self._parse_card_table(wikitext, title)
+
+            # If image_url is missing, try to get the main image of the page
+            if not data.get("image_url"):
+                 # Query pageimages
+                 p_img = await self.get_set_image_url(title) # Uses pageimages
+                 if p_img:
+                     data["image_url"] = p_img
+
+            return data
 
         except Exception as e:
             logger.error(f"Error parsing card details from {url}: {e}")

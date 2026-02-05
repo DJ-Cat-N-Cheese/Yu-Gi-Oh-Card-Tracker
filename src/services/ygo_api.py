@@ -10,7 +10,7 @@ import asyncio
 import uuid
 import logging
 from typing import List, Optional, Callable, Dict, Any, Tuple
-from src.core.models import ApiCard, ApiCardSet
+from src.core.models import ApiCard, ApiCardSet, ApiCardImage
 from src.services.image_manager import image_manager
 from src.services.yugipedia_service import yugipedia_service
 from src.core.persistence import persistence
@@ -1020,6 +1020,151 @@ class YugiohService:
 
         logger.info(f"Bulk deleted set {target_prefix}. Removed {deleted_count} variants.")
         return deleted_count
+
+    async def sync_sets_from_yugipedia(self, progress_callback: Optional[Callable[[float, str], None]] = None, language: str = "en"):
+        """
+        Crawls Yugipedia for all TCG sets, parses card lists, and adds missing variants/images to the local DB.
+        """
+        logger.info("Starting full Yugipedia Sync...")
+        if progress_callback: progress_callback(0.0, "Fetching Set List...")
+
+        # 1. Fetch all sets
+        tcg_sets = await yugipedia_service.get_all_tcg_sets()
+        total_sets = len(tcg_sets)
+        logger.info(f"Found {total_sets} sets on Yugipedia.")
+
+        cards = await self.load_card_database(language)
+        card_map = {c.name.lower(): c for c in cards}
+
+        updated_cards = False
+        processed_count = 0
+
+        semaphore = asyncio.Semaphore(5)
+
+        async def process_set(set_info):
+            nonlocal updated_cards, processed_count
+            async with semaphore:
+                try:
+                    deck_list = await yugipedia_service.get_set_card_list(set_info.title)
+                    all_cards = deck_list.get('main', []) + deck_list.get('bonus', [])
+
+                    if not all_cards:
+                        processed_count += 1
+                        if progress_callback: progress_callback(processed_count / total_sets, f"Processed {processed_count}/{total_sets}")
+                        return
+
+                    for list_card in all_cards:
+                         card_name = list_card.name
+                         set_code = list_card.code
+                         rarity = list_card.rarity
+
+                         api_card = card_map.get(card_name.lower())
+
+                         if not api_card:
+                             # Fetch details to create new card
+                             details = await yugipedia_service.get_card_details(f"https://yugipedia.com/wiki/{card_name.replace(' ', '_')}")
+                             if details:
+                                 new_id = details.get("database_id")
+                                 if not new_id:
+                                      import random
+                                      new_id = random.randint(900000000, 999999999)
+                                      while any(c.id == new_id for c in cards): # Check uniqueness in list
+                                           new_id = random.randint(900000000, 999999999)
+
+                                 api_card = ApiCard(
+                                     id=new_id,
+                                     name=details.get("name", card_name),
+                                     type=details.get("type", "Normal Monster"),
+                                     frameType="normal",
+                                     desc=details.get("desc", ""),
+                                     race=details.get("race", ""),
+                                     atk=details.get("atk"),
+                                     def_=details.get("def"),
+                                     level=details.get("level"),
+                                     linkval=details.get("linkval"),
+                                     linkmarkers=details.get("linkmarkers"),
+                                     attribute=details.get("attribute"),
+                                     card_sets=[],
+                                     card_images=[]
+                                 )
+
+                                 # Set FrameType
+                                 t = api_card.type.lower()
+                                 if "synchro" in t: api_card.frameType = "synchro"
+                                 elif "fusion" in t: api_card.frameType = "fusion"
+                                 elif "xyz" in t: api_card.frameType = "xyz"
+                                 elif "link" in t: api_card.frameType = "link"
+                                 elif "ritual" in t: api_card.frameType = "ritual"
+                                 elif "token" in t: api_card.frameType = "token"
+                                 elif "spell" in t: api_card.frameType = "spell"
+                                 elif "trap" in t: api_card.frameType = "trap"
+                                 elif "effect" in t: api_card.frameType = "effect"
+
+                                 # Add default image
+                                 if details.get("image_url"):
+                                      img_url = details["image_url"]
+                                      await image_manager.ensure_image(new_id, img_url)
+                                      api_card.card_images = [ApiCardImage(id=new_id, image_url=img_url, image_url_small=img_url)]
+
+                                 cards.append(api_card)
+                                 card_map[card_name.lower()] = api_card
+                                 updated_cards = True
+                                 logger.info(f"Created new card: {card_name}")
+
+                         if api_card:
+                             exists = False
+                             for s in api_card.card_sets:
+                                 if s.set_code == set_code and s.set_rarity == rarity:
+                                     exists = True
+                                     break
+
+                             if not exists:
+                                 # New variant found
+                                 image_url = await yugipedia_service.get_card_specific_image(card_name, set_code)
+
+                                 img_id = None
+                                 if image_url:
+                                      import random
+                                      img_id = random.randint(100000000, 999999999)
+                                      await image_manager.ensure_image(img_id, image_url)
+                                 else:
+                                      if api_card.card_images:
+                                           img_id = api_card.card_images[0].id
+
+                                 rarity_code = None
+                                 abbr = RARITY_ABBREVIATIONS.get(rarity)
+                                 if abbr: rarity_code = f"({abbr})"
+
+                                 new_set = ApiCardSet(
+                                     variant_id=str(uuid.uuid4()),
+                                     set_name=set_info.title.replace("Set Card Lists:", "").replace("(TCG-EN)", "").strip(),
+                                     set_code=set_code,
+                                     set_rarity=rarity,
+                                     set_rarity_code=rarity_code,
+                                     set_price="0.00",
+                                     image_id=img_id
+                                 )
+                                 api_card.card_sets.append(new_set)
+                                 updated_cards = True
+                                 logger.info(f"Added variant {set_code} to {card_name}")
+
+                except Exception as e:
+                    logger.error(f"Error processing set {set_info.title}: {e}")
+
+                processed_count += 1
+                if progress_callback:
+                    # Provide explicit string for status
+                    progress_callback(processed_count / total_sets, f"Processed {processed_count}/{total_sets}")
+
+        tasks = [process_set(s) for s in tcg_sets]
+        await asyncio.gather(*tasks)
+
+        if updated_cards:
+            logger.info("Saving updated database...")
+            if progress_callback: progress_callback(1.0, "Saving Database...")
+            await self.save_card_database(cards, language)
+
+        logger.info("Sync complete.")
 
     async def import_from_yugipedia(self, card_data: Dict[str, Any], selected_sets: List[Dict[str, str]], language: str = "en") -> Tuple[bool, str]:
         """

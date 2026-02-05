@@ -112,30 +112,33 @@ def create_layout(content_function):
             with ui.button('Download Set Info & Images', on_click=download_set_info_imgs, icon='photo_library').classes('w-full q-mt-sm').props('color=indigo'):
                 ui.tooltip('Download metadata and images for all card sets')
 
-            async def download_yugipedia_imgs():
+            async def sync_yugipedia():
                 # Dialog for progress
                 prog_dialog = ui.dialog().props('persistent')
                 with prog_dialog, ui.card().classes('w-96'):
-                    ui.label('Downloading Set Images (Yugipedia)').classes('text-h6')
-                    ui.label('Searching and downloading high-quality set images...').classes('text-sm text-grey')
+                    ui.label('Syncing Sets & Images (Yugipedia)').classes('text-h6')
+                    ui.label('Crawling Yugipedia for missing sets, cards, and images...').classes('text-sm text-grey')
                     p_bar = ui.linear_progress(0).classes('w-full q-my-md')
                     status_lbl = ui.label('Starting...')
                 prog_dialog.open()
 
-                def on_progress(val):
+                def on_progress(val, msg=None):
                     p_bar.value = val
-                    status_lbl.set_text(f"{int(val * 100)}%")
+                    txt = f"{int(val * 100)}%"
+                    if msg:
+                        txt += f" - {msg}"
+                    status_lbl.set_text(txt)
 
                 try:
-                    await ygo_service.download_set_images_from_yugipedia(progress_callback=on_progress)
+                    await ygo_service.sync_sets_from_yugipedia(progress_callback=on_progress)
                     prog_dialog.close()
-                    ui.notify(f'Yugipedia set images downloaded.', type='positive')
+                    ui.notify(f'Yugipedia sync complete.', type='positive')
                 except Exception as e:
                     prog_dialog.close()
                     ui.notify(f"Error: {e}", type='negative')
 
-            with ui.button('Download Set Images (Yugipedia)', on_click=download_yugipedia_imgs, icon='image').classes('w-full q-mt-sm').props('color=pink'):
-                ui.tooltip('Replace set images with better ones from Yugipedia')
+            with ui.button('Sync Sets & Images (Yugipedia)', on_click=sync_yugipedia, icon='image').classes('w-full q-mt-sm').props('color=pink'):
+                ui.tooltip('Crawl Yugipedia for missing sets and cards, and update images')
 
             async def download_all_imgs():
                 # Dialog for progress

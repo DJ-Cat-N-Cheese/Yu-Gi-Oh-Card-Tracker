@@ -189,3 +189,35 @@ CODE-EN002; Test Set 2; Common, Rare
 
 if __name__ == '__main__':
     unittest.main()
+
+    @patch('src.services.yugipedia_service.requests.get')
+    def test_get_all_tcg_sets(self, mock_get):
+        # Similar logic to test_get_all_decks but with more categories
+        def create_mock_response(members):
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_resp.json.return_value = {
+                "query": {
+                    "categorymembers": members
+                }
+            }
+            return mock_resp
+
+        def side_effect(url, params=None, headers=None):
+            if "TCG_Booster_Packs" in params['cmtitle']:
+                return create_mock_response([{'pageid': 201, 'title': 'LOB', 'ns': 0}])
+            elif "TCG_Structure_Decks" in params['cmtitle']:
+                return create_mock_response([{'pageid': 202, 'title': 'SDY', 'ns': 0}])
+            else:
+                return create_mock_response([])
+
+        mock_get.side_effect = side_effect
+
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        results = loop.run_until_complete(self.service.get_all_tcg_sets())
+        loop.close()
+
+        titles = [r.title for r in results]
+        self.assertIn('LOB', titles)
+        self.assertIn('SDY', titles)
