@@ -1000,11 +1000,17 @@ class DeckBuilderPage:
              for c in self.state['reference_collection'].cards:
                  if c.card_id == card.id:
                      for v in c.variants:
-                         for e in v.entries:
-                             owned_breakdown[e.language] = owned_breakdown.get(e.language, 0) + e.quantity
-                             owned_count += e.quantity
+                         qty = v.total_quantity
+                         if qty > 0:
+                             key = f"{v.set_code} ({v.rarity})"
+                             owned_breakdown[key] = owned_breakdown.get(key, 0) + qty
+                             owned_count += qty
                      break
-        await self.single_card_view.open_deck_builder(card, self.add_card_to_deck, owned_count, owned_breakdown)
+
+        # Sort breakdown by key (Set Code)
+        sorted_breakdown = dict(sorted(owned_breakdown.items()))
+
+        await self.single_card_view.open_deck_builder(card, self.add_card_to_deck, owned_count, sorted_breakdown)
 
     def _render_deck_card(self, card_id: int, target: str, usage_counter: Dict[int, int] = None, owned_map: Dict[int, int] = None):
         if usage_counter is None: usage_counter = {}

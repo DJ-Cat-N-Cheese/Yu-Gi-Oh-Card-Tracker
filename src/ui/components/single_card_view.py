@@ -919,15 +919,15 @@ class SingleCardView:
                          ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg q-mb-md')
 
                          ui.separator().classes('q-my-md bg-gray-700')
-                         ui.label('Collection Status').classes('text-h6 q-mb-sm text-accent')
+                         ui.label('Collection Status').classes('text-h6 q-mb-sm select-none text-accent')
                          with ui.row().classes('gap-2 items-center'):
                              with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
                                  ui.label(f"Total: {owned_count}").classes('select-text')
 
                              if owned_breakdown:
-                                 for lang, count in owned_breakdown.items():
+                                 for label, count in owned_breakdown.items():
                                      with ui.chip(icon='layers').props('color=secondary text-color=white'):
-                                         ui.label(f"{lang}: {count}")
+                                         ui.label(f"{label}: {count}").classes('select-text')
                              elif owned_count == 0:
                                  ui.label('Not in collection').classes('text-gray-500 italic')
 
