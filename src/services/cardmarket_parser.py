@@ -43,6 +43,11 @@ class CardmarketParser:
     RARITY_MAP = {v: k for k, v in RARITY_ABBREVIATIONS.items()}
     RARITY_MAP['QSCR'] = 'Quarter Century Secret Rare'
 
+    # Cardmarket Specific Mappings (Overrides)
+    RARITY_MAP['SUR'] = 'Super Rare'
+    RARITY_MAP['SCR'] = 'Secret Rare'
+    RARITY_MAP['UTR'] = 'Ultimate Rare'
+
     # Updated Regex:
     # 1. Number: \d{3} -> [A-Za-z0-9]+
     # 2. Added optional Comment Group: (?:\s+(.+?))? before price
