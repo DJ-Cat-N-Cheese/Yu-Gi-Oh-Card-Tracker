@@ -146,12 +146,22 @@ class DeckBuilderPage:
         self.single_card_view = SingleCardView()
         self.filter_pane: Optional[FilterPane] = None
         self.api_card_map = {} # ID -> ApiCard
+        self.alt_art_map = {} # Alt Art Image ID -> Base Card ID
         self.dragged_item = None
 
         self.search_results_container = None
         self.deck_area_container = None
 
         self.deck_changelog_manager = ChangelogManager(os.path.join("data", "changelogs", "decks"))
+
+    def _resolve_card_id(self, card_id: int) -> int:
+        """Resolves an ID to its base card ID if it's a known alternate art."""
+        return self.alt_art_map.get(card_id, card_id)
+
+    def _resolve_card(self, card_id: int) -> Optional[ApiCard]:
+        """Resolves a card ID (potentially alt art) to its ApiCard object."""
+        base_id = self._resolve_card_id(card_id)
+        return self.api_card_map.get(base_id)
 
     def calculate_hierarchical_usage(self, target_zone: str) -> Dict[int, int]:
         """
@@ -173,7 +183,8 @@ class DeckBuilderPage:
             zone_name = zones_order[i]
             zone_ids = getattr(deck, zone_name, [])
             for cid in zone_ids:
-                base_usage[cid] = base_usage.get(cid, 0) + 1
+                base_id = self._resolve_card_id(cid)
+                base_usage[base_id] = base_usage.get(base_id, 0) + 1
 
         return base_usage
 
@@ -188,7 +199,9 @@ class DeckBuilderPage:
         usage = {}
         for zone in ['main', 'extra', 'side']:
             for cid in getattr(deck, zone, []):
-                usage[cid] = usage.get(cid, 0) + 1
+                # Count by Base ID to match ownership map
+                base_id = self._resolve_card_id(cid)
+                usage[base_id] = usage.get(base_id, 0) + 1
         return usage
 
     def calculate_deck_counts(self) -> Dict[int, int]:
@@ -205,21 +218,28 @@ class DeckBuilderPage:
     def calculate_missing_counts(self, deck_counts: Dict[int, int]) -> Dict[int, int]:
         """Compares deck counts against the reference collection and returns the difference."""
         ref_col = self.state['reference_collection']
+
+        # Aggregate deck counts by base ID
+        base_deck_counts = {}
+        for cid, qty in deck_counts.items():
+            base_id = self._resolve_card_id(cid)
+            base_deck_counts[base_id] = base_deck_counts.get(base_id, 0) + qty
+
+        # If no collection is selected, return aggregated base counts
+        if not ref_col:
+            return base_deck_counts
+
         missing = {}
 
-        # If no collection is selected, everything is missing
-        if not ref_col:
-            return deck_counts
-
-        # Create a map of owned quantities
+        # Create a map of owned quantities (Base IDs)
         owned_map = {}
         for c in ref_col.cards:
             owned_map[c.card_id] = c.total_quantity
 
-        for cid, required_qty in deck_counts.items():
-            owned_qty = owned_map.get(cid, 0)
+        for base_id, required_qty in base_deck_counts.items():
+            owned_qty = owned_map.get(base_id, 0)
             if owned_qty < required_qty:
-                missing[cid] = required_qty - owned_qty
+                missing[base_id] = required_qty - owned_qty
 
         return missing
 
@@ -237,7 +257,7 @@ class DeckBuilderPage:
 
         export_list = []
         for cid, qty in target_counts.items():
-            card = self.api_card_map.get(cid)
+            card = self._resolve_card(cid)
             name = card.name if card else f"Unknown Card ({cid})"
             export_list.append({
                 'id': cid,
@@ -338,6 +358,14 @@ class DeckBuilderPage:
             self.state['all_api_cards'] = api_cards
             self.api_card_map = {c.id: c for c in api_cards}
 
+            # Build Alt Art Map
+            self.alt_art_map = {}
+            for c in api_cards:
+                if c.card_images:
+                    for img in c.card_images:
+                        if img.id != c.id:
+                            self.alt_art_map[img.id] = c.id
+
             # Load Banlists
             await banlist_service.fetch_default_banlists()
             self.state['available_banlists'] = banlist_service.get_banlists()
@@ -420,6 +448,19 @@ class DeckBuilderPage:
             self.state['current_deck_name'] = name
 
             persistence.save_ui_state({'deck_builder_last_deck': name})
+
+            # Check for unknown cards
+            unknown_ids = set()
+            all_deck_ids = deck.main + deck.extra + deck.side
+            for cid in all_deck_ids:
+                if cid not in self.api_card_map and cid not in self.alt_art_map:
+                    unknown_ids.add(cid)
+
+            if unknown_ids:
+                msg = f"Warning: {len(unknown_ids)} unknown cards found in deck: {', '.join(map(str, sorted(list(unknown_ids))[:5]))}"
+                if len(unknown_ids) > 5:
+                    msg += "..."
+                ui.notify(msg, type='warning', timeout=0, close_button=True)
 
             self.refresh_deck_area()
             self.render_header.refresh()
@@ -892,7 +933,8 @@ class DeckBuilderPage:
             # Search and filters moved to library column
 
     def _render_ban_icon(self, card_id: int):
-        status = self.state['current_banlist_map'].get(str(card_id))
+        base_id = self._resolve_card_id(card_id)
+        status = self.state['current_banlist_map'].get(str(base_id))
         if not status: return
 
         with ui.element('div').classes('absolute top-1 left-1 z-10 pointer-events-none'):
@@ -905,12 +947,23 @@ class DeckBuilderPage:
                  with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
                      ui.label('2')
 
-    def _setup_card_tooltip(self, card: ApiCard):
+    def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
 
-        img_id = card.get_best_image_id()
-        high_res_url = card.card_images[0].image_url if card.card_images else None
-        low_res_url = card.card_images[0].image_url_small if card.card_images else None
+        if specific_image_id:
+            img_id = specific_image_id
+        else:
+            img_id = card.get_best_image_id()
+
+        # Determine URL for this specific image ID
+        # Note: If specific_image_id is provided, we assume it's one of the images in card_images
+        # We need to find the matching image object to get the remote URL in case it's not local
+        target_img = next((i for i in card.card_images if i.id == img_id), None)
+        if not target_img and card.card_images:
+             target_img = card.card_images[0]
+
+        high_res_url = target_img.image_url if target_img else None
+        low_res_url = target_img.image_url_small if target_img else None
 
         # Check local high-res existence immediately
         is_local = image_manager.image_exists(img_id, high_res=True)
@@ -1016,22 +1069,65 @@ class DeckBuilderPage:
         if usage_counter is None: usage_counter = {}
         if owned_map is None: owned_map = {}
 
-        card = self.api_card_map.get(card_id)
+        card = self._resolve_card(card_id)
         if not card: return None
 
-        img_id = card.get_best_image_id()
-        img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (card.card_images[0].image_url_small if card.card_images else None)
+        # Determine Image ID: Prefer the specific card_id if it's a known alt art/image
+        img_id = card_id if card_id in self.alt_art_map or card_id == card.id else card.get_best_image_id()
+
+        # Determine URL
+        target_img = next((i for i in card.card_images if i.id == img_id), None)
+        # Fallback if image object not found for this specific ID (unlikely if it's in alt_art_map, but safe)
+        if not target_img and card.card_images:
+             target_img = card.card_images[0]
+
+        url_small = target_img.image_url_small if target_img else None
+
+        img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else url_small
 
         # Ownership
-        is_owned_copy = True
-        used_so_far = usage_counter.get(card_id, 0)
+        # We need to check ownership using Base ID because Collection aggregates by Base ID
+        base_id = card.id
+        # Note: usage_counter tracks specific ID usage.
+        # But ownership is shared across all variants of the base card.
+        # So we need to track usage of the BASE card to compare against OWNED total.
+        # However, usage_counter is passed in from _refresh_zone_content which iterates deck IDs.
+        # If deck has 1x Base and 1x Alt, usage_counter will have separate entries.
+        # This means we might overestimate availability if we don't aggregate usage.
+        # But modifying usage_counter structure here is risky as it is used for "used_so_far".
 
+        # Correct approach:
+        # We need a shared counter for Base IDs passed down from _refresh_zone_content.
+        # But _refresh_zone_content only passes a Dict[int, int].
+        # Let's check owned_map. It is keyed by Base ID (card_id).
+
+        # If we want strict ownership checking, we should probably track usage by base_id.
+        # But for now, let's just resolve to Base ID for lookup.
+        # If the user has 3x Blue Eyes, and deck has 3x Blue Eyes (Alt Art),
+        # usage_counter[AltID] will go 0, 1, 2.
+        # owned_map[BaseID] is 3.
+        # 0 < 3 (True), 1 < 3 (True), 2 < 3 (True). Works.
+
+        # BUT if deck has 3x Base and 3x Alt.
+        # Base: usage 0,1,2. All < 3. OK.
+        # Alt: usage 0,1,2. All < 3. OK.
+        # Total used: 6. Owned: 3. Result: All 6 marked owned? WRONG.
+
+        # FIX: We need to count usage by BASE ID.
+        # I will change usage_counter to key by Base ID.
+        # But wait, _render_deck_card is called in a loop.
+        # If I resolve card_id to Base ID, I can update usage_counter[BaseID].
+
+        base_id = card.id
+        used_so_far = usage_counter.get(base_id, 0)
+
+        is_owned_copy = True
         if self.state['reference_collection']:
-            owned_total = owned_map.get(card_id, 0)
+            owned_total = owned_map.get(base_id, 0)
             if used_so_far >= owned_total:
                 is_owned_copy = False
 
-        usage_counter[card_id] = used_so_far + 1
+        usage_counter[base_id] = used_so_far + 1
 
         classes = 'p-0 cursor-pointer w-full aspect-[2/3] border-transparent hover:scale-105 transition-transform relative group border border-gray-800 select-none'
         if not is_owned_copy:
@@ -1066,10 +1162,10 @@ class DeckBuilderPage:
                     with ui.icon('warning', color='red').classes('text-xl bg-white rounded-full shadow-sm cursor-help'):
                         ui.tooltip("\n".join(warnings))
 
-            self._setup_card_tooltip(card)
+            self._setup_card_tooltip(card, specific_image_id=img_id)
 
         card_el.on('click', lambda: self.open_deck_builder_wrapper(card))
-        card_el.on('contextmenu.prevent', lambda _, c=card, t=target, el=card_el, u=uid: self.remove_card_from_deck(c.id, t, el, u))
+        card_el.on('contextmenu.prevent', lambda _, c=card_id, t=target, el=card_el, u=uid: self.remove_card_from_deck(c, t, el, u))
         return card_el
 
     def _refresh_zone_content(self, target):
@@ -1163,20 +1259,29 @@ class DeckBuilderPage:
         if not self.state['current_deck']: return
         deck = self.state['current_deck']
         target_list = getattr(deck, zone)
-        cards = []
+
+        sortable = []
         unknown = []
+
         for cid in target_list:
-            if cid in self.api_card_map: cards.append(self.api_card_map[cid])
-            else: unknown.append(cid)
-        def sort_key(c):
+            card = self._resolve_card(cid)
+            if card:
+                sortable.append((cid, card))
+            else:
+                unknown.append(cid)
+
+        def sort_key(item):
+             c = item[1]
              t_score = 3
              if "Monster" in c.type: t_score = 0
              elif "Spell" in c.type: t_score = 1
              elif "Trap" in c.type: t_score = 2
              lvl = c.level or 0
              return (t_score, -lvl, c.name)
-        cards.sort(key=sort_key)
-        new_list = [c.id for c in cards] + unknown
+
+        sortable.sort(key=sort_key)
+
+        new_list = [x[0] for x in sortable] + unknown
         setattr(deck, zone, new_list)
         await self.save_current_deck()
         self.refresh_zone(zone)
