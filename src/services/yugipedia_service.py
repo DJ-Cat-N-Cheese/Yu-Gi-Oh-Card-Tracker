@@ -5,6 +5,7 @@ from typing import List, Dict, Optional, Any, Tuple
 from dataclasses import dataclass
 from nicegui import run
 import asyncio
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -513,6 +514,38 @@ class YugipediaService:
         # Fallback: Return as is, or try simple lookup
         return r
 
+    def _parse_date(self, date_str: str) -> Optional[str]:
+        """
+        Parses date string (e.g. 'October 21, 2023') into 'YYYY-MM-DD'.
+        Returns None if parsing fails.
+        """
+        if not date_str: return None
+
+        # Clean up input (remove [[ ]], refs, etc)
+        # e.g. [[October 21]], [[2023]]
+        date_str = re.sub(r'\[\[(?:[^|\]]*\|)?([^\]]+)\]\]', r'\1', date_str)
+        # Remove refs <ref>...</ref> or <ref ... />
+        date_str = re.sub(r'<ref.*?>.*?</ref>', '', date_str)
+        date_str = re.sub(r'<ref.*?/>', '', date_str)
+        date_str = date_str.strip()
+
+        formats = [
+            "%B %d, %Y",       # October 21, 2023
+            "%d %B %Y",        # 21 October 2023
+            "%Y-%m-%d",        # 2023-10-21
+            "%B %Y",           # October 2023
+            "%Y",              # 2023
+        ]
+
+        for fmt in formats:
+            try:
+                dt = datetime.strptime(date_str, fmt)
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
+
+        return None
+
     async def get_set_details(self, url: str) -> Optional[Dict[str, Any]]:
         """
         Parses a Yugipedia Set page URL.
@@ -550,7 +583,8 @@ class YugipediaService:
                 "name": title.replace('_', ' '),
                 "code": None,
                 "image_url": None,
-                "cards": []
+                "cards": [],
+                "date": None
             }
 
             if infobox_match:
@@ -565,6 +599,14 @@ class YugipediaService:
 
                 data["name"] = get_param("en_name", ib_content) or data["name"]
                 data["code"] = get_param("en_prefix", ib_content) or get_param("prefix", ib_content)
+
+                # Date parsing
+                raw_date = get_param("en_date", ib_content) or \
+                           get_param("na_date", ib_content) or \
+                           get_param("release_date", ib_content)
+
+                if raw_date:
+                    data["date"] = self._parse_date(raw_date)
 
             # Fetch Image URL via API if possible
             img_url = await self.get_set_image_url(title)
