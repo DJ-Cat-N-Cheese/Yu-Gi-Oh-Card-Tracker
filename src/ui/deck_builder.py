@@ -132,6 +132,8 @@ class DeckBuilderPage:
             'available_banlists': [],
             'current_banlist_name': last_banlist,
             'current_banlist_map': {}, # id -> status
+            'current_banlist_type': 'classical', # 'classical' or 'genesys'
+            'current_banlist_limit': 100, # Max points for Genesys
 
             'all_api_cards': [], # List[ApiCard]
             'filtered_items': [], # List[ApiCard] for search results
@@ -214,6 +216,68 @@ class DeckBuilderPage:
             for cid in getattr(deck, zone, []):
                 counts[cid] = counts.get(cid, 0) + 1
         return counts
+
+    def calculate_genesys_points(self) -> int:
+        """Calculates total points for the deck based on Genesys banlist."""
+        deck = self.state['current_deck']
+        if not deck: return 0
+        if self.state['current_banlist_type'] != 'genesys': return 0
+
+        ban_map = self.state['current_banlist_map']
+        total = 0
+
+        for zone in ['main', 'extra', 'side']:
+            for cid in getattr(deck, zone, []):
+                val_str = ban_map.get(str(cid), "0")
+                if val_str.isdigit():
+                    total += int(val_str)
+        return total
+
+    def check_violations(self) -> Dict[str, bool]:
+        """
+        Checks for banlist violations.
+        Returns a dictionary mapping zone/scope to boolean (True if violated).
+        Scopes: 'main', 'extra', 'side', 'global'.
+        """
+        violations = {'main': False, 'extra': False, 'side': False, 'global': False}
+        deck = self.state['current_deck']
+        if not deck: return violations
+
+        if self.state['current_banlist_type'] == 'genesys':
+            # Genesys: Check global point limit
+            total_points = self.calculate_genesys_points()
+            if total_points > self.state['current_banlist_limit']:
+                violations['global'] = True
+                violations['main'] = True # Mark Main Deck as per instruction
+        else:
+            # Classical: Check individual card limits globally
+            global_counts = self.calculate_global_usage()
+            ban_map = self.state['current_banlist_map']
+
+            violated_cards = set()
+            for cid, count in global_counts.items():
+                status = ban_map.get(str(cid))
+                limit = 3 # Default limit
+
+                if status == "Forbidden" or status == "Banned":
+                    limit = 0
+                elif status == "Limited":
+                    limit = 1
+                elif status == "Semi-Limited":
+                    limit = 2
+
+                if count > limit:
+                    violated_cards.add(cid)
+
+            if violated_cards:
+                violations['global'] = True
+                # Flag zones containing violated cards
+                for zone in ['main', 'extra', 'side']:
+                    zone_cards = getattr(deck, zone, [])
+                    if any(cid in violated_cards for cid in zone_cards):
+                        violations[zone] = True
+
+        return violations
 
     def calculate_missing_counts(self, deck_counts: Dict[int, int]) -> Dict[int, int]:
         """Compares deck counts against the reference collection and returns the difference."""
@@ -377,9 +441,13 @@ class DeckBuilderPage:
 
             # Load the actual map if a banlist is selected
             if self.state['current_banlist_name']:
-                 self.state['current_banlist_map'] = await banlist_service.load_banlist(self.state['current_banlist_name'])
+                 ban_data = await banlist_service.load_banlist(self.state['current_banlist_name'])
+                 self.state['current_banlist_map'] = ban_data.get('cards', {})
+                 self.state['current_banlist_type'] = ban_data.get('type', 'classical')
+                 self.state['current_banlist_limit'] = ban_data.get('max_points', 100)
             else:
                  self.state['current_banlist_map'] = {}
+                 self.state['current_banlist_type'] = 'classical'
 
             # Setup Filters Metadata
             sets = set()
@@ -875,7 +943,7 @@ class DeckBuilderPage:
 
             # Banlist Selection
             banlist_options = {None: 'No Banlist'}
-            for b in sorted(self.state['available_banlists']):
+            for b in sorted(self.state['available_banlists'], reverse=True): # Newest first
                 banlist_options[b] = b
 
             # Ensure current value is in options to prevent 'Invalid value' error
@@ -889,14 +957,33 @@ class DeckBuilderPage:
                 persistence.save_ui_state({'deck_builder_last_banlist': val})
                 self.state['current_banlist_name'] = val
                 if val:
-                     self.state['current_banlist_map'] = await banlist_service.load_banlist(val)
+                     ban_data = await banlist_service.load_banlist(val)
+                     self.state['current_banlist_map'] = ban_data.get('cards', {})
+                     self.state['current_banlist_type'] = ban_data.get('type', 'classical')
+                     self.state['current_banlist_limit'] = ban_data.get('max_points', 100)
                 else:
                      self.state['current_banlist_map'] = {}
+                     self.state['current_banlist_type'] = 'classical'
 
                 self.refresh_deck_area()
                 self.refresh_search_results()
+                self.render_header.refresh() # Update header for points display
 
-            ui.select(banlist_options, value=curr_ban, label='Banlist', on_change=on_banlist_change).classes('min-w-[150px]')
+            async def fetch_banlists():
+                n = ui.notification('Fetching banlists...', type='info', spinner=True, timeout=None)
+                try:
+                    await banlist_service.fetch_default_banlists()
+                    self.state['available_banlists'] = banlist_service.get_banlists()
+                    self.render_header.refresh()
+                    n.dismiss()
+                    ui.notify('Banlists updated.', type='positive')
+                except Exception as e:
+                    n.dismiss()
+                    ui.notify(f'Failed to fetch banlists: {e}', type='negative')
+
+            with ui.row().classes('items-center gap-1'):
+                ui.button(icon='cloud_download', on_click=fetch_banlists).props('flat round color=white').tooltip('Fetch Latest Banlists')
+                ui.select(banlist_options, value=curr_ban, label='Banlist', on_change=on_banlist_change).classes('min-w-[150px]')
 
             async def save_banlist_as():
                 with ui.dialog() as d, ui.card():
@@ -904,7 +991,12 @@ class DeckBuilderPage:
                     name_input = ui.input('New Name')
                     async def save():
                         if not name_input.value: return
-                        await banlist_service.save_banlist(name_input.value, self.state['current_banlist_map'])
+                        await banlist_service.save_banlist(
+                            name_input.value,
+                            self.state['current_banlist_map'],
+                            banlist_type=self.state['current_banlist_type'],
+                            max_points=self.state['current_banlist_limit']
+                        )
                         self.state['available_banlists'] = banlist_service.get_banlists()
                         self.state['current_banlist_name'] = name_input.value
                         self.render_header.refresh()
@@ -930,22 +1022,39 @@ class DeckBuilderPage:
             else:
                  with undo_btn: ui.tooltip('Undo Last Action')
 
-            # Search and filters moved to library column
+            # Points Display (Genesys)
+            if self.state['current_banlist_type'] == 'genesys' and self.state['current_banlist_name']:
+                points = self.calculate_genesys_points()
+                max_points = self.state['current_banlist_limit']
+                text_color = 'text-red-400' if points > max_points else 'text-white'
+
+                with ui.row().classes(f'items-center gap-1 px-3 py-1 bg-gray-800 rounded {text_color} border border-gray-700'):
+                    ui.icon('star', color='yellow-600')
+                    ui.label(f"Points: {points} / {max_points}").classes('font-bold')
 
     def _render_ban_icon(self, card_id: int):
         base_id = self._resolve_card_id(card_id)
         status = self.state['current_banlist_map'].get(str(base_id))
         if not status: return
 
-        with ui.element('div').classes('absolute top-1 left-1 z-10 pointer-events-none'):
-             if status in ["Forbidden", "Banned"]:
-                 ui.icon('block', color='red').classes('text-xl bg-white rounded-full shadow-sm')
-             elif status == "Limited":
-                 with ui.element('div').classes('w-5 h-5 rounded-full bg-orange-600 text-white flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
-                     ui.label('1')
-             elif status == "Semi-Limited":
-                 with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
-                     ui.label('2')
+        # Only render star icons for Genesys type AND if status is digit
+        if self.state['current_banlist_type'] == 'genesys':
+             if status.isdigit():
+                 with ui.element('div').classes('absolute top-1 left-1 z-10 pointer-events-none'):
+                     with ui.element('div').classes('flex items-center justify-center bg-white rounded px-1 shadow-sm border border-yellow-600 h-5'):
+                         ui.icon('star', color='yellow-600').classes('text-xs')
+                         ui.label(status).classes('text-xs font-bold text-black ml-0.5 leading-none')
+        else:
+             # Classical icons
+             with ui.element('div').classes('absolute top-1 left-1 z-10 pointer-events-none'):
+                 if status in ["Forbidden", "Banned"]:
+                     ui.icon('block', color='red').classes('text-xl bg-white rounded-full shadow-sm')
+                 elif status == "Limited":
+                     with ui.element('div').classes('w-5 h-5 rounded-full bg-orange-600 text-white flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
+                         ui.label('1')
+                 elif status == "Semi-Limited":
+                     with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
+                         ui.label('2')
 
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
@@ -1212,6 +1321,14 @@ class DeckBuilderPage:
                 if not hasattr(self, 'header_count_labels'): self.header_count_labels = {}
                 self.header_count_labels[target] = lbl
 
+                # Violation Icon
+                warn_icon = ui.icon('error', color='red').classes('text-sm hidden cursor-help')
+                with warn_icon:
+                    ui.tooltip('Banlist Violation').classes('bg-red text-white')
+
+                if not hasattr(self, 'header_warn_icons'): self.header_warn_icons = {}
+                self.header_warn_icons[target] = warn_icon
+
             with ui.button(icon='sort', on_click=lambda t=target: self.sort_deck(t)).props('flat dense size=sm color=white'):
                  ui.tooltip(f'Sort {title}')
 
@@ -1219,24 +1336,35 @@ class DeckBuilderPage:
         if not hasattr(self, 'header_count_labels'): return
 
         deck = self.state['current_deck']
+        violations = self.check_violations()
+
         for target in ['main', 'extra', 'side']:
             if target not in self.header_count_labels: continue
 
             lbl = self.header_count_labels[target]
+            warn_icon = self.header_warn_icons.get(target)
+
             count = 0
             if deck: count = len(getattr(deck, target))
 
-            is_invalid = False
+            is_invalid_count = False
             if target == 'main':
-                 if count < 40 or count > 60: is_invalid = True
+                 if count < 40 or count > 60: is_invalid_count = True
             elif target in ['extra', 'side']:
-                 if count > 15: is_invalid = True
+                 if count > 15: is_invalid_count = True
 
             lbl.text = f"({count})"
-            if is_invalid:
+            if is_invalid_count:
                 lbl.classes(remove='text-white', add='text-red-400')
             else:
                 lbl.classes(remove='text-red-400', add='text-white')
+
+            has_violation = violations.get(target, False)
+            if warn_icon:
+                if has_violation:
+                    warn_icon.classes(remove='hidden')
+                else:
+                    warn_icon.classes(add='hidden')
 
     def setup_zone(self, title, target):
         # Zones expand dynamically based on content
