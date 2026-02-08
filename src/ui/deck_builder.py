@@ -950,7 +950,12 @@ class DeckBuilderPage:
                     name_input = ui.input('New Name')
                     async def save():
                         if not name_input.value: return
-                        await banlist_service.save_banlist(name_input.value, self.state['current_banlist_map'])
+                        await banlist_service.save_banlist(
+                            name_input.value,
+                            self.state['current_banlist_map'],
+                            banlist_type=self.state['current_banlist_type'],
+                            max_points=self.state['current_banlist_limit']
+                        )
                         self.state['available_banlists'] = banlist_service.get_banlists()
                         self.state['current_banlist_name'] = name_input.value
                         self.render_header.refresh()
