@@ -1228,28 +1228,35 @@ class YugiohService:
                 current_entry = self._sets_cache.get(set_code_prefix)
                 cache_updated = False
 
+                new_data = {
+                    "name": set_name,
+                    "code": set_code_prefix,
+                    "image": set_data.get("image_url"),
+                    "date": set_data.get("date"),
+                    "count": len(cards_list)
+                }
+
                 if not current_entry:
                      # New Set
-                     current_entry = {
-                         "name": set_name,
-                         "code": set_code_prefix,
-                         "image": set_data.get("image_url"),
-                         "date": set_data.get("date"),
-                         "count": len(cards_list)
-                     }
-                     self._sets_cache[set_code_prefix] = current_entry
+                     self._sets_cache[set_code_prefix] = new_data
                      cache_updated = True
                 elif isinstance(current_entry, dict):
-                    # Update missing info
-                    if not current_entry.get("date") and set_data.get("date"):
-                        current_entry["date"] = set_data.get("date")
+                    # Update existing info if improved or different
+                    # We prioritize Yugipedia data for imported sets
+                    if current_entry.get("date") != new_data["date"] and new_data["date"]:
+                        current_entry["date"] = new_data["date"]
                         cache_updated = True
-                    if not current_entry.get("image") and set_data.get("image_url"):
-                        current_entry["image"] = set_data.get("image_url")
+                    if current_entry.get("image") != new_data["image"] and new_data["image"]:
+                        current_entry["image"] = new_data["image"]
                         cache_updated = True
-                    if not current_entry.get("name") or current_entry.get("name") == "Unknown Set":
-                         current_entry["name"] = set_name
+                    if current_entry.get("name") != new_data["name"] and new_data["name"] != "Unknown Set":
+                         current_entry["name"] = new_data["name"]
                          cache_updated = True
+
+                    # Update count if significantly different (e.g. initial import vs update)
+                    if new_data["count"] > current_entry.get("count", 0):
+                        current_entry["count"] = new_data["count"]
+                        cache_updated = True
 
                 if cache_updated:
                     try:
