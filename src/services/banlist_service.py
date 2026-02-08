@@ -6,6 +6,7 @@ from nicegui import run
 from typing import Dict, List, Optional
 from datetime import datetime
 import re
+import email.utils
 from src.services.ygo_api import ygo_service
 
 logger = logging.getLogger(__name__)
@@ -18,6 +19,10 @@ API_URL = "https://db.ygoprodeck.com/api/v7/cardinfo.php"
 GENESYS_URL = "https://www.yugioh-card.com/en/genesys/"
 
 class BanlistService:
+    HEADERS = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+
     def __init__(self):
         self._fetched = False
         self._ensure_directory()
@@ -42,11 +47,79 @@ class BanlistService:
         self._fetched = True
         logger.info("Default banlists fetch complete.")
 
+    async def get_tcg_effective_date(self) -> Optional[str]:
+        """Scrapes the official TCG Limited list page to find the effective date."""
+        try:
+            url = "https://www.yugioh-card.com/en/limited/"
+            response = await run.io_bound(requests.get, url, headers=self.HEADERS)
+            if response.status_code == 200:
+                # Look for link format: list_YYYY-MM-DD
+                # Pattern: list_(\d{4}-\d{2}-\d{2})
+                match = re.search(r'list_(\d{4}-\d{2}-\d{2})', response.text)
+                if match:
+                    return match.group(1)
+            else:
+                logger.warning(f"Failed to fetch TCG page for date check: {response.status_code}")
+        except Exception as e:
+            logger.error(f"Error checking TCG date: {e}")
+        return None
+
+    async def get_genesys_effective_date(self) -> Optional[str]:
+        """Checks the Genesys page Last-Modified header or content."""
+        try:
+            # Use HEAD request to get headers first, or GET if we need content anyway
+            # Since fetch_genesys_banlist calls GET, we can just do it there, but helper is nice.
+            response = await run.io_bound(requests.head, GENESYS_URL, headers=self.HEADERS)
+            if response.status_code == 200:
+                last_modified = response.headers.get("Last-Modified")
+                if last_modified:
+                    # Parse GMT date
+                    # e.g. Fri, 06 Feb 2026 02:55:54 GMT
+                    dt = email.utils.parsedate_to_datetime(last_modified)
+                    return dt.strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.error(f"Error checking Genesys date: {e}")
+        return None
+
+    async def _get_latest_banlist_date(self, name: str, current_cards: Dict[str, str]) -> Optional[str]:
+        """
+        Checks for existing banlists of the given name.
+        If the latest one has the same content, returns its date.
+        Otherwise returns None.
+        """
+        if not os.path.exists(BANLIST_DIR):
+            return None
+
+        files = [f for f in os.listdir(BANLIST_DIR) if f.startswith(name + "_") and f.endswith(".json")]
+        if not files:
+            return None
+
+        # Sort by date (assuming format Name_YYYY-MM-DD.json)
+        # We can just sort strings, YYYY-MM-DD sorts correctly.
+        files.sort(reverse=True)
+        latest_file = files[0]
+
+        try:
+            content = await run.io_bound(self._read_json, os.path.join(BANLIST_DIR, latest_file))
+            existing_cards = content.get("cards", {})
+            if existing_cards == current_cards:
+                 # Extract date from filename
+                 # name_YYYY-MM-DD.json
+                 # Remove name_ and .json
+                 prefix = name + "_"
+                 if latest_file.startswith(prefix):
+                     date_part = latest_file[len(prefix):-5]
+                     return date_part
+        except Exception as e:
+            logger.error(f"Error checking latest banlist {latest_file}: {e}")
+
+        return None
+
     async def _fetch_and_save(self, name: str, api_param: str):
         try:
             url = f"{API_URL}?banlist={api_param}"
             # Use io_bound for network request to avoid blocking main thread
-            response = await run.io_bound(requests.get, url)
+            response = await run.io_bound(requests.get, url, headers=self.HEADERS)
 
             if response.status_code == 200:
                 data = response.json()
@@ -63,15 +136,29 @@ class BanlistService:
                          ban_map[str(card['id'])] = status
 
                 if ban_map:
-                    # Determine date - Fallback to 1st of current month
-                    now = datetime.now()
-                    fallback_date = now.strftime("%Y-%m-01")
+                    # Determine date
+                    date_str = None
 
-                    # We don't have scraped effective date for TCG/OCG API yet, so we use fallback
-                    # This prevents daily duplicates as requested.
+                    if name == "TCG":
+                        date_str = await self.get_tcg_effective_date()
+                        if not date_str:
+                             logger.warning("Could not determine TCG banlist date. Using fallback.")
 
-                    await self.save_banlist(name, ban_map, date=fallback_date)
-                    logger.info(f"Updated banlist: {name} ({len(ban_map)} cards)")
+                    elif name == "Goat":
+                        date_str = "2005-04-01"
+
+                    # For OCG, we stick to fallback for now as scraping is unreliable without proper proxy/headers
+
+                    if not date_str:
+                         # Check if content matches latest existing file to avoid duplicate dates
+                         date_str = await self._get_latest_banlist_date(name, ban_map)
+
+                    if not date_str:
+                         now = datetime.now()
+                         date_str = now.strftime("%Y-%m-01")
+
+                    await self.save_banlist(name, ban_map, date=date_str)
+                    logger.info(f"Updated banlist: {name} ({len(ban_map)} cards) - Date: {date_str}")
                 else:
                     logger.warning(f"No cards found for banlist {name}")
             else:
@@ -84,7 +171,7 @@ class BanlistService:
         logger.info("Fetching Genesys banlist...")
         try:
             # 1. Fetch HTML content
-            response = await run.io_bound(requests.get, GENESYS_URL)
+            response = await run.io_bound(requests.get, GENESYS_URL, headers=self.HEADERS)
             if response.status_code != 200:
                 logger.error(f"Failed to fetch Genesys page: {response.status_code}")
                 return
@@ -139,10 +226,29 @@ class BanlistService:
                     logger.warning(f"Genesys: Card not found '{name}'")
 
             if ban_map:
-                now = datetime.now()
-                fallback_date = now.strftime("%Y-%m-01")
-                await self.save_banlist("Genesys", ban_map, date=fallback_date)
-                logger.info(f"Updated banlist: Genesys ({len(ban_map)} cards)")
+                # Try to get date from header since we already have response
+                date_str = None
+                last_modified = response.headers.get("Last-Modified")
+                if last_modified:
+                     try:
+                        dt = email.utils.parsedate_to_datetime(last_modified)
+                        date_str = dt.strftime("%Y-%m-%d")
+                     except Exception as e:
+                        logger.warning(f"Failed to parse Last-Modified header: {e}")
+
+                if not date_str:
+                     # specific helper fallback?
+                     date_str = await self.get_genesys_effective_date()
+
+                if not date_str:
+                     date_str = await self._get_latest_banlist_date("Genesys", ban_map)
+
+                if not date_str:
+                     now = datetime.now()
+                     date_str = now.strftime("%Y-%m-01")
+
+                await self.save_banlist("Genesys", ban_map, date=date_str)
+                logger.info(f"Updated banlist: Genesys ({len(ban_map)} cards) - Date: {date_str}")
 
         except Exception as e:
             logger.error(f"Error fetching Genesys: {e}")
