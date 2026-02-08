@@ -1078,6 +1078,9 @@ class YugiohService:
         Returns (success, message).
         """
         try:
+            # Ensure sets cache is loaded so we can update it
+            await self.fetch_all_sets()
+
             cards = await self.load_card_database(language)
 
             set_name = set_data.get("name", "Unknown Set")
@@ -1202,10 +1205,43 @@ class YugiohService:
             # Update Set Image if provided and we have a prefix
             if set_data.get("image_url") and set_code_prefix:
                 await image_manager.ensure_set_image(set_code_prefix, set_data["image_url"])
-                # Also update cache entry if exists
-                if self._sets_cache and set_code_prefix in self._sets_cache:
-                    if isinstance(self._sets_cache[set_code_prefix], dict):
-                         self._sets_cache[set_code_prefix]['image'] = set_data["image_url"]
+
+            # Update Global Sets Cache (for Browse Sets visibility)
+            if set_code_prefix:
+                current_entry = self._sets_cache.get(set_code_prefix)
+                cache_updated = False
+
+                if not current_entry:
+                     # New Set
+                     current_entry = {
+                         "name": set_name,
+                         "code": set_code_prefix,
+                         "image": set_data.get("image_url"),
+                         "date": set_data.get("date"),
+                         "count": len(cards_list)
+                     }
+                     self._sets_cache[set_code_prefix] = current_entry
+                     cache_updated = True
+                elif isinstance(current_entry, dict):
+                    # Update missing info
+                    if not current_entry.get("date") and set_data.get("date"):
+                        current_entry["date"] = set_data.get("date")
+                        cache_updated = True
+                    if not current_entry.get("image") and set_data.get("image_url"):
+                        current_entry["image"] = set_data.get("image_url")
+                        cache_updated = True
+                    if not current_entry.get("name") or current_entry.get("name") == "Unknown Set":
+                         current_entry["name"] = set_name
+                         cache_updated = True
+
+                if cache_updated:
+                    try:
+                        if hasattr(run, 'io_bound'):
+                            await run.io_bound(self._save_json_file, SETS_FILE, self._sets_cache)
+                        else:
+                            await asyncio.to_thread(self._save_json_file, SETS_FILE, self._sets_cache)
+                    except Exception as e:
+                        logger.error(f"Error saving sets file: {e}")
 
             if updated_count > 0 or created_count > 0:
                 await self.save_card_database(cards, language)
