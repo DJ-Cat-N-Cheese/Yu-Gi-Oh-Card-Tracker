@@ -1098,6 +1098,35 @@ class DeckBuilderPage:
                      with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
                          ui.label('2')
 
+    def _get_attribute_color(self, attribute: str) -> str:
+        attr_map = {
+            'LIGHT': 'yellow-500',
+            'DARK': 'purple-500',
+            'FIRE': 'red-500',
+            'WATER': 'blue-500',
+            'EARTH': 'amber-700',
+            'WIND': 'green-500',
+            'DIVINE': 'yellow-300'
+        }
+        return attr_map.get(attribute, 'gray-400')
+
+    def _get_attribute_icon(self, attribute: str) -> str:
+        attr_map = {
+            'LIGHT': 'light_mode',
+            'DARK': 'dark_mode',
+            'FIRE': 'local_fire_department',
+            'WATER': 'water_drop',
+            'EARTH': 'landscape',
+            'WIND': 'air',
+            'DIVINE': 'auto_awesome'
+        }
+        return attr_map.get(attribute, 'help_outline')
+
+    def _get_type_icon(self, type_str: str) -> str:
+        if "Spell" in type_str: return "auto_fix_high"
+        if "Trap" in type_str: return "change_history"
+        return "help_outline"
+
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
 
@@ -1107,8 +1136,6 @@ class DeckBuilderPage:
             img_id = card.get_best_image_id()
 
         # Determine URL for this specific image ID
-        # Note: If specific_image_id is provided, we assume it's one of the images in card_images
-        # We need to find the matching image object to get the remote URL in case it's not local
         target_img = next((i for i in card.card_images if i.id == img_id), None)
         if not target_img and card.card_images:
              target_img = card.card_images[0]
@@ -1118,16 +1145,99 @@ class DeckBuilderPage:
 
         # Check local high-res existence immediately
         is_local = image_manager.image_exists(img_id, high_res=True)
-        initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+        # Use low res for tooltip speed, high res if available locally
+        initial_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (low_res_url or high_res_url)
+        if is_local:
+            initial_src = f"/images/{img_id}_high.jpg"
 
-        # Create tooltip with transparent background and no padding
-        # anchor/self props can be adjusted if needed, but default behavior is usually acceptable
+        # New Detailed Overlay Tooltip
         with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none') \
-                         .props('style="max-width: none" delay=1050') as tooltip:
-            # Image at 65vh height and 1000px min width for readability
-            if initial_src:
-                ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl') \
-                                     .props('fit=contain')
+                         .props('style="max-width: none" delay=10') as tooltip:
+
+            with ui.row().classes('w-[600px] bg-gray-900 border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start'):
+                # Left Column: Image
+                with ui.column().classes('w-[180px] shrink-0'):
+                     ui.image(initial_src).classes('w-full rounded shadow-md')
+
+                # Right Column: Details
+                with ui.column().classes('flex-grow gap-1 text-white'):
+                    # Header Row
+                    with ui.row().classes('w-full justify-between items-start'):
+                        ui.label(card.name).classes('text-lg font-bold leading-tight')
+
+                        # Type Info (Top Right)
+                        with ui.column().classes('items-end gap-0'):
+                            ui.label(card.type).classes('text-xs font-bold text-gray-300')
+                            if "Monster" in card.type:
+                                # Attribute
+                                color = self._get_attribute_color(card.attribute)
+                                icon = self._get_attribute_icon(card.attribute)
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.label(card.attribute).classes(f'text-xs font-bold text-{color}')
+                                    ui.icon(icon, color=color).classes('text-sm')
+                            else:
+                                # Spell/Trap Property
+                                # For Spells/Traps, race usually holds property (Normal, Continuous, etc.)
+                                icon = self._get_type_icon(card.type)
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.label(card.race).classes('text-xs font-bold text-gray-400')
+                                    if card.race != "Normal": # Normal Spells usually don't have an icon besides the spell symbol
+                                         # Map properties if needed, or just use generic
+                                         pass
+                                    ui.icon(icon).classes('text-sm text-gray-400')
+
+                    # Stats Row (Monsters)
+                    if "Monster" in card.type:
+                         with ui.row().classes('w-full items-center gap-4 text-sm font-bold mt-1'):
+                             # Level / Rank / Link
+                             if "Link" in card.type:
+                                 ui.label(f"LINK-{card.linkval}").classes('text-blue-400')
+                                 if card.linkmarkers:
+                                     ui.label(f"Markers: {', '.join(card.linkmarkers)}").classes('text-xs text-gray-400 font-normal')
+                             elif "Xyz" in card.type:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.label(f"Rank {card.level}").classes('text-black bg-white px-1 rounded')
+                             else:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('star', color='yellow-500').classes('text-sm')
+                                     ui.label(f"Level {card.level}").classes('text-yellow-500')
+
+                             # ATK / DEF
+                             with ui.row().classes('items-center gap-2 ml-auto'):
+                                 ui.label(f"ATK/{card.atk}").classes('text-red-400')
+                                 if "Link" not in card.type:
+                                     ui.label(f"DEF/{card.def_}").classes('text-blue-400')
+
+                             # Scale
+                             if "Pendulum" in card.type:
+                                  with ui.row().classes('items-center gap-1'):
+                                     ui.icon('swap_vert', color='blue-300').classes('text-sm')
+                                     ui.label(f"Scale {card.scale}").classes('text-blue-300')
+
+                    ui.separator().classes('my-2 bg-gray-700')
+
+                    # Description
+                    # Truncate if too long? Or scroll? Tooltips shouldn't scroll usually.
+                    # Let's limit height and ellipsis if needed, or just let it grow (but max height).
+                    with ui.scroll_area().classes('w-full h-[150px] pr-2'):
+                         ui.markdown(card.desc).classes('text-xs text-gray-300 leading-relaxed whitespace-pre-wrap')
+
+                    ui.separator().classes('my-2 bg-gray-700')
+
+                    # Footer: Prices
+                    with ui.row().classes('w-full justify-end items-center gap-4 text-xs'):
+                         if card.card_prices:
+                             p = card.card_prices[0]
+
+                             if p.cardmarket_price:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('edit_document', color='blue-400').classes('text-sm')
+                                     ui.label(f"€{p.cardmarket_price}").classes('text-blue-400 font-bold')
+
+                             if p.tcgplayer_price:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('flash_on', color='yellow-500').classes('text-sm')
+                                     ui.label(f"${p.tcgplayer_price}").classes('text-yellow-500 font-bold')
 
             # Trigger download on show if needed
             if not is_local and high_res_url:
