@@ -693,57 +693,30 @@ class UnifiedImportController:
         changes = 0
         self.successful_imports = []
         self.import_failures = []
-        modified_card_ids = set()
 
         for item in self.pending_changes:
             try:
-                # 1. Database Update Check
-                # Check if variant exists in ApiCard; if not, add it
-                # We do this to ensure DB consistency for new custom/ambiguous variants
-                variant_exists = False
-                for s in item.api_card.card_sets:
-                    if s.set_code == item.set_code and s.set_rarity == item.rarity:
-                        variant_exists = True
-                        # Ensure image_id is preserved if we found an existing match but the item didn't have it set (e.g. from ambiguity resolution)
-                        if item.image_id is None:
-                            item.image_id = s.image_id
-                        break
-
-                if not variant_exists:
-                    # Create new variant
-                    new_id = str(uuid.uuid4())
-                    rarity_abbr = RARITY_ABBREVIATIONS.get(item.rarity, "")
-                    rarity_code = f"({rarity_abbr})" if rarity_abbr else ""
-
-                    # Try to infer set name/image from other variants in same set
-                    set_name = "Custom Set"
-                    image_id = item.image_id
-
-                    # Look for siblings
+                # 1. Resolve Image ID for new/custom variants
+                # We no longer add variants to the global DB (ApiCard), but we still
+                # need to ensure the collection entry has a valid image ID if possible.
+                if item.image_id is None:
+                    # Try to infer image from other variants in same set
                     prefix = item.set_code.split('-')[0]
+                    found_image_id = None
                     for s in item.api_card.card_sets:
-                        if s.set_code.startswith(prefix):
-                            set_name = s.set_name
-                            if image_id is None: image_id = s.image_id
+                        # 1. Exact match check (just in case)
+                        if s.set_code == item.set_code and s.set_rarity == item.rarity:
+                            found_image_id = s.image_id
                             break
+                        # 2. Sibling match check
+                        if s.set_code.startswith(prefix) and found_image_id is None:
+                            found_image_id = s.image_id
 
-                    if image_id is None and item.api_card.card_images:
-                        image_id = item.api_card.card_images[0].id
+                    if found_image_id is None and item.api_card.card_images:
+                        found_image_id = item.api_card.card_images[0].id
 
-                    new_set = ApiCardSet(
-                        variant_id=new_id,
-                        set_name=set_name,
-                        set_code=item.set_code,
-                        set_rarity=item.rarity,
-                        set_rarity_code=rarity_code,
-                        set_price="0.00",
-                        image_id=image_id
-                    )
-                    item.api_card.card_sets.append(new_set)
-                    modified_card_ids.add(item.api_card.id)
-                    # Update item image_id if it was missing
-                    if item.image_id is None:
-                        item.image_id = image_id
+                    if found_image_id is not None:
+                        item.image_id = found_image_id
 
                 # 2. Collection Update
                 # Determine Quantity Delta
@@ -775,19 +748,6 @@ class UnifiedImportController:
             except Exception as e:
                 logger.error(f"Import Error for item {item.set_code}: {e}")
                 self.import_failures.append(f"{item.quantity}x {item.api_card.name} ({item.set_code}): {str(e)}")
-
-        # Save DB Updates if any
-        if modified_card_ids:
-            # We need to save the DBs that contain these cards.
-            # Iterate all loaded languages in service cache.
-            for lang, cards in ygo_service._cards_cache.items():
-                # Check if any modified card is in this list (by reference or ID)
-                # Since we modified the object in place, and the object is (presumably) the one in the cache...
-                # We can just check IDs.
-                ids_in_lang = {c.id for c in cards}
-                if not ids_in_lang.isdisjoint(modified_card_ids):
-                    await ygo_service.save_card_database(cards, lang)
-                    logger.info(f"Saved updated DB for language: {lang}")
 
         if changes > 0 or (changes == 0 and self.import_mode == 'ADD'):
             # Note: 0 changes might happen if subtract removes non-existent cards, but we still save/notify
