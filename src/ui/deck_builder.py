@@ -126,6 +126,7 @@ class DeckBuilderPage:
             'current_deck_name': last_deck, # Initialize from session
             'reference_collection': None, # Collection object for ownership check
             'reference_collection_name': last_col, # Track filename
+            'reference_storage': None, # None = All, '__UNASSIGNED__' = None location, else specific string
 
             'available_decks': [],
             'available_collections': [],
@@ -165,6 +166,42 @@ class DeckBuilderPage:
         """Resolves a card ID (potentially alt art) to its ApiCard object."""
         base_id = self._resolve_card_id(card_id)
         return self.api_card_map.get(base_id)
+
+    def _get_filtered_owned_map(self) -> Dict[int, int]:
+        """
+        Returns a map of {card_id: quantity} based on the selected reference_storage.
+        If reference_storage is None, returns total quantity (All Storage).
+        If reference_storage is '__UNASSIGNED__', returns quantity in unassigned storage.
+        Otherwise, returns quantity in the specific named storage.
+        """
+        ref_col = self.state['reference_collection']
+        if not ref_col:
+            return {}
+
+        target_storage = self.state.get('reference_storage') # None = All
+
+        owned_map = {}
+        for c in ref_col.cards:
+            count = 0
+            if target_storage is None:
+                # All Storage
+                count = c.total_quantity
+            else:
+                # Specific or Unassigned
+                # We need to iterate variants -> entries
+                for v in c.variants:
+                    for e in v.entries:
+                        if target_storage == '__UNASSIGNED__':
+                             if e.storage_location is None:
+                                 count += e.quantity
+                        else:
+                             if e.storage_location == target_storage:
+                                 count += e.quantity
+
+            if count > 0:
+                owned_map[c.card_id] = count
+
+        return owned_map
 
     def calculate_hierarchical_usage(self, target_zone: str) -> Dict[int, int]:
         """
@@ -297,9 +334,7 @@ class DeckBuilderPage:
         missing = {}
 
         # Create a map of owned quantities (Base IDs)
-        owned_map = {}
-        for c in ref_col.cards:
-            owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         for base_id, required_qty in base_deck_counts.items():
             owned_qty = owned_map.get(base_id, 0)
@@ -379,11 +414,7 @@ class DeckBuilderPage:
         if not current_deck:
             return Deck(name="Empty")
 
-        ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            for c in ref_col.cards:
-                owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         missing_deck = Deck(name=f"{current_deck.name}_Missing")
 
@@ -972,16 +1003,47 @@ class DeckBuilderPage:
                 val = e.value
                 persistence.save_ui_state({'deck_builder_last_collection': val})
                 self.state['reference_collection_name'] = val
+                self.state['reference_storage'] = None # Reset storage filter
                 if val:
                      self.state['reference_collection'] = await run.io_bound(persistence.load_collection, val)
                 else:
                      self.state['reference_collection'] = None
+
+                self.render_header.refresh() # Update storage options
                 await self.apply_filters()
                 self.refresh_deck_area()
 
             curr_col_file = self.state.get('reference_collection_name')
             if curr_col_file and curr_col_file not in col_options: curr_col_file = None
             ui.select(col_options, value=curr_col_file, label='Reference Collection', on_change=on_col_change).classes('min-w-[200px]')
+
+            # Storage Dropdown
+            storage_options = {None: 'All Storage'}
+            ref_col = self.state['reference_collection']
+            if ref_col:
+                storage_options['__UNASSIGNED__'] = 'Unassigned'
+                storages = set()
+                for card in ref_col.cards:
+                     for var in card.variants:
+                          for entry in var.entries:
+                               if entry.storage_location:
+                                   storages.add(entry.storage_location)
+
+                for s in sorted(list(storages)):
+                    storage_options[s] = s
+
+            # Ensure current value is valid
+            curr_storage = self.state.get('reference_storage')
+            if curr_storage and curr_storage not in storage_options:
+                 curr_storage = None
+                 self.state['reference_storage'] = None
+
+            async def on_storage_change(e):
+                 self.state['reference_storage'] = e.value
+                 self.refresh_deck_area()
+
+            ui.select(storage_options, value=curr_storage, label='Reference Storage', on_change=on_storage_change) \
+                .classes('min-w-[150px]').bind_visibility_from(self.state, 'reference_collection')
 
             ui.space()
 
@@ -1100,6 +1162,35 @@ class DeckBuilderPage:
                      with ui.element('div').classes('w-5 h-5 rounded-full bg-yellow-500 text-black flex items-center justify-center font-bold text-xs border border-white shadow-sm'):
                          ui.label('2')
 
+    def _get_attribute_color(self, attribute: str) -> str:
+        attr_map = {
+            'LIGHT': 'yellow-500',
+            'DARK': 'purple-500',
+            'FIRE': 'red-500',
+            'WATER': 'blue-500',
+            'EARTH': 'amber-700',
+            'WIND': 'green-500',
+            'DIVINE': 'yellow-300'
+        }
+        return attr_map.get(attribute, 'gray-400')
+
+    def _get_attribute_icon(self, attribute: str) -> str:
+        attr_map = {
+            'LIGHT': 'light_mode',
+            'DARK': 'dark_mode',
+            'FIRE': 'local_fire_department',
+            'WATER': 'water_drop',
+            'EARTH': 'landscape',
+            'WIND': 'air',
+            'DIVINE': 'auto_awesome'
+        }
+        return attr_map.get(attribute, 'help_outline')
+
+    def _get_type_icon(self, type_str: str) -> str:
+        if "Spell" in type_str: return "auto_fix_high"
+        if "Trap" in type_str: return "change_history"
+        return "help_outline"
+
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
 
@@ -1109,8 +1200,6 @@ class DeckBuilderPage:
             img_id = card.get_best_image_id()
 
         # Determine URL for this specific image ID
-        # Note: If specific_image_id is provided, we assume it's one of the images in card_images
-        # We need to find the matching image object to get the remote URL in case it's not local
         target_img = next((i for i in card.card_images if i.id == img_id), None)
         if not target_img and card.card_images:
              target_img = card.card_images[0]
@@ -1120,16 +1209,99 @@ class DeckBuilderPage:
 
         # Check local high-res existence immediately
         is_local = image_manager.image_exists(img_id, high_res=True)
-        initial_src = f"/images/{img_id}_high.jpg" if is_local else (high_res_url or low_res_url)
+        # Use low res for tooltip speed, high res if available locally
+        initial_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else (low_res_url or high_res_url)
+        if is_local:
+            initial_src = f"/images/{img_id}_high.jpg"
 
-        # Create tooltip with transparent background and no padding
-        # anchor/self props can be adjusted if needed, but default behavior is usually acceptable
+        # New Detailed Overlay Tooltip
         with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none') \
-                         .props('style="max-width: none" delay=1050') as tooltip:
-            # Image at 65vh height and 1000px min width for readability
-            if initial_src:
-                ui.image(initial_src).classes('w-auto h-[65vh] min-w-[1000px] object-contain rounded-lg shadow-2xl') \
-                                     .props('fit=contain')
+                         .props('style="max-width: none" delay=10') as tooltip:
+
+            with ui.row().classes('w-[600px] bg-gray-900 border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start'):
+                # Left Column: Image
+                with ui.column().classes('w-[180px] shrink-0'):
+                     ui.image(initial_src).classes('w-full rounded shadow-md')
+
+                # Right Column: Details
+                with ui.column().classes('flex-grow gap-1 text-white'):
+                    # Header Row
+                    with ui.row().classes('w-full justify-between items-start'):
+                        ui.label(card.name).classes('text-lg font-bold leading-tight')
+
+                        # Type Info (Top Right)
+                        with ui.column().classes('items-end gap-0'):
+                            ui.label(card.type).classes('text-xs font-bold text-gray-300')
+                            if "Monster" in card.type:
+                                # Attribute
+                                color = self._get_attribute_color(card.attribute)
+                                icon = self._get_attribute_icon(card.attribute)
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.label(card.attribute).classes(f'text-xs font-bold text-{color}')
+                                    ui.icon(icon, color=color).classes('text-sm')
+                            else:
+                                # Spell/Trap Property
+                                # For Spells/Traps, race usually holds property (Normal, Continuous, etc.)
+                                icon = self._get_type_icon(card.type)
+                                with ui.row().classes('items-center gap-1'):
+                                    ui.label(card.race).classes('text-xs font-bold text-gray-400')
+                                    if card.race != "Normal": # Normal Spells usually don't have an icon besides the spell symbol
+                                         # Map properties if needed, or just use generic
+                                         pass
+                                    ui.icon(icon).classes('text-sm text-gray-400')
+
+                    # Stats Row (Monsters)
+                    if "Monster" in card.type:
+                         with ui.row().classes('w-full items-center gap-4 text-sm font-bold mt-1'):
+                             # Level / Rank / Link
+                             if "Link" in card.type:
+                                 ui.label(f"LINK-{card.linkval}").classes('text-blue-400')
+                                 if card.linkmarkers:
+                                     ui.label(f"Markers: {', '.join(card.linkmarkers)}").classes('text-xs text-gray-400 font-normal')
+                             elif "Xyz" in card.type:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.label(f"Rank {card.level}").classes('text-black bg-white px-1 rounded')
+                             else:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('star', color='yellow-500').classes('text-sm')
+                                     ui.label(f"Level {card.level}").classes('text-yellow-500')
+
+                             # ATK / DEF
+                             with ui.row().classes('items-center gap-2 ml-auto'):
+                                 ui.label(f"ATK/{card.atk}").classes('text-red-400')
+                                 if "Link" not in card.type:
+                                     ui.label(f"DEF/{card.def_}").classes('text-blue-400')
+
+                             # Scale
+                             if "Pendulum" in card.type:
+                                  with ui.row().classes('items-center gap-1'):
+                                     ui.icon('swap_vert', color='blue-300').classes('text-sm')
+                                     ui.label(f"Scale {card.scale}").classes('text-blue-300')
+
+                    ui.separator().classes('my-2 bg-gray-700')
+
+                    # Description
+                    # Truncate if too long? Or scroll? Tooltips shouldn't scroll usually.
+                    # Let's limit height and ellipsis if needed, or just let it grow (but max height).
+                    with ui.scroll_area().classes('w-full h-[150px] pr-2'):
+                         ui.markdown(card.desc).classes('text-xs text-gray-300 leading-relaxed whitespace-pre-wrap')
+
+                    ui.separator().classes('my-2 bg-gray-700')
+
+                    # Footer: Prices
+                    with ui.row().classes('w-full justify-end items-center gap-4 text-xs'):
+                         if card.card_prices:
+                             p = card.card_prices[0]
+
+                             if p.cardmarket_price:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('edit_document', color='blue-400').classes('text-sm')
+                                     ui.label(f"€{p.cardmarket_price}").classes('text-blue-400 font-bold')
+
+                             if p.tcgplayer_price:
+                                 with ui.row().classes('items-center gap-1'):
+                                     ui.icon('flash_on', color='yellow-500').classes('text-sm')
+                                     ui.label(f"${p.tcgplayer_price}").classes('text-yellow-500 font-bold')
 
             # Trigger download on show if needed
             if not is_local and high_res_url:
@@ -1332,11 +1504,7 @@ class DeckBuilderPage:
         real_card_ids = getattr(deck, target)
 
         # Prepare ownership maps
-        ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            for c in ref_col.cards:
-                owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         # Initialize usage counter with hierarchical usage (Main > Extra > Side)
         usage_counter = self.calculate_hierarchical_usage(target)
@@ -1605,11 +1773,7 @@ class DeckBuilderPage:
                      await ui.run_javascript(f"var p = document.getElementById('deck-{to_zone}'); if(p && p.children[{new_index}]) p.children[{new_index}].remove();")
 
                      # 3. Prepare ownership data for rendering
-                     ref_col = self.state['reference_collection']
-                     owned_map = {}
-                     if ref_col:
-                         for c in ref_col.cards:
-                             owned_map[c.card_id] = c.total_quantity
+                     owned_map = self._get_filtered_owned_map()
 
                      # Dynamic Update Strategy: "Last Arrived = Lowest Priority"
                      # We calculate the TOTAL count of this card in the entire deck (including the new one).
