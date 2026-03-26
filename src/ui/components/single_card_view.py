@@ -376,7 +376,7 @@ class SingleCardView:
         self,
         card: ApiCard,
         total_owned: int,
-        owned_breakdown: Dict[str, int],
+        owned_breakdown: Dict[str, Dict[str, Any]],
         save_callback: Callable,
         current_collection: Any = None,
         storage_options: Dict[str, str] = None
@@ -464,14 +464,28 @@ class SingleCardView:
                                 # Start ensuring flags immediately
                                 await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
 
-                                for key, count in owned_breakdown.items():
+                                for key, count_data in owned_breakdown.items():
+                                    if isinstance(count_data, dict):
+                                        total = count_data.get('total', 0)
+                                        locations = count_data.get('locations', {})
+                                    else:
+                                        total = count_data
+                                        locations = {}
+
                                     flag_url = self._get_flag_url(key)
-                                    with ui.chip().props('color=secondary text-color=white'):
+                                    with ui.chip().props('color=secondary text-color=white') as chip:
                                         if flag_url:
                                             ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
                                         else:
                                             ui.icon('layers', color='white').classes('text-lg mr-1')
-                                        ui.label(f"{key}: {count}").classes('select-text')
+                                        ui.label(f"{key}: {total}").classes('select-text')
+
+                                        if locations:
+                                            with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
+                                                for loc, qty in locations.items():
+                                                    with ui.row().classes('gap-1 items-center'):
+                                                        ui.label(f"{loc}:").classes('font-bold')
+                                                        ui.label(str(qty))
                             elif total_owned == 0:
                                 ui.label('Not in collection').classes('text-gray-500 italic')
 
@@ -915,7 +929,7 @@ class SingleCardView:
         card: ApiCard,
         on_add_callback: Callable[[int, int, str], Any],
         owned_count: int = 0,
-        owned_breakdown: Dict[str, int] = None
+        owned_breakdown: Dict[str, Dict[str, Any]] = None
     ):
         try:
              with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
@@ -966,14 +980,28 @@ class SingleCardView:
                                  # Start ensuring flags immediately
                                  await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
 
-                                 for key, count in owned_breakdown.items():
+                                 for key, count_data in owned_breakdown.items():
+                                     if isinstance(count_data, dict):
+                                         total = count_data.get('total', 0)
+                                         locations = count_data.get('locations', {})
+                                     else:
+                                         total = count_data
+                                         locations = {}
+
                                      flag_url = self._get_flag_url(key)
-                                     with ui.chip().props('color=secondary text-color=white'):
+                                     with ui.chip().props('color=secondary text-color=white') as chip:
                                          if flag_url:
                                              ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
                                          else:
                                              ui.icon('layers', color='white').classes('text-lg mr-1')
-                                         ui.label(f"{key}: {count}").classes('select-text')
+                                         ui.label(f"{key}: {total}").classes('select-text')
+
+                                         if locations:
+                                             with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
+                                                 for loc, qty in locations.items():
+                                                     with ui.row().classes('gap-1 items-center'):
+                                                         ui.label(f"{loc}:").classes('font-bold')
+                                                         ui.label(str(qty))
                              elif owned_count == 0:
                                  ui.label('Not in collection').classes('text-gray-500 italic')
 

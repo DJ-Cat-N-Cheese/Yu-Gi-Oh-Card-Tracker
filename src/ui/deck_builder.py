@@ -1408,8 +1408,16 @@ class DeckBuilderPage:
                          qty = v.total_quantity
                          if qty > 0:
                              key = f"{v.set_code} ({v.rarity})"
-                             owned_breakdown[key] = owned_breakdown.get(key, 0) + qty
+                             if key not in owned_breakdown:
+                                 owned_breakdown[key] = {'total': 0, 'locations': {}}
+
+                             owned_breakdown[key]['total'] += qty
                              owned_count += qty
+
+                             for e in v.entries:
+                                 if e.quantity > 0:
+                                     loc = e.storage_location if e.storage_location else "Unsorted"
+                                     owned_breakdown[key]['locations'][loc] = owned_breakdown[key]['locations'].get(loc, 0) + e.quantity
                      break
 
         # Sort breakdown by key (Set Code)
