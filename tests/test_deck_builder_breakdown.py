@@ -42,20 +42,35 @@ class TestDeckBuilderBreakdown(unittest.IsolatedAsyncioTestCase):
             page.single_card_view.open_deck_builder = AsyncMock()
 
             # Setup Reference Collection
-            v1 = MagicMock(spec=CollectionVariant)
+            v1 = MagicMock()
             v1.set_code = "SET-A"
             v1.rarity = "Common"
             v1.total_quantity = 2
+            e1 = MagicMock()
+            e1.quantity = 2
+            e1.storage_location = "Binder 1"
+            v1.entries = [e1]
 
-            v2 = MagicMock(spec=CollectionVariant)
+            v2 = MagicMock()
             v2.set_code = "SET-A"
             v2.rarity = "Common"
             v2.total_quantity = 1
+            e2 = MagicMock()
+            e2.quantity = 1
+            e2.storage_location = None
+            v2.entries = [e2]
 
-            v3 = MagicMock(spec=CollectionVariant)
+            v3 = MagicMock()
             v3.set_code = "SET-B"
             v3.rarity = "Ultra"
             v3.total_quantity = 5
+            e3 = MagicMock()
+            e3.quantity = 3
+            e3.storage_location = "Box A"
+            e4 = MagicMock()
+            e4.quantity = 2
+            e4.storage_location = "Box A"
+            v3.entries = [e3, e4]
 
             c_card = MagicMock(spec=CollectionCard)
             c_card.card_id = 123
@@ -85,8 +100,19 @@ class TestDeckBuilderBreakdown(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(passed_count, 8)
 
             expected_breakdown = {
-                "SET-A (Common)": 3,
-                "SET-B (Ultra)": 5
+            "SET-A (Common)": {
+                'total': 3,
+                'locations': {
+                    'Binder 1': 2,
+                    'Unsorted': 1
+                }
+            },
+            "SET-B (Ultra)": {
+                'total': 5,
+                'locations': {
+                    'Box A': 5
+                }
+            }
             }
             self.assertEqual(passed_breakdown, expected_breakdown)
 
