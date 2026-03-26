@@ -907,8 +907,24 @@ class DeckBuilderPage:
         with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
             ui.label('Deck Builder').classes('text-h5')
 
-            deck_options = {f: f.replace('.ydk', '') for f in self.state['available_decks']}
-            deck_options['__NEW__'] = '+ New Deck'
+            selected = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
+
+            # Initially load up to 50 decks to prevent UI freeze on startup while allowing instant selection
+            deck_options = {'__NEW__': '+ New Deck'}
+
+            # Keep selected deck visible in options if it exists
+            if selected and selected in self.state['available_decks']:
+                deck_options[selected] = selected.replace('.ydk', '')
+            elif selected:
+                selected = None
+
+            count = 0
+            for f in self.state['available_decks']:
+                if count >= 50:
+                    break
+                if f not in deck_options:
+                    deck_options[f] = f.replace('.ydk', '')
+                    count += 1
 
             async def on_deck_change(e):
                 if e.value == '__NEW__':
@@ -916,9 +932,38 @@ class DeckBuilderPage:
                 elif e.value:
                     await self.load_deck(e.value)
 
-            selected = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
-            if selected and selected not in deck_options: selected = None
-            ui.select(deck_options, value=selected, label='Current Deck', on_change=on_deck_change).classes('min-w-[200px]')
+            deck_select = ui.select(deck_options, value=selected, label='Current Deck', on_change=on_deck_change, with_input=True).classes('min-w-[200px]')
+
+            def filter_decks(e):
+                # Handle text input for searching decks
+                try:
+                    search = (e.args or '').lower() if hasattr(e, 'args') else ''
+                except Exception:
+                    search = ''
+
+                matches = {}
+                matches['__NEW__'] = '+ New Deck'
+
+                # Keep selected deck visible in options if it exists
+                if selected and selected in self.state['available_decks']:
+                    matches[selected] = selected.replace('.ydk', '')
+
+                # Add up to 50 matching decks
+                count = 0
+                for f in self.state['available_decks']:
+                    if count >= 50:
+                        break
+                    display_name = f.replace('.ydk', '')
+                    if search in display_name.lower():
+                        if f not in matches:
+                            matches[f] = display_name
+                            count += 1
+
+                deck_select.options = matches
+                deck_select.update()
+
+            # Use input-value event to capture typing without blocking Quasar's internal filter promise
+            deck_select.on('input-value', filter_decks)
 
             ui.button(icon='add_circle', on_click=self.open_new_deck_dialog).props('flat round color=white').tooltip('Create New Deck')
 
