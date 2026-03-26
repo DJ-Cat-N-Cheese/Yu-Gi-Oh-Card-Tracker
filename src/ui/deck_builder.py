@@ -229,8 +229,7 @@ class DeckBuilderPage:
 
         for zone in ['main', 'extra', 'side']:
             for cid in getattr(deck, zone, []):
-                base_id = self._resolve_card_id(cid)
-                val_str = ban_map.get(str(base_id), "0")
+                val_str = ban_map.get(str(cid), "0")
                 if val_str.isdigit():
                     total += int(val_str)
         return total
@@ -276,7 +275,7 @@ class DeckBuilderPage:
                 # Flag zones containing violated cards
                 for zone in ['main', 'extra', 'side']:
                     zone_cards = getattr(deck, zone, [])
-                    if any(self._resolve_card_id(cid) in violated_cards for cid in zone_cards):
+                    if any(cid in violated_cards for cid in zone_cards):
                         violations[zone] = True
 
         return violations
@@ -390,25 +389,22 @@ class DeckBuilderPage:
 
         # Process Main
         for card_id in current_deck.main:
-            base_id = self._resolve_card_id(card_id)
-            if owned_map.get(base_id, 0) > 0:
-                owned_map[base_id] -= 1
+            if owned_map.get(card_id, 0) > 0:
+                owned_map[card_id] -= 1
             else:
                 missing_deck.main.append(card_id)
 
         # Process Extra
         for card_id in current_deck.extra:
-            base_id = self._resolve_card_id(card_id)
-            if owned_map.get(base_id, 0) > 0:
-                owned_map[base_id] -= 1
+            if owned_map.get(card_id, 0) > 0:
+                owned_map[card_id] -= 1
             else:
                 missing_deck.extra.append(card_id)
 
         # Process Side
         for card_id in current_deck.side:
-            base_id = self._resolve_card_id(card_id)
-            if owned_map.get(base_id, 0) > 0:
-                owned_map[base_id] -= 1
+            if owned_map.get(card_id, 0) > 0:
+                owned_map[card_id] -= 1
             else:
                 missing_deck.side.append(card_id)
 
