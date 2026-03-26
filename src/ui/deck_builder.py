@@ -463,8 +463,29 @@ class DeckBuilderPage:
                             self.alt_art_map[img.id] = c.id
 
             # Load Banlists
-            await banlist_service.fetch_default_banlists()
             self.state['available_banlists'] = banlist_service.get_banlists()
+
+            # Fetch banlists in background if empty
+            if not self.state['available_banlists']:
+                async def fetch_missing_banlists():
+                    try:
+                        await banlist_service.fetch_default_banlists()
+                        self.state['available_banlists'] = banlist_service.get_banlists()
+
+                        # Load current map if it was successfully fetched
+                        if self.state['current_banlist_name'] and self.state['current_banlist_name'] in self.state['available_banlists']:
+                            ban_data = await banlist_service.load_banlist(self.state['current_banlist_name'])
+                            self.state['current_banlist_map'] = ban_data.get('cards', {})
+                            self.state['current_banlist_type'] = ban_data.get('type', 'classical')
+                            self.state['current_banlist_limit'] = ban_data.get('max_points', 100)
+
+                        self.refresh_deck_area()
+                        self.refresh_search_results()
+                        self.render_header.refresh()
+                    except Exception as e:
+                        logger.error(f"Background banlist fetch failed: {e}")
+
+                asyncio.create_task(fetch_missing_banlists())
 
             # Load default banlist
             # If current selection is invalid (e.g. file deleted), revert to None (No Banlist)
@@ -487,7 +508,9 @@ class DeckBuilderPage:
             st_races = set()
             archetypes = set()
 
-            for c in api_cards:
+            for i, c in enumerate(api_cards):
+                if i % 1000 == 0:
+                    await asyncio.sleep(0) # Yield control back to the event loop occasionally
                 if c.card_sets:
                     for s in c.card_sets:
                         parts = s.set_code.split('-')
@@ -684,6 +707,8 @@ class DeckBuilderPage:
                  return float(c.card_prices[0].tcgplayer_price or 0)
              except: return 0.0
 
+        await asyncio.sleep(0) # Yield before heavy list comprehensions
+
         txt = self.state['search_text'].lower()
         if txt:
              def matches(c):
@@ -773,6 +798,8 @@ class DeckBuilderPage:
         p_min, p_max = self.state['filter_price_min'], self.state['filter_price_max']
         if p_min > 0 or p_max < 1000:
              res = [c for c in res if p_min <= get_price(c) <= p_max]
+
+        await asyncio.sleep(0) # Yield before final sorting
 
         key = self.state['sort_by']
         reverse = self.state['sort_descending']
