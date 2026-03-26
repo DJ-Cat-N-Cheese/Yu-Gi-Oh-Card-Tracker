@@ -35,7 +35,7 @@ class UnifiedImportController:
         self.collections: List[str] = persistence.list_collections()
         self.selected_collection: Optional[str] = None
 
-        self.import_type: str = 'JSON' # 'JSON' or 'CARDMARKET'
+        self.import_type: str = 'CARDMARKET' # 'JSON' or 'CARDMARKET'
         self.import_mode: str = 'ADD'  # 'ADD' or 'SUBTRACT'
 
         # State for Re-scan
@@ -1270,7 +1270,7 @@ def import_tools_page():
                     ui.toggle({
                         'JSON': 'JSON Backup',
                         'CARDMARKET': 'Cardmarket (PDF/Text)'
-                    }, value='JSON', on_change=lambda e: setattr(controller, 'import_type', e.value)).props('dark')
+                    }, value='CARDMARKET', on_change=lambda e: setattr(controller, 'import_type', e.value)).props('dark')
 
                 # Mode Toggle
                 with ui.column().classes('gap-1'):
