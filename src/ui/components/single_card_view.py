@@ -481,9 +481,11 @@ class SingleCardView:
                                         ui.label(f"{key}: {total}").classes('select-text')
 
                                         if locations:
-                                            tooltip_text = "<br>".join([f"<b>{loc}:</b> {qty}" for loc, qty in locations.items()])
                                             with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
-                                                ui.html(tooltip_text)
+                                                for loc, qty in locations.items():
+                                                    with ui.row().classes('gap-1 items-center'):
+                                                        ui.label(f"{loc}:").classes('font-bold')
+                                                        ui.label(str(qty))
                             elif total_owned == 0:
                                 ui.label('Not in collection').classes('text-gray-500 italic')
 
@@ -995,9 +997,11 @@ class SingleCardView:
                                          ui.label(f"{key}: {total}").classes('select-text')
 
                                          if locations:
-                                             tooltip_text = "<br>".join([f"<b>{loc}:</b> {qty}" for loc, qty in locations.items()])
                                              with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
-                                                 ui.html(tooltip_text)
+                                                 for loc, qty in locations.items():
+                                                     with ui.row().classes('gap-1 items-center'):
+                                                         ui.label(f"{loc}:").classes('font-bold')
+                                                         ui.label(str(qty))
                              elif owned_count == 0:
                                  ui.label('Not in collection').classes('text-gray-500 italic')
 
