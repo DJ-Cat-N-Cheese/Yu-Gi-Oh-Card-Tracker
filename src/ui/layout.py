@@ -200,7 +200,174 @@ def create_layout(content_function):
             with ui.button('Generate Sample Collection', on_click=gen_sample_coll, icon='playlist_add').classes('w-full q-mt-sm').props('color=positive'):
                  ui.tooltip('Create a random sample collection for testing')
 
+            async def open_clean_db_dialog():
+                from src.ui.import_tools import CardmarketParser # used just for some constants if needed, but maybe not
+                from src.services.ygo_api import ygo_service
+                from src.core.utils import is_set_code_compatible
+                import copy
+
+                with ui.dialog() as clean_d, ui.card().classes('w-full max-w-4xl'):
+                    ui.label('Clean Database Entries').classes('text-h6')
+                    ui.label('Remove database entries (variants) that do not match the selected language.').classes('text-sm text-grey')
+
+                    lang_select = ui.select(['en', 'de', 'fr', 'it', 'pt'], label='Language to Scan', value='en').classes('w-full q-my-md')
+
+                    preview_container = ui.column().classes('w-full q-mt-md')
+
+                    state = {
+                        'items_to_remove': [],
+                        'original_db_snapshot': None,
+                        'selected_lang': 'en'
+                    }
+
+                    def render_preview():
+                        preview_container.clear()
+                        with preview_container:
+                            if not state['items_to_remove']:
+                                ui.label('No incompatible entries found.').classes('text-positive')
+                                return
+
+                            ui.label(f"Found {len(state['items_to_remove'])} incompatible variants.").classes('text-warning font-bold q-mb-sm')
+
+                            with ui.scroll_area().classes('h-64 w-full border border-gray-700 rounded p-2'):
+                                with ui.grid(columns='auto 3fr 1fr 1fr').classes('w-full items-center gap-2 border-b border-gray-600 pb-2 font-bold text-grey-4'):
+                                    ui.checkbox(value=True, on_change=lambda e: toggle_all(e.value)).classes('w-10 justify-center').props('dense')
+                                    ui.label('Card Name')
+                                    ui.label('Set Code')
+                                    ui.label('Rarity')
+
+                                # Render checkboxes manually (limit length or rely on scroll area for performance)
+                                # For a lot of variants it might be slow, but typically it's < 1000
+                                for item in state['items_to_remove']:
+                                    with ui.grid(columns='auto 3fr 1fr 1fr').classes('w-full items-center gap-2 border-b border-gray-800 py-1'):
+                                        # Use a fresh callback to prevent late binding issues
+                                        def make_on_change(it):
+                                            return lambda e: it.update({'include': e.value})
+                                        ui.checkbox(value=item['include'], on_change=make_on_change(item)).classes('w-10 justify-center').props('dense')
+                                        ui.label(item['card_name']).classes('truncate text-white')
+                                        ui.label(item['set_code']).classes('font-mono text-yellow-500 text-sm')
+                                        ui.label(item['rarity']).classes('text-sm text-grey-4')
+
+                            with ui.row().classes('w-full justify-end gap-4 q-mt-md'):
+                                ui.button('Cancel', on_click=clean_d.close).props('outline color=white')
+                                ui.button('Remove Entries', on_click=apply_removal).props('color=negative')
+
+                    def toggle_all(val):
+                        for item in state['items_to_remove']:
+                            item['include'] = val
+                        render_preview()
+
+                    async def scan_db():
+                        lang = lang_select.value
+                        state['selected_lang'] = lang
+                        n = ui.notification(f'Scanning {lang} database...', type='info', spinner=True, timeout=None)
+                        try:
+                            cards = await ygo_service.load_card_database(lang)
+                            # Deep copy snapshot for Undo
+                            state['original_db_snapshot'] = [c.model_copy(deep=True) for c in cards] if cards and hasattr(cards[0], 'model_copy') else copy.deepcopy(cards)
+
+                            items = []
+                            for card in cards:
+                                for variant in card.card_sets:
+                                    if not is_set_code_compatible(variant.set_code, lang):
+                                        items.append({
+                                            'card_id': card.id,
+                                            'variant_id': variant.variant_id,
+                                            'card_name': card.name,
+                                            'set_code': variant.set_code,
+                                            'rarity': variant.set_rarity,
+                                            'include': True,
+                                            'variant_ref': variant,
+                                            'card_ref': card
+                                        })
+
+                            state['items_to_remove'] = items
+                            n.dismiss()
+                            render_preview()
+                        except Exception as e:
+                            n.dismiss()
+                            ui.notify(f'Scan failed: {e}', type='negative')
+
+                    async def apply_removal():
+                        lang = state['selected_lang']
+                        cards = await ygo_service.load_card_database(lang)
+
+                        to_remove = [it for it in state['items_to_remove'] if it['include']]
+                        if not to_remove:
+                            ui.notify('No entries selected for removal.', type='warning')
+                            return
+
+                        removed_count = 0
+
+                        # Map cards by ID for quick modification
+                        card_map = {c.id: c for c in cards}
+                        cards_to_delete = set()
+
+                        for item in to_remove:
+                            card = card_map.get(item['card_id'])
+                            if card:
+                                original_len = len(card.card_sets)
+                                card.card_sets = [v for v in card.card_sets if v.variant_id != item['variant_id']]
+                                if len(card.card_sets) < original_len:
+                                    removed_count += 1
+
+                                if len(card.card_sets) == 0:
+                                    cards_to_delete.add(card.id)
+
+                        # Remove cards that have 0 variants left
+                        if cards_to_delete:
+                            cards[:] = [c for c in cards if c.id not in cards_to_delete]
+
+                        # Save
+                        await ygo_service.save_card_database(cards, lang)
+
+                        ui.notify(f'Successfully removed {removed_count} database entries.', type='positive')
+                        clean_d.close()
+
+                        # Save state for undo
+                        undo_state['snapshot'] = state['original_db_snapshot']
+                        undo_state['lang'] = lang
+
+                        # Show Undo button globally or in settings
+                        undo_btn.visible = True
+                        undo_btn.update()
+
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.button('Scan', on_click=scan_db).props('color=primary')
+                        ui.button('Cancel', on_click=clean_d.close).props('flat')
+
+                clean_d.open()
+
+            with ui.button('Clean Database Entries', on_click=open_clean_db_dialog, icon='cleaning_services').classes('w-full q-mt-sm').props('color=warning text-color=dark'):
+                 ui.tooltip('Remove database entries that do not match the database language')
+
+            # To handle undo we store the state in a closure or global. Let's use a mutable object attached to the function.
+            undo_state = {'snapshot': None, 'lang': None}
+
+            async def undo_clean():
+                if undo_state['snapshot'] and undo_state['lang']:
+                    try:
+                        lang = undo_state['lang']
+                        # ygo_service.save_card_database overrides the current loaded cards with the list provided
+                        await ygo_service.save_card_database(undo_state['snapshot'], lang)
+
+                        # Invalidate internal cache since objects were replaced
+                        # The cache in ygo_service keeps a reference to the old list.
+                        # ygo_service.save_card_database handles this properly.
+
+                        ui.notify(f'Successfully restored the {lang} database to its previous state.', type='positive')
+
+                        # Hide undo button
+                        undo_state['snapshot'] = None
+                        undo_state['lang'] = None
+                        undo_btn.visible = False
+                        undo_btn.update()
+                    except Exception as e:
+                        ui.notify(f'Failed to restore database: {e}', type='negative')
+
             with ui.row().classes('w-full justify-end q-mt-md'):
+                undo_btn = ui.button('Undo Clean', icon='undo', on_click=undo_clean).props('flat color=warning')
+                undo_btn.visible = False
                 with ui.button('Close', on_click=d.close).props('flat'):
                     ui.tooltip('Close settings')
         d.open()
