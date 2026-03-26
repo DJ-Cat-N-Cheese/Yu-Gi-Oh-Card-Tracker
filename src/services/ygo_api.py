@@ -301,50 +301,55 @@ class YugiohService:
         added_count = 0
         modified = False
 
+        # Group variants by card_id to pre-index sets once per card
+        from collections import defaultdict
+        variants_by_card = defaultdict(list)
         for v in variants:
-            card_id = v.get('card_id')
-            set_code = v.get('set_code')
-            set_rarity = v.get('set_rarity')
-            image_id = v.get('image_id')
+            c_id = v.get('card_id')
+            if c_id:
+                variants_by_card[c_id].append(v)
 
-            if not card_id or not set_code or not set_rarity: continue
-
+        for card_id, card_variants in variants_by_card.items():
             card = card_map.get(card_id)
             if not card: continue
 
-            exists = False
-            if card.card_sets:
-                for s in card.card_sets:
-                    if s.set_code == set_code and s.set_rarity == set_rarity:
-                        exists = True
-                        break
+            # Pre-index existing sets for this card once
+            existing_sets = {(s.set_code, s.set_rarity) for s in card.card_sets} if card.card_sets else set()
 
-            if not exists:
-                set_name = await self.get_set_name_by_code(set_code) or "Unknown Set"
+            for v in card_variants:
+                set_code = v.get('set_code')
+                set_rarity = v.get('set_rarity')
+                image_id = v.get('image_id')
 
-                # Logic from add_card_variant but without immediate save
-                # Resolve set_rarity_code
-                set_rarity_code = None
-                abbr = RARITY_ABBREVIATIONS.get(set_rarity)
-                if abbr:
-                    set_rarity_code = f"({abbr})"
+                if not set_code or not set_rarity: continue
 
-                new_variant_id = str(uuid.uuid4())
+                if (set_code, set_rarity) not in existing_sets:
+                    set_name = await self.get_set_name_by_code(set_code) or "Unknown Set"
 
-                new_set = ApiCardSet(
-                    variant_id=new_variant_id,
-                    set_name=set_name,
-                    set_code=set_code,
-                    set_rarity=set_rarity,
-                    set_rarity_code=set_rarity_code,
-                    set_price="0.00",
-                    image_id=image_id
-                )
+                    # Logic from add_card_variant but without immediate save
+                    # Resolve set_rarity_code
+                    set_rarity_code = None
+                    abbr = RARITY_ABBREVIATIONS.get(set_rarity)
+                    if abbr:
+                        set_rarity_code = f"({abbr})"
 
-                card.card_sets.append(new_set)
-                added_count += 1
-                modified = True
-                logger.info(f"Batch ensure: Added variant {set_code} to card {card_id}")
+                    new_variant_id = str(uuid.uuid4())
+
+                    new_set = ApiCardSet(
+                        variant_id=new_variant_id,
+                        set_name=set_name,
+                        set_code=set_code,
+                        set_rarity=set_rarity,
+                        set_rarity_code=set_rarity_code,
+                        set_price="0.00",
+                        image_id=image_id
+                    )
+
+                    card.card_sets.append(new_set)
+                    existing_sets.add((set_code, set_rarity)) # Update for this card
+                    added_count += 1
+                    modified = True
+                    logger.info(f"Batch ensure: Added variant {set_code} to card {card_id}")
 
         if modified:
              await self.save_card_database(cards, language)
