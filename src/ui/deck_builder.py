@@ -126,6 +126,7 @@ class DeckBuilderPage:
             'current_deck_name': last_deck, # Initialize from session
             'reference_collection': None, # Collection object for ownership check
             'reference_collection_name': last_col, # Track filename
+            'reference_storage': None, # None = All, '__UNASSIGNED__' = None location, else specific string
 
             'available_decks': [],
             'available_collections': [],
@@ -165,6 +166,42 @@ class DeckBuilderPage:
         """Resolves a card ID (potentially alt art) to its ApiCard object."""
         base_id = self._resolve_card_id(card_id)
         return self.api_card_map.get(base_id)
+
+    def _get_filtered_owned_map(self) -> Dict[int, int]:
+        """
+        Returns a map of {card_id: quantity} based on the selected reference_storage.
+        If reference_storage is None, returns total quantity (All Storage).
+        If reference_storage is '__UNASSIGNED__', returns quantity in unassigned storage.
+        Otherwise, returns quantity in the specific named storage.
+        """
+        ref_col = self.state['reference_collection']
+        if not ref_col:
+            return {}
+
+        target_storage = self.state.get('reference_storage') # None = All
+
+        owned_map = {}
+        for c in ref_col.cards:
+            count = 0
+            if target_storage is None:
+                # All Storage
+                count = c.total_quantity
+            else:
+                # Specific or Unassigned
+                # We need to iterate variants -> entries
+                for v in c.variants:
+                    for e in v.entries:
+                        if target_storage == '__UNASSIGNED__':
+                             if e.storage_location is None:
+                                 count += e.quantity
+                        else:
+                             if e.storage_location == target_storage:
+                                 count += e.quantity
+
+            if count > 0:
+                owned_map[c.card_id] = count
+
+        return owned_map
 
     def calculate_hierarchical_usage(self, target_zone: str) -> Dict[int, int]:
         """
@@ -297,9 +334,7 @@ class DeckBuilderPage:
         missing = {}
 
         # Create a map of owned quantities (Base IDs)
-        owned_map = {}
-        for c in ref_col.cards:
-            owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         for base_id, required_qty in base_deck_counts.items():
             owned_qty = owned_map.get(base_id, 0)
@@ -379,11 +414,7 @@ class DeckBuilderPage:
         if not current_deck:
             return Deck(name="Empty")
 
-        ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            for c in ref_col.cards:
-                owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         missing_deck = Deck(name=f"{current_deck.name}_Missing")
 
@@ -970,16 +1001,47 @@ class DeckBuilderPage:
                 val = e.value
                 persistence.save_ui_state({'deck_builder_last_collection': val})
                 self.state['reference_collection_name'] = val
+                self.state['reference_storage'] = None # Reset storage filter
                 if val:
                      self.state['reference_collection'] = await run.io_bound(persistence.load_collection, val)
                 else:
                      self.state['reference_collection'] = None
+
+                self.render_header.refresh() # Update storage options
                 await self.apply_filters()
                 self.refresh_deck_area()
 
             curr_col_file = self.state.get('reference_collection_name')
             if curr_col_file and curr_col_file not in col_options: curr_col_file = None
             ui.select(col_options, value=curr_col_file, label='Reference Collection', on_change=on_col_change).classes('min-w-[200px]')
+
+            # Storage Dropdown
+            storage_options = {None: 'All Storage'}
+            ref_col = self.state['reference_collection']
+            if ref_col:
+                storage_options['__UNASSIGNED__'] = 'Unassigned'
+                storages = set()
+                for card in ref_col.cards:
+                     for var in card.variants:
+                          for entry in var.entries:
+                               if entry.storage_location:
+                                   storages.add(entry.storage_location)
+
+                for s in sorted(list(storages)):
+                    storage_options[s] = s
+
+            # Ensure current value is valid
+            curr_storage = self.state.get('reference_storage')
+            if curr_storage and curr_storage not in storage_options:
+                 curr_storage = None
+                 self.state['reference_storage'] = None
+
+            async def on_storage_change(e):
+                 self.state['reference_storage'] = e.value
+                 self.refresh_deck_area()
+
+            ui.select(storage_options, value=curr_storage, label='Reference Storage', on_change=on_storage_change) \
+                .classes('min-w-[150px]').bind_visibility_from(self.state, 'reference_collection')
 
             ui.space()
 
@@ -1440,11 +1502,7 @@ class DeckBuilderPage:
         real_card_ids = getattr(deck, target)
 
         # Prepare ownership maps
-        ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            for c in ref_col.cards:
-                owned_map[c.card_id] = c.total_quantity
+        owned_map = self._get_filtered_owned_map()
 
         # Initialize usage counter with hierarchical usage (Main > Extra > Side)
         usage_counter = self.calculate_hierarchical_usage(target)
@@ -1669,11 +1727,7 @@ class DeckBuilderPage:
                      await ui.run_javascript(f"var p = document.getElementById('deck-{to_zone}'); if(p && p.children[{new_index}]) p.children[{new_index}].remove();")
 
                      # 3. Prepare ownership data for rendering
-                     ref_col = self.state['reference_collection']
-                     owned_map = {}
-                     if ref_col:
-                         for c in ref_col.cards:
-                             owned_map[c.card_id] = c.total_quantity
+                     owned_map = self._get_filtered_owned_map()
 
                      # Dynamic Update Strategy: "Last Arrived = Lowest Priority"
                      # We calculate the TOTAL count of this card in the entire deck (including the new one).
