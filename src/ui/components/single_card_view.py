@@ -482,7 +482,8 @@ class SingleCardView:
 
                                         if locations:
                                             tooltip_text = "<br>".join([f"<b>{loc}:</b> {qty}" for loc, qty in locations.items()])
-                                            ui.tooltip(tooltip_text).classes('bg-gray-800 text-white border border-gray-600 shadow-xl').props('html')
+                                            with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
+                                                ui.html(tooltip_text)
                             elif total_owned == 0:
                                 ui.label('Not in collection').classes('text-gray-500 italic')
 
@@ -995,7 +996,8 @@ class SingleCardView:
 
                                          if locations:
                                              tooltip_text = "<br>".join([f"<b>{loc}:</b> {qty}" for loc, qty in locations.items()])
-                                             ui.tooltip(tooltip_text).classes('bg-gray-800 text-white border border-gray-600 shadow-xl').props('html')
+                                             with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
+                                                 ui.html(tooltip_text)
                              elif owned_count == 0:
                                  ui.label('Not in collection').classes('text-gray-500 italic')
 
