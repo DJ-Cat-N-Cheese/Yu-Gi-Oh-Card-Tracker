@@ -150,8 +150,8 @@ def render_metrics(stats):
     # Display Collection Name context inside metrics area or above?
     # User asked for dropdown in header, so maybe just metrics here.
 
-    # Use grid for 2 rows of 3 columns
-    with ui.grid(columns=3).classes('w-full gap-4'):
+    # Use responsive grid: 1 col on mobile, 2 on medium, 3 on large
+    with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full gap-4'):
         # Row 1: Unique Focus
         metric_card('Unique Cards (Owned)', f"{stats['unique_owned']:,}", 'style', 'primary')
         metric_card('Total DB Cards', f"{stats['total_db_unique']:,}", 'dns', 'primary')
@@ -233,23 +233,24 @@ def render_charts_area(stats):
             ]
         }
 
-    with ui.row().classes('w-full gap-6'):
+    # Use flex column on mobile, flex row on large screens
+    with ui.element('div').classes('flex flex-col lg:flex-row w-full gap-6'):
         # Rarity
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-0'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
              if r_data:
                 ui.echart(pie_option('Rarity Distribution', r_data)).classes('w-full h-full')
              else:
                  ui.label('No Rarity Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Condition
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-0'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
             if c_data:
                 ui.echart(pie_option('Condition Distribution', c_data)).classes('w-full h-full')
             else:
                  ui.label('No Condition Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Language
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-0'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
             if l_data:
                 ui.echart(pie_option('Language Distribution', l_data)).classes('w-full h-full')
             else:
@@ -272,12 +273,12 @@ def dashboard_page():
                 return
 
             # --- Header & Dropdown ---
-            with ui.row().classes('w-full items-center justify-between'):
+            with ui.element('div').classes('flex flex-col md:flex-row w-full items-start md:items-center justify-between gap-4'):
                 with ui.column().classes('gap-1'):
                     ui.label('Dashboard').classes('text-3xl font-bold text-white')
                     ui.label('Welcome back! Here is an overview of your collection.').classes('text-gray-400')
 
-                with ui.row().classes('items-center gap-4'):
+                with ui.element('div').classes('flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto'):
                     # Collection Dropdown
                     if files:
                         async def on_collection_change(e):
@@ -292,11 +293,11 @@ def dashboard_page():
                                 n.dismiss()
 
                         ui.select(options=files, value=current_file, label='Selected Collection',
-                                  on_change=on_collection_change).classes('w-64')
+                                  on_change=on_collection_change).classes('w-full sm:w-64')
 
                     # Github Link
                     ui.link('GitHub Repo', 'https://github.com/NilsAIRepos/Yu-Gi-Oh-Card-Tracker', new_tab=True) \
-                        .classes('text-gray-500 hover:text-white transition-colors text-sm flex items-center gap-2') \
+                        .classes('text-gray-500 hover:text-white transition-colors text-sm flex items-center gap-2 mt-2 sm:mt-0') \
                         .props('icon=open_in_new')
 
             # --- Metrics ---
@@ -306,8 +307,8 @@ def dashboard_page():
             ui.separator().classes('bg-gray-800 q-my-sm')
             ui.label('Quick Navigation').classes('text-xl font-bold text-white')
 
-            # Main Functions (2 Rows, 2 Cols)
-            with ui.grid(columns=2).classes('w-full gap-6'):
+            # Main Functions (2 Rows, 2 Cols responsive)
+            with ui.element('div').classes('grid grid-cols-1 lg:grid-cols-2 w-full gap-6'):
                 nav_card('Collection',
                          'Manage your inventory, view prices, and track your progress.',
                          'style', '/collection', 'text-blue-400', is_large=True)
@@ -324,8 +325,8 @@ def dashboard_page():
                          'Quickly add large numbers of cards via lists or drag-and-drop.',
                          'playlist_add', '/bulk_add', 'text-green-400', is_large=True)
 
-            # Admin Functions (1 Row, 4 Cols)
-            with ui.grid(columns=4).classes('w-full gap-6'):
+            # Admin Functions (1 Row, 4 Cols responsive)
+            with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-6'):
                 nav_card('Scan Cards',
                          'Use your webcam to scan physical cards and add them.',
                          'camera', '/scan', 'text-pink-400')
