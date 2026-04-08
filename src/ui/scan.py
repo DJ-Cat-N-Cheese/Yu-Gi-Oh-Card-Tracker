@@ -2124,11 +2124,14 @@ def scan_page():
 
     # Initialize event queue for this page instance
     page.event_queue = queue.Queue()
+    page._timers = []
 
     def cleanup():
         # Unregister listener
         scanner_service.scanner_manager.unregister_listener(page.on_scanner_event)
         page.is_active = False
+        for t in page._timers:
+            t.cancel()
 
     app.on_disconnect(cleanup)
 
@@ -2209,11 +2212,11 @@ def scan_page():
     # Build Filter Dialog
     page.build_filter_dialog()
 
-    ui.timer(1.0, page.init_cameras, once=True)
-    ui.timer(0.1, page.init_data, once=True)
+    page._timers.append(ui.timer(1.0, page.init_cameras, once=True))
+    page._timers.append(ui.timer(0.1, page.init_data, once=True))
 
     # Use fast consumer loop instead of slow polling
-    ui.timer(0.1, page.event_consumer)
+    page._timers.append(ui.timer(0.1, page.event_consumer))
 
     # Initialize from current state immediately
     page.debug_report = scanner_service.scanner_manager.get_debug_snapshot()
