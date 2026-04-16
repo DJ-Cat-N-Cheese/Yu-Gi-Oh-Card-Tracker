@@ -492,8 +492,10 @@ class ScanPage:
                            value=self.default_storage,
                            on_change=lambda e: [setattr(self, 'default_storage', e.value), persistence.save_ui_state({'scan_default_storage': e.value})]).props('dense options-dense borderless').classes('w-32')
 
-             # Right: Commit
-             ui.button('COMMIT', on_click=self.commit_cards).props('color=positive icon=save').classes('font-bold px-6')
+             # Right: Export & Commit
+             with ui.row().classes('items-center gap-2'):
+                 ui.button('EXPORT', on_click=self.export_scans).props('color=info icon=download').classes('font-bold px-4')
+                 ui.button('COMMIT', on_click=self.commit_cards).props('color=positive icon=save').classes('font-bold px-6')
 
     async def load_target_collection_storage(self):
         if not self.target_collection_file:
@@ -1572,6 +1574,14 @@ class ScanPage:
 
         self.save_recent_scans()
         self.render_live_list.refresh()
+
+    def export_scans(self):
+        temp_path = "data/scans/scans_temp.json"
+        if os.path.exists(temp_path):
+            ui.download(temp_path, "scans_temp.json")
+            ui.notify("Exported scans successfully.", type='positive')
+        else:
+            ui.notify("No scans to export.", type='warning')
 
     async def commit_cards(self):
         if not self.target_collection_file:

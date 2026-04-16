@@ -29,6 +29,7 @@ class PendingChange:
     first_edition: bool
     image_id: Optional[int] = None
     source_row: Any = None # Original row data for debugging/logging
+    storage_location: Optional[str] = None # Added storage location for scan imports
 
 class UnifiedImportController:
     def __init__(self):
@@ -148,12 +149,119 @@ class UnifiedImportController:
         try:
             if self.import_type == 'JSON':
                 await self.process_json(self.last_uploaded_content)
+            elif self.import_type == 'SCAN':
+                await self.process_scan_import(self.last_uploaded_content)
             else:
                 await self.process_cardmarket(self.last_uploaded_content, self.last_uploaded_filename)
         except Exception as e:
              ui.notify(f"Processing Error: {e}", type='negative')
 
         self.refresh_status_ui()
+
+    async def process_scan_import(self, content: bytes):
+        if not self.selected_collection:
+            ui.notify("Please select a target collection to check storage compatibility.", type='warning')
+            return
+
+        try:
+            json_str = content.decode('utf-8')
+            data = json.loads(json_str)
+        except Exception as ex:
+            ui.notify(f"Invalid JSON: {ex}", type='negative')
+            return
+
+        target_collection = persistence.load_collection(self.selected_collection)
+        target_storages = {s.name for s in target_collection.storage_definitions}
+
+        import_storages = set()
+        cards_list = data.get("cards", []) if isinstance(data, dict) else data
+
+        # Check for list format from older export version (migration format)
+        if isinstance(data, list):
+            for item in data:
+                storage = item.get("storage_location")
+                if storage:
+                    import_storages.add(storage)
+        else:
+            for card_data in cards_list:
+                for variant_data in card_data.get("variants", []):
+                    for entry_data in variant_data.get("entries", []):
+                        storage = entry_data.get("storage_location")
+                        if storage:
+                            import_storages.add(storage)
+
+        missing_storages = import_storages - target_storages
+        if missing_storages:
+            missing_str = ", ".join(missing_storages)
+            ui.notify(f"Missing storage locations in target collection: {missing_str}", type='negative', timeout=10000)
+            return
+
+        count = 0
+        if isinstance(data, list):
+            for item in data:
+                card_id = item.get("card_id")
+                if not card_id: continue
+                api_card = ygo_service.get_card(card_id)
+                if not api_card: continue
+
+                qty = item.get("quantity", 1)
+                if qty <= 0: continue
+
+                self.pending_changes.append(PendingChange(
+                    api_card=api_card,
+                    set_code=item.get("set_code", ""),
+                    rarity=item.get("rarity", ""),
+                    quantity=qty,
+                    condition=item.get("condition", "Near Mint"),
+                    language=item.get("language", "EN"),
+                    first_edition=item.get("first_edition", False),
+                    image_id=item.get("image_id"),
+                    source_row=item,
+                    storage_location=item.get("storage_location")
+                ))
+                count += 1
+        else:
+            for card_data in cards_list:
+                card_id = card_data.get("card_id")
+                if not card_id: continue
+
+                api_card = ygo_service.get_card(card_id)
+                if not api_card:
+                    logger.warning(f"Card {card_id} not found in DB. Skipping.")
+                    continue
+
+                default_image_id = api_card.card_images[0].id if api_card.card_images else None
+
+                for variant_data in card_data.get("variants", []):
+                    set_code = variant_data.get("set_code")
+                    rarity = variant_data.get("rarity")
+                    image_id = variant_data.get("image_id", default_image_id)
+
+                    if not set_code or not rarity: continue
+
+                    for entry_data in variant_data.get("entries", []):
+                        qty = entry_data.get("quantity", 0)
+                        if qty <= 0: continue
+
+                        self.pending_changes.append(PendingChange(
+                            api_card=api_card,
+                            set_code=set_code,
+                            rarity=rarity,
+                            quantity=qty,
+                            condition=entry_data.get("condition", "Near Mint"),
+                            language=entry_data.get("language", "EN"),
+                            first_edition=entry_data.get("first_edition", False),
+                            image_id=image_id,
+                            source_row=entry_data
+                        ))
+                        # Make sure storage location is preserved
+                        self.pending_changes[-1].storage_location = entry_data.get("storage_location")
+                        count += 1
+
+        if count > 0:
+            ui.notify(f"Parsed {count} entries from Scan Export.", type='positive')
+        else:
+            ui.notify("No valid entries found in Scan Export.", type='warning')
 
     async def process_json(self, content: bytes):
         try:
@@ -734,7 +842,8 @@ class UnifiedImportController:
                     condition=item.condition,
                     first_edition=item.first_edition,
                     image_id=item.image_id,
-                    mode='ADD' # We always use ADD mode with pos/neg delta
+                    mode='ADD', # We always use ADD mode with pos/neg delta
+                    storage_location=item.storage_location
                 )
                 if modified:
                     changes += 1
@@ -752,6 +861,37 @@ class UnifiedImportController:
         if changes > 0 or (changes == 0 and self.import_mode == 'ADD'):
             # Note: 0 changes might happen if subtract removes non-existent cards, but we still save/notify
             persistence.save_collection(collection, self.selected_collection)
+
+            # Log Batch to Changelog
+            from src.core.changelog_manager import changelog_manager
+            batch_changes = []
+            for item in self.pending_changes:
+                batch_changes.append({
+                    'action': 'ADD' if self.import_mode == 'ADD' else 'REMOVE',
+                    'quantity': item.quantity,
+                    'card_data': {
+                        'card_id': item.api_card.id,
+                        'name': item.api_card.name,
+                        'set_code': item.set_code,
+                        'rarity': item.rarity,
+                        'language': item.language,
+                        'condition': item.condition,
+                        'first_edition': item.first_edition,
+                        'variant_id': None, # We don't have variant_id in PendingChange easily accessible, but changelog can handle missing
+                        'image_id': item.image_id,
+                        'storage_location': item.storage_location
+                    }
+                })
+
+            mode_text = "Add" if self.import_mode == 'ADD' else "Subtract"
+            source_text = "from Scan" if self.import_type == 'SCAN' else "from JSON" if self.import_type == 'JSON' else "from Cardmarket"
+
+            changelog_manager.log_batch_change(
+                self.selected_collection,
+                f"Batch {mode_text} {source_text}",
+                batch_changes
+            )
+
             ui.notify(f"Successfully processed {changes} changes.", type='positive')
 
             # Reset
@@ -1269,7 +1409,8 @@ def import_tools_page():
                     ui.label('Source Type').classes('text-sm text-grey')
                     ui.toggle({
                         'JSON': 'JSON Backup',
-                        'CARDMARKET': 'Cardmarket (PDF/Text)'
+                        'CARDMARKET': 'Cardmarket (PDF/Text)',
+                        'SCAN': 'Import Scans'
                     }, value='CARDMARKET', on_change=lambda e: setattr(controller, 'import_type', e.value)).props('dark')
 
                 # Mode Toggle
