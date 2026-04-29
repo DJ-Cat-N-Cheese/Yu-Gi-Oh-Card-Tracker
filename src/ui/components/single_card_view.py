@@ -384,11 +384,11 @@ class SingleCardView:
         try:
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+                ui.button(icon='close', on_click=d.close).props('flat round color=white bg-black/50').classes('absolute top-2 right-2 z-50')
 
-                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                with ui.element('div').classes('flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column
-                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
+                    with ui.column().classes('w-full sm:w-1/3 sm:min-w-[300px] h-[40vh] sm:h-full bg-black items-center justify-center p-4 sm:p-8 shrink-0 relative'):
                         img_id = card.get_best_image_id()
                         high_res_url = card.card_images[0].image_url if card.card_images else None
                         low_res_url = card.card_images[0].image_url_small if card.card_images else None
@@ -414,13 +414,13 @@ class SingleCardView:
                             self._setup_high_res_image_logic(new_img_id, h_res, l_res, image_element, current_id_check=lambda: True)
 
 
-                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                    with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
                         with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-4xl font-bold text-white select-text')
+                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
 
                         ui.separator().classes('q-my-md bg-gray-700')
 
-                        with ui.grid(columns=4).classes('w-full gap-4 text-lg'):
+                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm sm:text-lg w-full'):
                             def stat(label, value):
                                 with ui.column():
                                     ui.label(label).classes('text-gray-400 text-sm uppercase select-none font-bold')
@@ -621,10 +621,10 @@ class SingleCardView:
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+                ui.button(icon='close', on_click=d.close).props('flat round color=white bg-black/50').classes('absolute top-2 right-2 z-50')
 
-                with ui.row().classes('w-full h-full no-wrap gap-0'):
-                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
+                with ui.element('div').classes('flex flex-col sm:flex-row w-full h-full gap-0'):
+                    with ui.column().classes('w-full sm:w-1/3 sm:min-w-[300px] h-[40vh] sm:h-full bg-black items-center justify-center p-4 sm:p-8 shrink-0 relative'):
 
                         image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
 
@@ -653,9 +653,9 @@ class SingleCardView:
 
                         update_image()
 
-                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                    with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
                         with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-h3 font-bold text-white select-text')
+                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
 
                         initial_owned_qty, initial_owned_text = get_ownership_text(
                             initial_base_code, rarity, image_id, language, condition, first_edition
@@ -683,7 +683,7 @@ class SingleCardView:
                         ui.separator().classes('q-my-md bg-gray-700')
 
                         # Card Details Grid
-                        with ui.grid(columns=3).classes('w-full gap-4 text-lg'):
+                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm sm:text-lg w-full'):
                                 def info_label(title, initial_value, color='white'):
                                     with ui.column().classes('gap-0'):
                                         ui.label(title).classes('text-gray-400 text-xs uppercase font-bold select-none')
@@ -714,7 +714,7 @@ class SingleCardView:
 
                         # Market Prices
                         ui.label('Market Prices').classes('text-h6 q-mb-sm select-none text-accent')
-                        with ui.grid(columns=4).classes('w-full gap-4'):
+                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 gap-4 w-full'):
                                 tcg_price = '-'
                                 cm_price = '-'
                                 csi_price = '-'

@@ -4,7 +4,7 @@ import unittest
 import asyncio
 
 # Mock nicegui modules before importing src.ui.bulk_add
-sys.modules['nicegui'] = MagicMock()
+sys.modules["nicegui"] = MagicMock()
 sys.modules['nicegui.ui'] = MagicMock()
 sys.modules['nicegui.run'] = MagicMock()
 

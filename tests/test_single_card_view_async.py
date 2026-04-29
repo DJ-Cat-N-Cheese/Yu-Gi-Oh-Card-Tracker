@@ -1,3 +1,6 @@
+import sys
+from unittest.mock import MagicMock
+sys.modules["nicegui"] = MagicMock()
 import asyncio
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
