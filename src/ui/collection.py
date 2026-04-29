@@ -1627,7 +1627,7 @@ class CollectionPage:
                 # To prevent focus loss, this element is NOT rebuilt.
 
                 n_input = ui.number(min=1).bind_value(self.state, 'page').props('dense borderless input-class="text-center"').classes('w-20')
-                n_input.on('change', lambda e: set_page(e.value))
+                n_input.on('change', lambda e: set_page(getattr(e, 'args', getattr(e, 'value', None))))
                 n_input.on('keydown.enter', lambda: set_page(self.state['page']))
 
                 self.pagination_total_label = ui.label("/ 1")

@@ -934,7 +934,7 @@ class DbEditorPage:
                              ui.label("Rarity")
 
                              for i, s in enumerate(preview_data["sets"]):
-                                 ui.checkbox(value=True).on('change', lambda e, idx=i: toggle_set(idx, e.value))
+                                 ui.checkbox(value=True).on('change', lambda e, idx=i: toggle_set(idx, getattr(e, 'args', getattr(e, 'value', None))))
                                  ui.label(s['set_code']).classes('font-mono text-yellow-500')
                                  ui.label(s['set_name']).classes('truncate')
                                  ui.label(s['set_rarity']).classes('text-gray-400')
@@ -1011,7 +1011,7 @@ class DbEditorPage:
                     self.update_pagination_labels()
 
                 n_input = ui.number(min=1).bind_value(self.state, 'page').props('dense borderless input-class="text-center"').classes('w-20')
-                n_input.on('change', lambda e: set_page(e.value))
+                n_input.on('change', lambda e: set_page(getattr(e, 'args', getattr(e, 'value', None))))
                 n_input.on('keydown.enter', lambda: set_page(self.state['page']))
 
                 self.pagination_total_label = ui.label("/ 1")

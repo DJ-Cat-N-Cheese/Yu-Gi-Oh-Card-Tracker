@@ -121,7 +121,7 @@ class FilterPane:
 
                 # Check args
                 args = getattr(e, 'args', None)
-                if not args:
+                if args is None:
                     return None
 
                 # If args is a dictionary (NiceGUI sometimes returns the value directly in args for certain elements)
