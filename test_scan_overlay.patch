@@ -1,0 +1,43 @@
+--- src/ui/scan.py
++++ src/ui/scan.py
+@@ -274,6 +274,7 @@
+
+ function showScanOverlay(imageData, duration, rotation) {
+     const overlay = document.getElementById('scan-overlay');
+     if (!overlay) return;
+
+     if (window.scanOverlayTimer) {
+@@ -282,14 +283,21 @@
+     }
+
+-    overlay.src = imageData;
+     overlay.style.transform = 'rotate(' + rotation + 'deg)';
+
+-    // Instant Show
+-    overlay.style.transition = 'none';
+-    overlay.style.opacity = '1';
+-    overlay.style.display = 'block';
++    // Set up onload to ensure we only show once the new image is decoded
++    overlay.onload = function() {
++        // Instant Show
++        overlay.style.transition = 'none';
++        overlay.style.opacity = '1';
++        overlay.style.display = 'block';
++    };
++
++    // Set the new image data
++    overlay.src = imageData;
+
+     window.scanOverlayTimer = setTimeout(() => {
+         // Start Fade Out
+         overlay.style.transition = 'opacity 0.2s ease-out';
+         void overlay.offsetHeight; // Force reflow
+         overlay.style.opacity = '0';
+
+         window.scanOverlayTimer = setTimeout(() => {
+              overlay.style.display = 'none';
++             overlay.src = ''; // Clear image to prevent showing old one before next load
+              window.scanOverlayTimer = null;
+         }, 200);
+     }, duration);
+ }
