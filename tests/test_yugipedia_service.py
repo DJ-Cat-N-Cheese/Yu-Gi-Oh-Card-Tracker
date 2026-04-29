@@ -38,11 +38,13 @@ SDWD-EN001; Blue-Eyes White Dragon
         self.assertIn('main', result)
         self.assertIn('bonus', result)
         self.assertEqual(len(result['main']), 1)
-        self.assertEqual(len(result['bonus']), 1)
+        self.assertEqual(len(result['bonus']), 2)
 
         self.assertEqual(result['bonus'][0].code, "SDWD-EN041")
-        # Check rarity parsing with comma (should pick first)
+        # Now keeps both rarities instead of just picking the first
+        # Sorted by name (Maiden of White) which is the same, so order is preserved
         self.assertEqual(result['bonus'][0].rarity, "Secret Rare")
+        self.assertEqual(result['bonus'][1].rarity, "Quarter Century Secret Rare")
         self.assertEqual(result['main'][0].code, "SDWD-EN001")
 
     def test_parse_wikitext_leading_whitespace_header(self):
