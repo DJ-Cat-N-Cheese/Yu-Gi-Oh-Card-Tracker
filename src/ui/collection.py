@@ -1250,7 +1250,7 @@ class CollectionPage:
     # --- Renderers ---
 
     def render_consolidated_grid(self, items: List[CardViewModel]):
-        with ui.grid(columns='repeat(auto-fill, minmax(160px, 1fr))').classes('w-full gap-4'):
+        with ui.element('div').classes('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4 w-full'):
             for vm in items:
                 card = vm.api_card
                 opacity = "opacity-100" if vm.is_owned else "opacity-60 grayscale"
@@ -1356,7 +1356,7 @@ class CollectionPage:
     def render_collectors_grid(self, items: List[CollectorRow]):
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
-        with ui.grid(columns='repeat(auto-fill, minmax(160px, 1fr))').classes('w-full gap-4'):
+        with ui.element('div').classes('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4 w-full'):
             for item in items:
                 opacity = "opacity-100" if item.is_owned else "opacity-60 grayscale"
                 border = "border-accent" if item.is_owned else "border-gray-700"
@@ -1455,7 +1455,7 @@ class CollectionPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
+        with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
             ui.label('Gallery').classes('text-h5')
 
             files = persistence.list_collections()
@@ -1514,7 +1514,7 @@ class CollectionPage:
                 self.render_header.refresh()
                 await self.apply_filters()
 
-            with ui.row().classes('items-center gap-1'):
+            with ui.row().classes('items-center gap-1 shrink-0'):
                 with ui.select(['Name', 'ATK', 'DEF', 'Level', 'Newest', 'Price', 'Quantity', 'Set Code'], value=self.state['sort_by'], label='Sort',
                         on_change=on_sort_change).classes('w-32'):
                     ui.tooltip('Choose how to sort the displayed cards')
@@ -1534,13 +1534,13 @@ class CollectionPage:
                 persistence.save_ui_state({'collection_only_owned': e.value})
                 await self.apply_filters()
 
-            with ui.row().classes('items-center'):
+            with ui.row().classes('items-center shrink-0'):
                 with ui.switch('Owned', on_change=on_owned_switch).bind_value(self.state, 'only_owned'):
                     ui.tooltip('Toggle to show only cards you own')
 
-            ui.separator().props('vertical')
+            ui.separator().props('vertical').classes('hidden sm:block')
 
-            with ui.button_group():
+            with ui.button_group().classes('shrink-0'):
                 is_cons = self.state['view_scope'] == 'consolidated'
                 with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
                     .props(f'flat={not is_cons} color=accent'):
@@ -1549,7 +1549,7 @@ class CollectionPage:
                     .props(f'flat={is_cons} color=accent'):
                     ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
 
-            with ui.button_group():
+            with ui.button_group().classes('shrink-0'):
                 is_grid = self.state['view_mode'] == 'grid'
                 with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')) \
                     .props(f'flat={not is_grid} color=accent'):
