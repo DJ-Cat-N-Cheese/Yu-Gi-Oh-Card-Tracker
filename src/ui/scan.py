@@ -280,25 +280,31 @@ function showScanOverlay(imageData, duration, rotation) {
         window.scanOverlayTimer = null;
     }
 
-    overlay.src = imageData;
-    overlay.style.transform = 'rotate(' + rotation + 'deg)';
-
-    // Instant Show
-    overlay.style.transition = 'none';
-    overlay.style.opacity = '1';
-    overlay.style.display = 'block';
-
-    window.scanOverlayTimer = setTimeout(() => {
-        // Start Fade Out
-        overlay.style.transition = 'opacity 0.2s ease-out';
-        void overlay.offsetHeight; // Force reflow
-        overlay.style.opacity = '0';
+    // Set up onload to ensure we only show once the new image is decoded
+    overlay.onload = function() {
+        // Instant Show
+        overlay.style.transition = 'none';
+        overlay.style.opacity = '1';
+        overlay.style.display = 'block';
 
         window.scanOverlayTimer = setTimeout(() => {
-             overlay.style.display = 'none';
-             window.scanOverlayTimer = null;
-        }, 200);
-    }, duration);
+            // Start Fade Out
+            overlay.style.transition = 'opacity 0.2s ease-out';
+            void overlay.offsetHeight; // Force reflow
+            overlay.style.opacity = '0';
+
+            window.scanOverlayTimer = setTimeout(() => {
+                 overlay.style.display = 'none';
+                 overlay.src = ''; // Clear image to prevent showing old one before next load
+                 window.scanOverlayTimer = null;
+            }, 200);
+        }, duration);
+    };
+
+    overlay.style.transform = 'rotate(' + rotation + 'deg)';
+
+    // Set the new image data, which will trigger onload
+    overlay.src = imageData;
 }
 
 function reattachScannerVideo() {
