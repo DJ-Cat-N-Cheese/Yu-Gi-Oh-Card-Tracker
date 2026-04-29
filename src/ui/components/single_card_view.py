@@ -464,6 +464,27 @@ class SingleCardView:
                                 # Start ensuring flags immediately
                                 await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
 
+                                active_state = {'menu': None, 'pinned': False}
+
+                                def handle_hover(e, m):
+                                    if active_state['menu'] and active_state['menu'] != m:
+                                        active_state['menu'].close()
+                                    m.open()
+                                    active_state['menu'] = m
+                                    active_state['pinned'] = False
+
+                                def handle_mouseleave(e, m):
+                                    if active_state['menu'] == m and not active_state['pinned']:
+                                        m.close()
+                                        active_state['menu'] = None
+
+                                def handle_click(e, m):
+                                    if active_state['menu'] and active_state['menu'] != m:
+                                        active_state['menu'].close()
+                                    m.open()
+                                    active_state['menu'] = m
+                                    active_state['pinned'] = True
+
                                 for key, count_data in owned_breakdown.items():
                                     if isinstance(count_data, dict):
                                         total = count_data.get('total', 0)
@@ -481,11 +502,15 @@ class SingleCardView:
                                         ui.label(f"{key}: {total}").classes('select-text')
 
                                         if locations:
-                                            with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
+                                            with ui.menu().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3').props('auto-close no-parent-event') as menu:
                                                 for loc, qty in locations.items():
                                                     with ui.row().classes('gap-1 items-center'):
                                                         ui.label(f"{loc}:").classes('font-bold')
                                                         ui.label(str(qty))
+
+                                            chip.on('mouseenter', lambda e, m=menu: handle_hover(e, m))
+                                            chip.on('mouseleave', lambda e, m=menu: handle_mouseleave(e, m))
+                                            chip.on('click', lambda e, m=menu: handle_click(e, m))
                             elif total_owned == 0:
                                 ui.label('Not in collection').classes('text-gray-500 italic')
 
