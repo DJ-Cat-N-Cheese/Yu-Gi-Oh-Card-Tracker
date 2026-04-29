@@ -821,6 +821,7 @@ class DbEditorPage:
 
                 ui.space()
                 ui.button('+ New Card Info', on_click=self.show_yugipedia_import_dialog).props('color=green icon=add')
+                ui.button('Import Pricing Info', on_click=self.show_pricing_import_dialog).props('color=purple icon=euro')
                 ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg')
 
             else:
@@ -832,6 +833,183 @@ class DbEditorPage:
 
                     ui.input(placeholder='Search Sets...', on_change=on_set_search) \
                         .bind_value(self.state, 'sets_search_query').props('debounce=300 icon=search dark clearable').classes('w-64')
+
+
+    def show_pricing_import_dialog(self):
+        from src.services.pricing_service import pricing_service
+        from src.services.ygo_api import ygo_service
+        from src.core.utils import generate_variant_id
+        import datetime
+
+        dialog_state = {
+            'import_daily': True,
+            'import_offers': True,
+            'url_input': '',
+            'files': [],
+            'parsed_results': [],
+            'ambiguous_items': [],
+            'step': 1,
+            'offers_date': datetime.datetime.now().strftime('%Y-%m-%d')
+        }
+
+        with ui.dialog() as dialog, ui.card().classes('w-full max-w-4xl bg-gray-900 border border-gray-700'):
+            ui.label("Import Pricing Info").classes('text-h6 text-white mb-4')
+
+            step_container = ui.column().classes('w-full gap-4')
+
+            def render_step():
+                step_container.clear()
+                with step_container:
+                    if dialog_state['step'] == 1:
+                        # Step 1: Configuration & Upload
+                        with ui.row().classes('w-full gap-4 items-center'):
+                            ui.checkbox('Import Daily Prices', value=dialog_state['import_daily']).bind_value(dialog_state, 'import_daily')
+                            ui.checkbox('Import Offers', value=dialog_state['import_offers']).bind_value(dialog_state, 'import_offers')
+                            ui.input('Offers Date (YYYY-MM-DD)', placeholder='2023-10-10').bind_value(dialog_state, 'offers_date')
+
+                        ui.separator().classes('mt-4 mb-4')
+
+                        with ui.tabs().classes('w-full') as tabs:
+                            file_tab = ui.tab('File Upload')
+                            url_tab = ui.tab('URL Link')
+
+                        with ui.tab_panels(tabs, value=file_tab).classes('w-full bg-transparent'):
+                            with ui.tab_panel(file_tab):
+                                def handle_upload(e):
+                                    dialog_state['files'].append({'name': e.name, 'content': e.content.read()})
+                                    ui.notify(f"Added {e.name}")
+
+                                ui.upload(on_upload=handle_upload, multiple=True, auto_upload=True, label="Upload Cardmarket HTML files").props('accept=".html" dark').classes('w-full')
+
+                            with ui.tab_panel(url_tab):
+                                ui.input('Paste Cardmarket URL', placeholder='https://www.cardmarket.com/...').bind_value(dialog_state, 'url_input').classes('w-full')
+
+                        async def process_inputs():
+                            if not dialog_state['files'] and not dialog_state['url_input']:
+                                ui.notify("Please upload a file or enter a URL.", type='warning')
+                                return
+
+                            dialog_state['parsed_results'].clear()
+                            dialog_state['ambiguous_items'].clear()
+
+                            ui.notify("Processing...", type='info')
+
+                            # Process Files
+                            for f in dialog_state['files']:
+                                try:
+                                    html_text = f['content'].decode('utf-8')
+                                    parsed = pricing_service.parse_cardmarket_html(html_text)
+                                    card_id, variant_id, candidates = pricing_service.resolve_card_variant(parsed, ygo_service)
+
+                                    item = {'source': f['name'], 'parsed': parsed, 'card_id': card_id, 'variant_id': variant_id, 'candidates': candidates}
+                                    if variant_id:
+                                        dialog_state['parsed_results'].append(item)
+                                    else:
+                                        dialog_state['ambiguous_items'].append(item)
+                                except Exception as e:
+                                    logger.error(f"Failed to parse file {f['name']}: {e}")
+                                    ui.notify(f"Failed to parse {f['name']}", type='negative')
+
+                            # Process URL
+                            if dialog_state['url_input']:
+                                try:
+                                    html_text = await pricing_service.fetch_html_from_url(dialog_state['url_input'])
+                                    if html_text:
+                                        parsed = pricing_service.parse_cardmarket_html(html_text)
+                                        card_id, variant_id, candidates = pricing_service.resolve_card_variant(parsed, ygo_service)
+
+                                        item = {'source': 'URL', 'parsed': parsed, 'card_id': card_id, 'variant_id': variant_id, 'candidates': candidates}
+                                        if variant_id:
+                                            dialog_state['parsed_results'].append(item)
+                                        else:
+                                            dialog_state['ambiguous_items'].append(item)
+                                except Exception as e:
+                                    logger.error(f"Failed to fetch URL: {e}")
+                                    ui.notify("Failed to process URL", type='negative')
+
+                            if dialog_state['ambiguous_items']:
+                                dialog_state['step'] = 2
+                            else:
+                                dialog_state['step'] = 3
+                            render_step()
+
+                        ui.button('Next', on_click=process_inputs).classes('w-full mt-4')
+
+                    elif dialog_state['step'] == 2:
+                        # Step 2: Ambiguity Resolution
+                        ui.label("Resolve Ambiguities").classes('text-lg font-bold text-yellow-500')
+                        ui.label("Some items could not be uniquely matched. Please select the correct variant.").classes('text-gray-300 mb-4')
+
+                        for idx, item in enumerate(dialog_state['ambiguous_items']):
+                            title = item['parsed']['card_info'].get('title', 'Unknown')
+                            number = item['parsed']['card_info'].get('number', 'Unknown')
+                            rarity = item['parsed']['card_info'].get('rarity', 'Unknown')
+
+                            with ui.card().classes('w-full p-4 mb-2 bg-gray-800'):
+                                ui.label(f"{title} ({number} - {rarity})").classes('font-bold')
+
+                                if not item['candidates']:
+                                    ui.label("No variants found in database. Item will be skipped.").classes('text-red-400')
+                                else:
+                                    options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity}" for c in item['candidates']}
+
+                                    # Create state specifically for this select
+                                    item['selected_variant_id'] = None
+                                    ui.select(options, label="Select Variant").bind_value(item, 'selected_variant_id').classes('w-full')
+
+                        def finish_resolution():
+                            # Move resolved to parsed, ignore skipped
+                            for item in dialog_state['ambiguous_items']:
+                                if item.get('selected_variant_id'):
+                                    item['variant_id'] = item['selected_variant_id']
+                                    dialog_state['parsed_results'].append(item)
+                            dialog_state['step'] = 3
+                            render_step()
+
+                        ui.button('Continue', on_click=finish_resolution).classes('w-full mt-4')
+
+                    elif dialog_state['step'] == 3:
+                        # Step 3: Preview & Confirm
+                        ui.label("Preview & Confirm").classes('text-lg font-bold text-green-500')
+
+                        if not dialog_state['parsed_results']:
+                            ui.label("No valid items to import.").classes('text-gray-300')
+                        else:
+                            with ui.grid(columns='1fr 1fr 1fr 1fr').classes('w-full bg-gray-800 p-2 font-bold'):
+                                ui.label('Source')
+                                ui.label('Card Name')
+                                ui.label('Daily Prices')
+                                ui.label('Offers')
+
+                            for item in dialog_state['parsed_results']:
+                                with ui.grid(columns='1fr 1fr 1fr 1fr').classes('w-full p-2 border-b border-gray-700'):
+                                    ui.label(item['source'])
+                                    ui.label(item['parsed']['card_info'].get('title', 'Unknown')).classes('truncate')
+                                    ui.label(str(len(item['parsed'].get('prices', []))))
+                                    ui.label(str(len(item['parsed'].get('offers', []))))
+
+                        def finalize_import():
+                            try:
+                                for item in dialog_state['parsed_results']:
+                                    pricing_service.save_pricing_data(
+                                        card_id=item['card_id'],
+                                        variant_id=item['variant_id'],
+                                        html_date=dialog_state['offers_date'], # User specified date
+                                        parsed_data=item['parsed'],
+                                        save_daily=dialog_state['import_daily'],
+                                        save_offers=dialog_state['import_offers']
+                                    )
+                                ui.notify("Pricing imported successfully!", type='positive')
+                                dialog.close()
+                            except Exception as e:
+                                logger.error(f"Error finalizing import: {e}")
+                                ui.notify("Error saving data", type='negative')
+
+                        ui.button('Confirm & Save', on_click=finalize_import).classes('w-full mt-4')
+
+            render_step()
+
+        dialog.open()
 
     def show_yugipedia_import_dialog(self):
         from src.services.yugipedia_service import yugipedia_service
