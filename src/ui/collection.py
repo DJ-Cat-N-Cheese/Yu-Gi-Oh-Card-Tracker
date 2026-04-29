@@ -724,7 +724,33 @@ class CollectionPage:
         elif key == 'Level':
             res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
         elif key == 'Newest':
-            res.sort(key=lambda x: x.api_card.id, reverse=reverse)
+            timestamp_map = {}
+            if self.state['selected_file']:
+                history = changelog_manager.load_history(self.state['selected_file'])
+                for entry in history:
+                    ts = entry.get('timestamp', 0)
+                    if entry.get('type') == 'single':
+                        card_data = entry.get('card_data', {})
+                        card_id = card_data.get('card_id')
+                        var_id = card_data.get('variant_id')
+                        if card_id is not None:
+                            timestamp_map[card_id] = max(timestamp_map.get(card_id, 0), ts)
+                        if var_id is not None:
+                            timestamp_map[var_id] = max(timestamp_map.get(var_id, 0), ts)
+                    elif entry.get('type') == 'batch':
+                        for change in entry.get('changes', []):
+                            card_data = change.get('card_data', {})
+                            card_id = card_data.get('card_id')
+                            var_id = card_data.get('variant_id')
+                            if card_id is not None:
+                                timestamp_map[card_id] = max(timestamp_map.get(card_id, 0), ts)
+                            if var_id is not None:
+                                timestamp_map[var_id] = max(timestamp_map.get(var_id, 0), ts)
+
+            if self.state['view_scope'] == 'consolidated':
+                res.sort(key=lambda x: timestamp_map.get(x.api_card.id, 0), reverse=reverse)
+            else:
+                res.sort(key=lambda x: timestamp_map.get(x.variant_id, timestamp_map.get(x.api_card.id, 0)), reverse=reverse)
         elif key == 'Price':
              res.sort(key=lambda x: get_price(x), reverse=reverse)
         elif key == 'Quantity':
