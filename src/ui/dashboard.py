@@ -236,23 +236,23 @@ def render_charts_area(stats):
     # Use flex column on mobile, flex row on large screens
     with ui.element('div').classes('flex flex-col lg:flex-row w-full gap-6'):
         # Rarity
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
              if r_data:
-                ui.echart(pie_option('Rarity Distribution', r_data)).classes('w-full h-full')
+                ui.echart(pie_option('Rarity Distribution', r_data)).classes('w-full h-full min-h-[250px]')
              else:
                  ui.label('No Rarity Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Condition
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
             if c_data:
-                ui.echart(pie_option('Condition Distribution', c_data)).classes('w-full h-full')
+                ui.echart(pie_option('Condition Distribution', c_data)).classes('w-full h-full min-h-[250px]')
             else:
                  ui.label('No Condition Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Language
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px]'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
             if l_data:
-                ui.echart(pie_option('Language Distribution', l_data)).classes('w-full h-full')
+                ui.echart(pie_option('Language Distribution', l_data)).classes('w-full h-full min-h-[250px]')
             else:
                  ui.label('No Language Data').classes('w-full h-full flex items-center justify-center text-grey')
 
