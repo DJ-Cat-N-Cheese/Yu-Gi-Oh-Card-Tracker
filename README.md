@@ -3,7 +3,7 @@
 ## 📖 TLDR: What is OpenYuGi?
 OpenYuGi is the ultimate, totally private collection manager and deck builder made specifically for Yu-Gi-Oh! fans, collectors, and competitive players. Instead of forcing you to make an account, pay for a subscription, or upload your valuable collection data to a cloud server, OpenYuGi keeps everything securely on your own computer. You completely own your data. There are zero subscriptions, no hidden tracking, and no required internet connection once you've loaded it up for the first time.
 
-Whether you're organizing a few trade binders or managing a massive inventory of over 100,000 cards, OpenYuGi is incredibly fast. It never slows down or freezes, no matter how huge your collection gets. It is packed with powerful tools built for real-world use: a smart AI webcam scanner for adding cards quickly, a professional deck builder that checks tournament banlists and links to your inventory, and a physical storage system so you never lose a card again. It’s everything you need to take control of your cardboard collection, built by players, for players.
+Whether you're organizing a few trade binders or managing a massive inventory of over 100,000 cards, OpenYuGi is designed to scale with you. It is packed with powerful tools built for real-world use: a smart AI webcam scanner for adding cards quickly, a professional deck builder that checks tournament banlists and links to your inventory, and a physical storage system so you never lose a card again. It’s everything you need to take control of your cardboard collection, built by players, for players.
 
 ---
 
