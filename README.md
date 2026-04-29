@@ -1,101 +1,92 @@
 # 🃏 OpenYuGi: The Ultimate Local-First Yu-Gi-Oh! Collection Manager
 
 ## 📖 TLDR: What is OpenYuGi?
-OpenYuGi is an extremely comprehensive, local-first, privacy-focused collection manager and deck builder designed exclusively for Yu-Gi-Oh! collectors, competitive players, and developers. By leveraging plain-text JSON files instead of proprietary cloud databases, OpenYuGi guarantees that users retain full sovereignty over their inventory. The system offers extensive bulk-management tools, a professional deck builder with `.ydk` and banlist integration, complex multi-conditional filtering, physical storage location mapping, and an experimental hardware-accelerated AI webcam scanner.
+OpenYuGi is the ultimate, totally private collection manager and deck builder made specifically for Yu-Gi-Oh! fans, collectors, and competitive players. Instead of forcing you to make an account, pay for a subscription, or upload your valuable collection data to a cloud server, OpenYuGi keeps everything securely on your own computer. You completely own your data. There are zero subscriptions, no hidden tracking, and no required internet connection once you've loaded it up for the first time.
 
-Built with Python and the NiceGUI framework, OpenYuGi eliminates the need for user accounts, subscriptions, telemetry, and constant network synchronization. All data is written locally, enabling seamless third-party scripting, git-versioning of collections, and absolute data privacy. It is engineered from the ground up to support massive collections, utilizing lazy-loading, asynchronous input/output operations, and memory-efficient data structures to easily handle inventories exceeding tens of thousands of individual cards without frontend lag or database locking issues.
+Whether you're organizing a few trade binders or managing a massive inventory of over 100,000 cards, OpenYuGi is incredibly fast. It never slows down or freezes, no matter how huge your collection gets. It is packed with powerful tools built for real-world use: a smart AI webcam scanner for adding cards quickly, a professional deck builder that checks tournament banlists and links to your inventory, and a physical storage system so you never lose a card again. It’s everything you need to take control of your cardboard collection, built by players, for players.
 
 ---
 
 ## ✨ Key Features and Advantages
 
 ### 🔹 High-Level Overview
-OpenYuGi represents a fundamental shift from web-based inventory management to localized, developer-friendly data stewardship. At a high level, its most defining advantages include:
+OpenYuGi changes how you manage your cards by putting you in total control. By running locally on your machine instead of on a website, it offers some massive benefits:
 
-*   **Strict Local-First JSON Architecture:** Collections, decks, and metadata are persisted locally as heavily structured, type-safe Pydantic JSON schemas. There is no hidden SQL database; the text files *are* the database. This guarantees absolute data ownership and prevents vendor lock-in.
-*   **Zero Cloud Reliance:** Images and database files are fetched via the external YGOPRODeck and Yugipedia APIs but are subsequently cached fully offline. The application can function indefinitely without an internet connection once the initial bootstrap is complete, ensuring your data is accessible even if external services go down.
-*   **Robust State Management & Performance:** The NiceGUI frontend utilizes heavy lazy-loading and debounced I/O operations. It maintains a responsive UI thread by isolating all file operations to asynchronous background threads, preventing browser hanging or freezing during large batch updates.
-*   **Extensive Cross-Referencing:** Every action (e.g., adding to a deck, assigning storage) recursively validates against a single source of truth for variant IDs and base IDs, ensuring data integrity across every module in the application. This eliminates issues with duplicate tracking of alternate card arts.
-*   **Data Portability:** Because all collections and decks are standard JSON and YDK files, migrating to a new machine, creating backups, or sharing decklists is as simple as copying a directory. The entire state of your collection can be version-controlled using Git.
-*   **Developer-Extensible:** Designed to be hacked on. Because the backend is pure Python, developers can easily write external scripts to parse their collection JSON, generate custom statistics, or interface with external tools without needing complex API keys or database connection strings.
+*   **Your Data, Your Rules:** Everything you do is saved locally on your computer in simple, accessible files. There is no hidden cloud database locking you in. If you want to back up your collection, you just copy a folder.
+*   **Works Offline Anywhere:** Want to take your laptop to a local card shop or tournament where the internet is spotty? No problem. OpenYuGi downloads the card images and database once, letting you build decks, check rulings, and manage trades completely offline.
+*   **Blazing Fast Performance:** Web browsers can lag when trying to scroll through thousands of cards. OpenYuGi is designed from the ground up to handle massive collections seamlessly. Searching, sorting, and filtering happen instantly without any waiting times.
+*   **Perfect Accuracy for Variants:** Yu-Gi-Oh! has countless rarities and alternate arts. Whether you own a 1st Edition Ghost Rare or a common reprint, OpenYuGi knows they count as the same card when building a deck, but still perfectly tracks their different values, conditions, and rarities in your collection.
+*   **Extensive Cross-Referencing:** Every action you take is instantly verified across the entire app. If you assign a card to a deck, the system checks your binders. If you move a card between binders, the deck builder updates its availability. This seamless integration means you never have to enter data twice.
+*   **Easy to Backup and Share:** Moving to a new computer or want to show a friend your deck? Just zip your folder or share a `.ydk` file. It’s that easy. You will never lose your collection if a website decides to shut down.
 
-### 🔹 Medium-Level Explanations by Module (Navigation & Pages)
+### 🔹 Practical Uses by Module (Navigation & Pages)
 
-#### 📦 Collection Management (The Core Hub)
-The Collection tab serves as the primary gateway and the heart of OpenYuGi. Collections in OpenYuGi are distinct JSON files stored within the `data/collections/` directory. This architecture allows users to infinitely segment their inventory, cleanly isolating "Trade Binders" from "Main Binders", "Bulk Boxes", or even format-specific collections (e.g., "Goat Format Collection").
+#### 📦 Collection Management (Your Main Hub)
+The Collection tab is the heart of OpenYuGi. It allows you to build endless custom collections. Have a "Trade Binder," a "Personal Goat Format Collection," and "Bulk Boxes" all tracked entirely separately.
 
-*   **Creating a Collection:** To initialize a new database, users navigate to the top-left dropdown within the Collection tab header, select the final option `+ New Collection`, provide a semantic name (like `My_Vintage_Collection`), and the system instantly provisions a new schema file on disk. You can create an unlimited number of these discrete collections.
-*   **Adding Cards Manually:** Cards can be added directly via the intelligent Search Bar located in the header. The search dynamically filters the locally cached YGOPRODeck database. Clicking a search result opens the Detail View, prompting the user to define the exact specific Set Code (e.g., `LOB-EN001`), Rarity, Condition (NM, LP, MP, HP, DMG), Language (EN, DE, FR, etc.), and Edition (1st Ed, Unlimited) before committing the entry to the JSON file.
-*   **View Modes (Consolidated vs. Collector):** The interface offers dual-state viewing to serve different user needs.
-    *   **Consolidated View (Player Mode):** Aggressively aggregates all printings under the Base ID. This mode prioritizes gameplay metrics (e.g., showing a single tile for "Mystical Space Typhoon" and declaring "I own 15 copies across 6 sets"). This is essential when checking general availability for deck building.
-    *   **Collectors View:** Flattens the hierarchy, rendering a distinct row for every unique combination of Set Code, Rarity, Condition, Language, and Edition. This prioritizes exact asset tracking for valuation or trading (e.g., "1x LOB 1st Ed NM", "3x SDY Unlimited LP").
-*   **Complex Filtration:** The UI provides a powerful Filter Pane allowing for compound logic. Users can filter by strict Set Code (`| LOB`), specific Rarities (e.g., "Ultimate Rare"), ATK/DEF ranges, Pendulum Scales, Types, Attributes, and Ownership Boolean states (showing only cards you own, or showing all database cards). These filters dynamically update the view in real-time.
+*   **Building Your Inventory:** Imagine you just bought a collection off a friend. You can quickly search and add cards, marking exact details like "Near Mint," "1st Edition," and "German language."
+*   **Two Ways to View Your Cards:**
+    *   *Player View:* This view groups everything together. It shows you a single picture of "Mystical Space Typhoon" and tells you that you own 15 copies in total. This is perfect when you just want to know if you have enough copies to build a deck.
+    *   *Collector View:* This view breaks down those 15 copies into exact versions. It shows off your single Ultimate Rare separately from your commons. This is essential when evaluating the exact value of your collection or preparing for a trade.
+*   **Managing Trades and Sales:** The Collector View is designed specifically for high-end traders. By flattening the hierarchy, you can easily screenshot or export a list of exactly what you have, down to the edition and condition. If you are negotiating a large trade, you know exactly which binder slot holds that heavily-played ghost rare.
+*   **Powerful Searching:** Preparing for a big trade weekend? Use the powerful filters to find every "Ultimate Rare" you own, or instantly search for every Level 4 WATER monster in your Trade Binder that you might want to swap away.
 
-#### 📚 Browse Sets
-A comprehensive database viewer utilizing locally cached API data. It visually maps entire booster sets, structure decks, and promotional releases.
-*   **Visual Checklists:** Users can browse chronological releases and visually cross-reference their exact missing cards from specific legacy or modern releases.
-*   **Master Set Tracking:** This is invaluable for users attempting to complete "Master Sets," as it provides a clear, visual indicator of exactly which specific rarities are missing from a given release.
+#### 📚 Browse Sets (Your Master Checklists)
+A visual explorer for every Yu-Gi-Oh! set ever released, from Legend of Blue Eyes White Dragon to the latest core booster.
+*   **Visual Checklists:** Trying to complete a master set of a classic release? Open the set viewer to see exactly which specific cards and rarities you are missing. It turns the database into a visual checklist for your next card show or online purchase, showing you exactly what gaps you need to fill.
 
-#### 🗃️ Storage Assignment (Physical/Digital Bridge)
-This module physically maps digital assets to real-world locations, solving the "I know I have this card, but where is it?" problem.
-*   **Container Definition:** Users define distinct Storage Containers within the app (e.g., "Tin A", "Binder 2", "Slab Box", "Blue Deck Box").
-*   **Assignment Mechanisms:** Within the Collection Detail View, Bulk Add interface, or Scanner Batch Commit, individual cards or stacks of cards can be explicitly assigned a specific `storage_location` string.
-*   **Visual Management & Auditing:** The Storage tab visually renders these containers, displaying real-time volumetric capacities (e.g., "Binder 2 contains 350 cards"). It features an interactive, drag-and-drop enabled grid where users can utilize right-click context menus to mass-shift cards between physical bounds, ensuring the digital ledger perfectly mirrors reality after a physical reorganization.
+#### 🗃️ Storage Assignment (Find Your Cards Instantly)
+This feature bridges the digital world with your physical room. Never lose a card again by mapping your digital collection to your actual physical boxes and binders.
+*   **Locating Cards:** You know you own a copy of "Ash Blossom & Joyous Spring", but which deck box is it in? OpenYuGi tells you exactly: "It's in the Red Deck Box on Shelf 2." No more tearing your room apart before a tournament.
+*   **Reorganizing:** Let's say you just reorganized your room and moved 500 cards from a tin to a new binder. Use the intuitive drag-and-drop tool to mass-select those cards and update their location in OpenYuGi in seconds. Your digital inventory always mirrors your physical reality.
 
 #### 🛠 Professional Deck Builder
-Engineered for competitive players who require exact precision, format legality checks, and deep integration with their physical inventory.
-*   **.YDK Native Support:** The system natively parses and generates standard Yu-Gi-Oh! `.ydk` files. Files are saved directly to `data/decks/`, making them instantly and perpetually portable to competitive simulators like EDOPro, YGOOmega, and DuelingBook without requiring any proprietary format conversion or third-party websites.
-*   **Banlist Context & Enforcement:** The Builder features real-time, dynamic enforcement of modern TCG, modern OCG, and historic formats (specifically Goat Format). As cards are added to the decklist, the engine cross-references the active banlist. Illegal cards exceeding copy limits (e.g., adding a 2nd Limited card) or forbidden statuses are aggressively highlighted with red borders within the visual interface.
-*   **Deep Inventory Syncing (The Killer Feature):** Crucially, the Deck Builder deeply integrates with the user's active collections. It aggregates ownership via the internal `_resolve_card_id` mechanism. As you build a deck, a dynamic counter on each card tile displays exactly how many physical copies you own across all your collections and all alternate art variants. This instantly reveals if you need to purchase additional physical cardboard to legally sleeve the deck you are testing.
-*   **Sub-Deck Routing:** The system intelligently routes cards to the Main Deck or Extra Deck based on their internal database typing (e.g., Synchro, Xyz, Link monsters are automatically partitioned), preventing illegal `.ydk` generation.
+A tournament-ready deck builder that integrates directly with your collection, ensuring you never build a deck you can't play.
+*   **Deep Inventory Sync:** You're building a new format deck. As you add cards, OpenYuGi instantly tells you if you already own them in your physical collection, and exactly where they are. A counter on the card tells you "You own 3 of these." No more accidentally buying copies of cards you already had sitting in a bulk box!
+*   **Play Anywhere:** Fully supports saving in the standard `.ydk` format. This means you can instantly drag your deck into online simulators like EDOPro or YGOOmega to test your combos online with zero hassle.
+*   **Format Flexibility:** Not everyone plays the modern advanced format. Whether you are building a time-wizard deck for Edison format, exploring Goat format, or just making a casual deck for friends, the deck builder adapts. The sub-deck routing automatically separates your Fusion, Synchro, Xyz, and Link monsters from your main deck, ensuring your list is always formatted correctly.
+*   **Banlist Enforcement:** Checks banlists (Advanced, OCG, Goat, etc.) in real-time. The screen will flash red if you try to add a forbidden card or too many limited cards, saving you from accidental tournament penalties.
 
-#### 🗄️ DB Editor (Local Data Override)
-A local override system designed for absolute data sovereignty.
-*   **Handling API Inaccuracies:** If external APIs contain errors regarding card levels, attributes, missing obscure set variants, incorrect text, or unreleased OCG promos, the DB Editor allows users to permanently mutate their local cache.
-*   **Persistence:** These localized changes are prioritized and survive future database synchronizations. If the API says a card is a Spell but it is actually a Trap, your local override remains the ultimate source of truth, preventing the application from breaking due to external errors.
+#### 🗄️ DB Editor (Fixing Errors)
+Sometimes the official global databases have slight errors, like a missing promo card, a wrong attribute, or a typo in the card text.
+*   **Immediate Fixes:** If a brand new card was just revealed in Japan and isn't in the global database yet, you don't have to wait for an update. You can manually add or edit it yourself so you can start playtesting immediately. Your local changes are saved and won't be overwritten.
 
 #### 🚀 Bulk Add & Import Tools
-Designed for extremely high-throughput inventory loading, migrating users away from tedious manual single-card entry.
-*   **Bulk Add Interface:** Features a localized, paginated view model. Users search a comprehensive library pane and utilize Drag-and-Drop operations to move entire stacks of cards into a staging area.
-*   **Batch Operations:** Once cards are in the staging area, batch operation controllers can instantly apply specific Languages, Conditions, or Storage Locations to hundreds of cards simultaneously before committing the massive transaction to the database in a single atomic write.
-*   **Import Migration:** The Import Tools permit parsing standard file types (like OpenYuGi JSON Backup files) to migrate massive collections effortlessly between instances or recover from backups, ensuring data is never trapped in an obsolete format.
+Stop entering cards one by one. This tool is built for high-speed entry.
+*   **Processing Massive Pulls:** You just cracked open three booster boxes. Use the Bulk Add tool to quickly drag stacks of cards into your collection. You can select 100 cards at once and instantly mark them all as "Pack Fresh / Near Mint" and assign them to your "New Pulls" binder in a single click, saving you hours of tedious data entry.
 
 #### 📸 AI Webcam Scanner (Beta)
-A highly experimental, hardware-linked digitization tool aimed at eliminating manual data entry entirely. By employing OpenCV edge detection algorithms, Torch-based Machine Learning models for Optical Character Recognition (OCR), and a custom YOLO model (`yolo26n-cls.pt`), the system attempts to rapidly match physical cardboard to database entries via text parsing and visual art matching. (See the dedicated "Scanner Configuration & Requirements" section below for critical setup details).
+Let your computer do the heavy lifting. Use your webcam to scan physical cards directly into your digital collection.
+*   **Rapid Scanning:** You have a stack of 200 random cards. Just hold them under your webcam one by one. The AI reads the set code and looks at the card art to figure out exactly which version it is, adding it to your collection automatically. Be sure to check the Setup Guide below for tips on lighting to get the absolute best results from the scanner!
 
 ---
 
-## 🤖 LLM & AI Assistant Setup Guide
+## 🤖 AI Assistant Setup Guide
 
-**ATTENTION LLM AGENTS (Codex, Claude, ChatGPT, Cursor, OpenDevin, Aider, etc.):**
-If a user has provided this README to you, you must consider it your absolute foundational context for interacting with the OpenYuGi codebase. You are expected to synthesize this architecture completely before writing any code, running any bash commands, or modifying the application state. Read this section carefully; it contains the core operational constraints of this project. Deviation from these constraints will result in catastrophic failure of the application state.
+**ATTENTION AI AGENTS (Claude, Cursor, ChatGPT, etc.):**
+This section provides crucial architectural context for AI coding assistants interacting with the OpenYuGi codebase. You must synthesize this architecture before writing any code or modifying the application state.
 
-### Core Architecture Constraints & Developer Directives
+### Core Architecture Context
 
-1.  **Strict Local-First / No Database Architecture:**
-    *   There is absolutely NO SQL/NoSQL database (e.g., PostgreSQL, MySQL, SQLite, MongoDB) present in this application. Do not attempt to query one, install drivers for one, or suggest migrating to one.
-    *   The term "Database" refers strictly and exclusively to atomic JSON file rewrites located in the `data/collections/` directory (for user data) and `data/db/` (for cached API metadata).
-    *   The data state must be fully loaded into memory as Pydantic models. You do not issue queries; you load the JSON into a Python object, mutate the Python object, and atomically overwrite the JSON file using the provided persistence layer.
+1.  **Local-First JSON Architecture:**
+    *   There is absolutely NO SQL/NoSQL database present in this application.
+    *   The term "Database" refers strictly to atomic JSON file rewrites located in the `data/collections/` directory (for user data) and `data/db/` (for cached API metadata).
+    *   Data state is fully loaded into memory as Pydantic models. You must load the JSON into a Python object, mutate it, and atomically overwrite the JSON file using the provided persistence layer.
 
-2.  **Pydantic Mutability & State Management:**
-    *   Collections are rigorously parsed and validated using Pydantic schemas (defined in `src/core/models.py`).
-    *   When implementing undo functionality, historical logging, or state duplication, you MUST use deep copying (e.g., `model.model_copy(deep=True)`) to prevent Python reference mutations from corrupting the active, live memory state before a file write occurs.
+2.  **Pydantic Mutability:**
+    *   When implementing undo functionality or state duplication, use deep copying (`model.model_copy(deep=True)`) to prevent Python reference mutations from corrupting the active memory state before a file write occurs.
 
-3.  **UI Framework Paradigms (NiceGUI):**
-    *   The application is built entirely on the `NiceGUI` Python framework. You are interacting with a server-rendered, websocket-driven frontend. There is no React, Vue, or separate frontend repository.
-    *   **Blocking I/O is Fatal:** Any file operations (JSON reading/writing), network requests, or heavy computational tasks (like image processing in the scanner) MUST be wrapped in `await run.io_bound(...)` or executed in separate background `asyncio` threads. Failing to do so will freeze the single-threaded `asyncio` event loop, dropping websocket connections and hanging the entire application UI for the user.
-    *   **Responsive Design Layouts:** Avoid using fixed NiceGUI containers like `ui.grid(columns=X)` or `ui.row()` when designing responsive layouts. Instead, you must use standard HTML division blocks and apply Tailwind CSS directly: `ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4')`. This ensures mobile compatibility.
-    *   **Lazy Loading is Mandatory:** When rendering UI elements containing massive datasets (e.g., `ui.select` dropdowns with thousands of card names), you must implement lazy-loading logic. Load a small initial subset and dynamically update the `options` property via search events, or the DOM will crash.
+3.  **UI Framework (NiceGUI):**
+    *   The application is built entirely on the `NiceGUI` Python framework, which acts as a server-rendered, websocket-driven frontend. There is no separate React/Vue repository.
+    *   **Blocking I/O:** Any file operations, network requests, or heavy computational tasks MUST be wrapped in `await run.io_bound(...)` or executed in separate background threads to prevent freezing the UI.
 
 4.  **The Cardinal Rule of Card IDs (`_resolve_card_id`):**
-    *   Yu-Gi-Oh! API data splits alternate arts and specific printings into entirely separate integer IDs.
-    *   Any mathematical calculation regarding ownership, missing card counts, deck verification, or banlist enforcement MUST utilize the `_resolve_card_id` utility function.
-    *   This function maps variant IDs back to the absolute Base ID. Failure to use this will result in the application failing to recognize that a user owns an alternate art of a card required for a deck, leading to false "missing card" warnings.
+    *   API data splits alternate arts and specific printings into separate integer IDs.
+    *   Any calculation regarding ownership, missing card counts, deck verification, or banlist enforcement MUST utilize the `_resolve_card_id` utility function. This maps variant IDs back to the absolute Base ID to ensure accuracy.
 
-5.  **Testing Environment Restrictions & Mocking:**
-    *   The isolated sandbox testing environment lacks network access and many deep dependencies.
-    *   When executing `pytest` or writing verification scripts, you must heavily mock external modules (`nicegui`, `yaml`, `pydantic`, `requests`) *before* importing any source code to prevent catastrophic `ImportError` or `ModuleNotFoundError` exceptions.
-    *   Specifically, mock `nicegui.ui.run_javascript` as an `AsyncMock`. The UI relies heavily on JS for specific DOM manipulations, and executing tests without mocking this will cause immediate execution failures.
+5.  **Testing Environment:**
+    *   The isolated sandbox testing environment lacks network access.
+    *   When writing verification scripts, mock external modules heavily to prevent catastrophic execution failures.
 
 ---
 
