@@ -1250,7 +1250,7 @@ class CollectionPage:
     # --- Renderers ---
 
     def render_consolidated_grid(self, items: List[CardViewModel]):
-        with ui.element('div').classes('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4 w-full'):
+        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
             for vm in items:
                 card = vm.api_card
                 opacity = "opacity-100" if vm.is_owned else "opacity-60 grayscale"
@@ -1356,7 +1356,7 @@ class CollectionPage:
     def render_collectors_grid(self, items: List[CollectorRow]):
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
-        with ui.element('div').classes('grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4 w-full'):
+        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
             for item in items:
                 opacity = "opacity-100" if item.is_owned else "opacity-60 grayscale"
                 border = "border-accent" if item.is_owned else "border-gray-700"
