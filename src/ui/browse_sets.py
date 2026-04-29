@@ -1326,15 +1326,30 @@ class BrowseSetsPage:
              for c in self.state['current_collection'].cards:
                  if c.card_id == vm.api_card.id:
                      for v in c.variants:
-                         for e in v.entries:
-                             owned_breakdown[e.language] = owned_breakdown.get(e.language, 0) + e.quantity
+                         qty = v.total_quantity
+                         if qty > 0:
+                             # Format: "SetCode (Rarity)"
+                             key = f"{v.set_code} ({v.rarity})"
+                             if key not in owned_breakdown:
+                                 owned_breakdown[key] = {'total': 0, 'locations': {}}
+
+                             owned_breakdown[key]['total'] += qty
+
+                             for e in v.entries:
+                                 if e.quantity > 0:
+                                     loc = e.storage_location if e.storage_location else "Unsorted"
+                                     owned_breakdown[key]['locations'][loc] = owned_breakdown[key]['locations'].get(loc, 0) + e.quantity
                      break
+
+         # Sort breakdown by key (Set Code)
+         sorted_breakdown = dict(sorted(owned_breakdown.items()))
 
          await self.single_card_view.open_consolidated(
              card=vm.api_card,
              total_owned=vm.owned_quantity,
-             owned_breakdown=owned_breakdown,
-             save_callback=self.handle_card_save
+             owned_breakdown=sorted_breakdown,
+             save_callback=self.handle_card_save,
+             current_collection=self.state['current_collection']
          )
 
     @ui.refreshable
