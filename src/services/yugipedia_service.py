@@ -415,7 +415,7 @@ class YugipediaService:
 
             list_content = ""
             default_qty = 1
-            default_rarity = "Common" # Fallback
+            default_rarities = ["Common"] # Fallback
 
             # Heuristic: Find the part that is most likely the card list
             # It usually contains many semicolons and is NOT a known param.
@@ -440,9 +440,7 @@ class YugipediaService:
                             try: default_qty = int(val_cand)
                             except: pass
                         elif key_cand == 'rarities':
-                            if ',' in val_cand:
-                                 val_cand = val_cand.split(',')[0].strip()
-                            default_rarity = self._map_rarity(val_cand)
+                            default_rarities = [r.strip() for r in val_cand.split(',')]
 
                 if not is_param:
                     # Potential list content
@@ -469,7 +467,7 @@ class YugipediaService:
                 if len(columns) < 2: continue
 
                 code = columns[0]
-                name = columns[1]
+                name = re.split(r'\s*//', columns[1])[0].strip()
 
                 # Rarity is 3rd col
                 rarity_str = columns[2] if len(columns) > 2 and columns[2] else None
@@ -483,10 +481,10 @@ class YugipediaService:
                 elif len(columns) > 3 and columns[3].isdigit():
                     qty = int(columns[3])
 
-                rarity_str_val = rarity_str if rarity_str else default_rarity
-
-                # Split rarities if comma separated
-                rarities = [r.strip() for r in rarity_str_val.split(',')]
+                if rarity_str:
+                    rarities = [r.strip() for r in rarity_str.split(',')]
+                else:
+                    rarities = default_rarities
 
                 for r in rarities:
                     # Strip comments like " // description::(alternate artwork)"
