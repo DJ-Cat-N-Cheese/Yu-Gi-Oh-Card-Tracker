@@ -990,8 +990,11 @@ class DbEditorPage:
                                             preview_image = ui.image('').classes('w-32 h-auto mt-2 hidden')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
-                                                if e.value and e.value in img_map:
-                                                    img.source = img_map[e.value]
+                                                # Use e.sender.value since this is triggered by value change.
+                                                # Native .on() event gives GenericEventArguments, but we need the sender's value or e.args.
+                                                val = e.args if hasattr(e, 'args') else e.value if hasattr(e, 'value') else e.sender.value
+                                                if val and val in img_map:
+                                                    img.source = img_map[val]
                                                     img.classes(remove='hidden')
                                                 else:
                                                     img.classes(add='hidden')
