@@ -91,6 +91,7 @@ class ApiCardSet(BaseModel):
     set_rarity_code: Optional[str] = None
     set_price: Optional[str] = None
     image_id: Optional[int] = Field(None, alias='card_image_id')
+    cardmarket_url: Optional[str] = None
 
     model_config = {
         "populate_by_name": True
