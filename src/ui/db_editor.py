@@ -985,19 +985,19 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            preview_container = ui.column().classes('mt-2')
+                                            preview_container = ui.element('div').classes('mt-2')
 
                                             def on_change(e, cont=preview_container, img_map=var_images):
                                                 val = e.value
                                                 cont.clear()
                                                 if val and val in img_map:
                                                     with cont:
-                                                        ui.image(img_map[val]).classes('w-32 h-auto object-contain rounded shadow')
+                                                        ui.html(f'<img src="{img_map[val]}" class="w-48 h-auto rounded shadow border border-gray-700" />')
 
                                             select = ui.select(options, label="Select Variant", on_change=on_change).classes('w-full')
                                             select.bind_value(item, 'selected_variant_id')
                                             if item.get('selected_variant_id'):
-                                                on_change(type('obj', (object,), {'value': item['selected_variant_id']}))
+                                                on_change(type('MockEvent', (), {'value': item['selected_variant_id']})())
 
                         def finish_resolution():
                             # Move resolved to parsed, ignore skipped
