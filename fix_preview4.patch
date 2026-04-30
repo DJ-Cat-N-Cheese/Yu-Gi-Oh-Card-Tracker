@@ -1,0 +1,11 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -985,7 +985,7 @@
+                                                     img_url += f"?image_id={c.image_id}"
+                                                 var_images[vid] = img_url
+
+-                                            preview_image = ui.image('').classes('w-48 max-w-full h-auto mt-2 hidden rounded shadow-lg border border-gray-600')
++                                            preview_image = ui.image('https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png').classes('w-48 h-auto mt-2 hidden')
+
+                                             def on_change(e, img=preview_image, img_map=var_images):
+                                                 val = e.value

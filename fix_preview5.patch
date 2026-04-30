@@ -1,0 +1,23 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -991,7 +991,7 @@
+                                             def on_change(e, img=preview_image, img_map=var_images):
+                                                 val = e.value
+                                                 if val and val in img_map:
+-                                                    img.source = img_map[val]
++                                                    img.set_source(img_map[val])
+                                                     img.classes(remove='hidden')
+                                                     img.update()
+                                                 else:
+@@ -999,7 +999,10 @@
+                                                     img.update()
+
+-                                            select = ui.select(options, label="Select Variant", on_change=on_change).bind_value(item, 'selected_variant_id').classes('w-full')
++                                            select = ui.select(options, label="Select Variant", on_change=on_change).classes('w-full')
++                                            select.bind_value(item, 'selected_variant_id')
++
++                                            if item.get('selected_variant_id'):
++                                                on_change(type('obj', (object,), {'value': item['selected_variant_id']}))
+
+                         def finish_resolution():
+                             # Move resolved to parsed, ignore skipped

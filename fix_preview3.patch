@@ -1,0 +1,11 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -987,7 +987,7 @@
+                                                 if c.image_id and c.image_id > 0:
+                                                     img_url += f"?image_id={c.image_id}"
+                                                 var_images[vid] = img_url
+
+-                                            preview_image = ui.image('').classes('w-32 h-auto mt-2 hidden')
++                                            preview_image = ui.image('').classes('w-48 max-w-full h-auto mt-2 hidden rounded shadow-lg border border-gray-600')
+
+                                             def on_change(e, img=preview_image, img_map=var_images):

@@ -1,0 +1,12 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -992,8 +992,10 @@
+                                                 if val and val in img_map:
+                                                     img.source = img_map[val]
+                                                     img.classes(remove='hidden')
++                                                    img.update()
+                                                 else:
+                                                     img.classes(add='hidden')
++                                                    img.update()
+
+                                             select = ui.select(options, label="Select Variant", on_change=on_change).bind_value(item, 'selected_variant_id').classes('w-full')

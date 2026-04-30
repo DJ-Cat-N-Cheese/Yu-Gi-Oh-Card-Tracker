@@ -985,17 +985,22 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            preview_image = ui.image('').classes('w-32 h-auto mt-2 hidden')
+                                            preview_image = ui.image('https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png').classes('w-48 h-auto mt-2 hidden')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
                                                 val = e.value
                                                 if val and val in img_map:
-                                                    img.source = img_map[val]
+                                                    img.set_source(img_map[val])
                                                     img.classes(remove='hidden')
+                                                    img.update()
                                                 else:
                                                     img.classes(add='hidden')
+                                                    img.update()
 
-                                            select = ui.select(options, label="Select Variant", on_change=on_change).bind_value(item, 'selected_variant_id').classes('w-full')
+                                            select = ui.select(options, label="Select Variant", on_change=on_change).classes('w-full')
+                                            select.bind_value(item, 'selected_variant_id')
+                                            if item.get('selected_variant_id'):
+                                                on_change(type('obj', (object,), {'value': item['selected_variant_id']}))
 
                         def finish_resolution():
                             # Move resolved to parsed, ignore skipped
