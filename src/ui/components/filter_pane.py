@@ -1,6 +1,6 @@
 from nicegui import ui
 from typing import Callable, Dict, Any, List
-from src.core.constants import CARD_CONDITIONS
+from src.core.constants import CARD_CONDITIONS, RARITY_RANKING
 
 class FilterPane:
     def __init__(self, state: Dict[str, Any], on_change: Callable, on_reset: Callable, show_set_selector: bool = True):
@@ -23,11 +23,7 @@ class FilterPane:
                 ).bind_value(self.state, 'filter_set').classes('w-full').props('use-input fill-input input-debounce=0')
 
             # Rarity
-            common_rarities = [
-                "Common", "Rare", "Super Rare", "Ultra Rare", "Secret Rare",
-                "Ghost Rare", "Ultimate Rare", "Starlight Rare", "Collector's Rare"
-            ]
-            ui.select(common_rarities, label='Rarity', with_input=True, clearable=True,
+            ui.select(RARITY_RANKING, label='Rarity', with_input=True, clearable=True,
                       on_change=self.on_change).bind_value(self.state, 'filter_rarity').classes('w-full')
 
             # Attribute
