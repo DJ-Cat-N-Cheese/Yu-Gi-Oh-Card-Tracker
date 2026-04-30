@@ -2,9 +2,11 @@ from nicegui import ui, run
 from src.core.persistence import persistence
 from src.services.ygo_api import ygo_service
 from src.core.config import config_manager
+from src.services.pricing_service import PricingService
 import logging
 
 logger = logging.getLogger(__name__)
+pricing_service = PricingService()
 
 async def load_dashboard_data(filename=None):
     """
@@ -64,15 +66,34 @@ async def load_dashboard_data(filename=None):
         if collection:
             stats['unique_owned'] = len(collection.cards)
             stats['total_qty'] = collection.total_cards
-            stats['total_value'] = collection.total_value
 
-            # Count Unique Variants Owned
+            # Count Unique Variants Owned and calculate Total Value
             unique_vars = 0
+            total_value = 0.0
             for card in collection.cards:
                 for var in card.variants:
                     if var.total_quantity > 0:
                         unique_vars += 1
+
+                        # Calculate value based on newest daily price
+                        card_id_str = str(card.card_id)
+                        var_id_str = str(var.variant_id)
+
+                        price = 0.02 # Fallback
+                        try:
+                            if card_id_str in pricing_service.daily_pricing:
+                                if var_id_str in pricing_service.daily_pricing[card_id_str]:
+                                    cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
+                                    if cm_data:
+                                        latest_date = max(cm_data.keys())
+                                        price = float(cm_data[latest_date])
+                        except Exception as e:
+                            logger.error(f"Error resolving price for {card_id_str} / {var_id_str}: {e}")
+
+                        total_value += price * var.total_quantity
+
             stats['unique_variants_owned'] = unique_vars
+            stats['total_value'] = total_value
 
             if total_db_unique > 0:
                 stats['completion_unique_pct'] = (len(collection.cards) / total_db_unique) * 100
@@ -150,17 +171,19 @@ def render_metrics(stats):
     # Display Collection Name context inside metrics area or above?
     # User asked for dropdown in header, so maybe just metrics here.
 
-    # Use responsive grid: 1 col on mobile, 2 on medium, 3 on large
-    with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full gap-4'):
+    # Use responsive grid: 1 col on mobile, 2 on medium, 3 on large, 4 on xl
+    with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 w-full gap-4'):
         # Row 1: Unique Focus
         metric_card('Unique Cards (Owned)', f"{stats['unique_owned']:,}", 'style', 'primary')
         metric_card('Total DB Cards', f"{stats['total_db_unique']:,}", 'dns', 'primary')
         metric_card('Completion (Unique)', f"{stats['completion_unique_pct']:.1f}%", 'pie_chart', 'info')
+        metric_card('Total Value', f"€{stats['total_value']:,.2f}", 'euro', 'positive')
 
         # Row 2: Variant Focus
-        metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
+        metric_card('Unique Variants (Owned)', f"{stats['unique_variants_owned']:,}", 'style', 'secondary')
         metric_card('Total DB Variants', f"{stats['total_db_variants']:,}", 'layers', 'secondary')
         metric_card('Completion (Variants)', f"{stats['completion_variants_pct']:.1f}%", 'donut_large', 'info')
+        metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
 
 @ui.refreshable
 def render_charts_area(stats):
