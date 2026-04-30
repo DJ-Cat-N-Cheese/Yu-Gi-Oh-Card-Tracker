@@ -28,8 +28,7 @@ class ConfigManager:
             "collection_show_total_value": True,
             "collection_show_unique_counts": True,
             "collection_show_rarity_breakdown": True,
-            "collection_show_language_breakdown": True,
-            "collection_show_price_preview": False
+            "collection_show_language_breakdown": True
         }
 
     def save_config(self):
@@ -62,8 +61,7 @@ class ConfigManager:
             "total_value": self.config.get("collection_show_total_value", True),
             "unique_counts": self.config.get("collection_show_unique_counts", True),
             "rarity_breakdown": self.config.get("collection_show_rarity_breakdown", True),
-            "language_breakdown": self.config.get("collection_show_language_breakdown", True),
-            "price_preview": self.config.get("collection_show_price_preview", False)
+            "language_breakdown": self.config.get("collection_show_language_breakdown", True)
         }
 
     def set_collection_metrics_config(self, key: str, value: bool):
@@ -71,8 +69,7 @@ class ConfigManager:
             "total_value": "collection_show_total_value",
             "unique_counts": "collection_show_unique_counts",
             "rarity_breakdown": "collection_show_rarity_breakdown",
-            "language_breakdown": "collection_show_language_breakdown",
-            "price_preview": "collection_show_price_preview"
+            "language_breakdown": "collection_show_language_breakdown"
         }
         if key in valid_keys:
             self.config[valid_keys[key]] = value
