@@ -991,18 +991,20 @@ class DbEditorPage:
                                             preview_image = ui.image('').classes('w-32 h-auto mt-2 hidden')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
-                                                # Use e.sender.value since this is triggered by value change.
-                                                # Native .on() event gives GenericEventArguments, but we need the sender's value or e.args.
-                                                val = e.args if hasattr(e, 'args') else e.value if hasattr(e, 'value') else e.sender.value
-                                                if isinstance(val, dict):
-                                                    val = val.get('value', val)
+                                                val = e.value
                                                 if val and isinstance(val, str) and val in img_map:
-                                                    img.source = img_map[val]
+                                                    img.set_source(img_map[val])
                                                     img.classes(remove='hidden')
                                                 else:
                                                     img.classes(add='hidden')
 
-                                            select.on('update:model-value', on_change)
+                                            select.on_value_change(on_change)
+
+                                            if select.value:
+                                                class DummyEvent:
+                                                    def __init__(self, value):
+                                                        self.value = value
+                                                on_change(DummyEvent(select.value))
 
                         def finish_resolution():
                             # Move resolved to parsed, ignore skipped
