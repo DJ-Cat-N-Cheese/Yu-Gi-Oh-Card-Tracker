@@ -982,7 +982,7 @@ class DbEditorPage:
                                             img_url = f"/images/{c.image_id}.jpg" if c.image_id else f"/images/{item['card_id']}.jpg"
                                             var_images[vid] = img_url
 
-                                        with ui.card().classes('w-24 h-36 p-0 bg-black flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-700'):
+                                        with ui.card().classes('w-32 h-48 p-0 bg-black flex-shrink-0 flex items-center justify-center overflow-hidden border border-gray-700'):
                                             preview_image = ui.image('').classes('w-full h-full object-contain hidden')
 
                                         def on_change(e, img=preview_image, img_map=var_images):
