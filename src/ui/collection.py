@@ -818,22 +818,6 @@ class CollectionPage:
         unique_card_ids = set()
         unique_variant_ids = set()
 
-        # Helper to get variant price
-        def get_variant_price(card_id, variant_id):
-            price = 0.02
-            try:
-                card_id_str = str(card_id)
-                var_id_str = str(variant_id)
-                if card_id_str in pricing_service.daily_pricing:
-                    if var_id_str in pricing_service.daily_pricing[card_id_str]:
-                        cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
-                        if cm_data:
-                            latest_date = max(cm_data.keys())
-                            price = float(cm_data[latest_date])
-            except Exception:
-                pass
-            return price
-
         if self.state['view_scope'] == 'consolidated':
             for vm in self.state['filtered_items']:
                 if vm.owned_quantity > 0:
@@ -868,7 +852,7 @@ class CollectionPage:
 
                                     if var_qty > 0:
                                         unique_variant_ids.add(v.variant_id)
-                                        price = get_variant_price(c.card_id, v.variant_id)
+                                        price = get_display_price_for_variant(vm.api_card, v.variant_id)
                                         self.metrics['total_value'] += price * var_qty
                                 break
         else:
@@ -879,7 +863,7 @@ class CollectionPage:
                     if row.variant_id:
                         unique_variant_ids.add(row.variant_id)
 
-                    price = get_variant_price(row.api_card.id, row.variant_id)
+                    price = row.price
                     self.metrics['total_value'] += price * row.owned_count
 
                     # Rarity
