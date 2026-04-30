@@ -2,6 +2,7 @@ import json
 import logging
 import os
 import re
+import asyncio
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
 from bs4 import BeautifulSoup
@@ -337,10 +338,21 @@ class PricingService:
             var_id = generate_variant_id(api_card.id, v.set_code, v.set_rarity, v.image_id)
             return card_id, var_id, top_candidates
 
+        # Filter by rarity from HTML (using existing mapping table) before deferring to ambiguity
+        if len(top_candidates) > 1 and rarity:
+            from src.services.yugipedia_service import YugipediaService
+            mapped_rarity = YugipediaService.RARITY_MAP.get(rarity.strip(), rarity.strip()).lower()
+            rarity_filtered = [v for v in top_candidates if v.set_rarity.lower() == mapped_rarity]
+
+            if len(rarity_filtered) == 1:
+                v = rarity_filtered[0]
+                var_id = generate_variant_id(api_card.id, v.set_code, v.set_rarity, v.image_id)
+                return card_id, var_id, rarity_filtered
+
         # Ambiguous (either tied scores or very weak matches)
         return card_id, None, top_candidates
 
-    def save_pricing_data(self, card_id: str, variant_id: str, html_date: str, parsed_data: Dict, save_daily: bool, save_offers: bool):
+    def save_pricing_data(self, card_id: str, variant_id: str, html_date: str, parsed_data: Dict, save_daily: bool, save_offers: bool, ygo_service=None):
         card_id = str(card_id)
 
         if save_daily and 'prices' in parsed_data and parsed_data['prices']:
@@ -377,5 +389,24 @@ class PricingService:
             self.offers_pricing[card_id][variant_id]['cardmarket'][html_date]['offers'] = parsed_data['offers']
 
             self._save_json(self.offers_pricing_file, self.offers_pricing)
+
+        # Update cardmarket_url in the main card database
+        if ygo_service and variant_id:
+            cm_url = parsed_data.get('card_info', {}).get('url')
+            if cm_url:
+                asyncio.create_task(self._update_cardmarket_url(card_id, variant_id, cm_url, ygo_service))
+
+    async def _update_cardmarket_url(self, card_id: str, variant_id: str, url: str, ygo_service):
+        try:
+            cards = await ygo_service.load_card_database("en")
+            card = next((c for c in cards if str(c.id) == card_id), None)
+            if card:
+                variant = next((v for v in card.card_sets if v.variant_id == variant_id), None)
+                if variant:
+                    variant.cardmarket_url = url
+                    await ygo_service.save_card_database(cards, "en")
+                    logger.info(f"Updated cardmarket_url for variant {variant_id} of card {card_id}")
+        except Exception as e:
+            logger.error(f"Failed to update cardmarket_url: {e}")
 
 pricing_service = PricingService()

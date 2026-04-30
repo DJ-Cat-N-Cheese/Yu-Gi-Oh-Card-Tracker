@@ -378,7 +378,7 @@ class DbEditorPage:
         # Find all variants for this card
         all_card_rows = [r for r in self.state['cards_rows'] if r.api_card.id == row.api_card.id]
 
-        async def on_save(set_code, rarity, image_id):
+        async def on_save(set_code, rarity, image_id, cardmarket_url):
             logger.info(f"Saving changes for variant {row.variant_id}")
             success = await ygo_service.update_card_variant(
                 card_id=row.api_card.id,
@@ -386,7 +386,8 @@ class DbEditorPage:
                 set_code=set_code,
                 set_rarity=rarity,
                 image_id=image_id,
-                language=self.state['language']
+                language=self.state['language'],
+                cardmarket_url=cardmarket_url
             )
             if success:
                 # Reload data to reflect changes
@@ -974,7 +975,7 @@ class DbEditorPage:
                                         # To show the selected image we need a place for it, or we could just show all candidate images
                                         with ui.column().classes('w-full'):
                                             # Create select options with HTML or simple text. Since ui.select doesn't support complex HTML options natively well without slot overrides, we'll keep the text select, but add a preview image below it that updates.
-                                            options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity}" for c in item['candidates']}
+                                            options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
 
                                             # We need a mapping from variant_id to image url
                                             var_images = {}
@@ -993,7 +994,9 @@ class DbEditorPage:
                                                 # Use e.sender.value since this is triggered by value change.
                                                 # Native .on() event gives GenericEventArguments, but we need the sender's value or e.args.
                                                 val = e.args if hasattr(e, 'args') else e.value if hasattr(e, 'value') else e.sender.value
-                                                if val and val in img_map:
+                                                if isinstance(val, dict):
+                                                    val = val.get('value', val)
+                                                if val and isinstance(val, str) and val in img_map:
                                                     img.source = img_map[val]
                                                     img.classes(remove='hidden')
                                                 else:
@@ -1032,19 +1035,25 @@ class DbEditorPage:
                                     ui.label(str(len(item['parsed'].get('prices', []))))
                                     ui.label(str(len(item['parsed'].get('offers', []))))
 
-                        def finalize_import():
+                        async def finalize_import():
                             try:
                                 for item in dialog_state['parsed_results']:
+                                    # Use url from input if this is from URL and no url was in card_info
+                                    if item['source'] == 'URL' and 'url' not in item['parsed']['card_info'] and dialog_state['url_input']:
+                                        item['parsed']['card_info']['url'] = dialog_state['url_input']
+
                                     pricing_service.save_pricing_data(
                                         card_id=item['card_id'],
                                         variant_id=item['variant_id'],
                                         html_date=dialog_state['offers_date'], # User specified date
                                         parsed_data=item['parsed'],
                                         save_daily=dialog_state['import_daily'],
-                                        save_offers=dialog_state['import_offers']
+                                        save_offers=dialog_state['import_offers'],
+                                        ygo_service=ygo_service
                                     )
                                 ui.notify("Pricing imported successfully!", type='positive')
                                 dialog.close()
+                                await self.load_data()
                             except Exception as e:
                                 logger.error(f"Error finalizing import: {e}")
                                 ui.notify("Error saving data", type='negative')
