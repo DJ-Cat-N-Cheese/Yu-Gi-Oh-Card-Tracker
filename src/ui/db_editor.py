@@ -971,24 +971,25 @@ class DbEditorPage:
                                     ui.label("No variants found in database. Item will be skipped.").classes('text-red-400')
                                 else:
                                     item['selected_variant_id'] = None
+
+                                    # Create select options
+                                    options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
+
+                                    # We need a mapping from variant_id to image url
+                                    var_images = {}
+                                    for c in item['candidates']:
+                                        vid = generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id)
+                                        img_url = f"/api/images/{item['card_id']}"
+                                        if c.image_id and c.image_id > 0:
+                                            img_url += f"?image_id={c.image_id}"
+                                        var_images[vid] = img_url
+
                                     with ui.row().classes('w-full items-center gap-4'):
-                                        # To show the selected image we need a place for it, or we could just show all candidate images
-                                        with ui.column().classes('w-full'):
-                                            # Create select options with HTML or simple text. Since ui.select doesn't support complex HTML options natively well without slot overrides, we'll keep the text select, but add a preview image below it that updates.
-                                            options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
+                                        with ui.column().classes('w-32 flex-shrink-0'):
+                                            preview_image = ui.image('').classes('w-full h-auto hidden rounded shadow-sm border border-gray-600')
 
-                                            # We need a mapping from variant_id to image url
-                                            var_images = {}
-                                            for c in item['candidates']:
-                                                vid = generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id)
-                                                img_url = f"/api/images/{item['card_id']}"
-                                                if c.image_id and c.image_id > 0:
-                                                    img_url += f"?image_id={c.image_id}"
-                                                var_images[vid] = img_url
-
+                                        with ui.column().classes('flex-grow'):
                                             select = ui.select(options, label="Select Variant").bind_value(item, 'selected_variant_id').classes('w-full')
-
-                                            preview_image = ui.image('').classes('w-32 h-auto mt-2 hidden')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
                                                 val = e.value
@@ -1004,7 +1005,7 @@ class DbEditorPage:
                                                 class DummyEvent:
                                                     def __init__(self, value):
                                                         self.value = value
-                                                on_change(DummyEvent(select.value))
+                                                ui.timer(0.1, lambda s=select.value, ev=DummyEvent, f=on_change: f(ev(s)), once=True)
 
                         def finish_resolution():
                             # Move resolved to parsed, ignore skipped
