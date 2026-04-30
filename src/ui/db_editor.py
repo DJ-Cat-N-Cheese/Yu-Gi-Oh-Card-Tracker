@@ -876,18 +876,25 @@ class DbEditorPage:
                         with ui.tab_panels(tabs, value=file_tab).classes('w-full bg-transparent'):
                             with ui.tab_panel(file_tab):
                                 def handle_upload(e):
-                                    dialog_state['files'].append({'name': e.name, 'content': e.content.read()})
-                                    ui.notify(f"Added {e.name}")
+                                    content = e.content.read()
+                                    if content:
+                                        dialog_state['files'].append({'name': e.name, 'content': content})
+                                        ui.notify(f"Added {e.name}")
+                                    else:
+                                        ui.notify(f"Failed to read file {e.name}", type='negative')
 
                                 ui.upload(on_upload=handle_upload, multiple=True, auto_upload=True, label="Upload Cardmarket HTML files").props('accept=".html" dark').classes('w-full')
 
                             with ui.tab_panel(url_tab):
                                 ui.input('Paste Cardmarket URL', placeholder='https://www.cardmarket.com/...').bind_value(dialog_state, 'url_input').classes('w-full')
 
+
                         async def process_inputs():
-                            if not dialog_state['files'] and not dialog_state['url_input']:
+                            logger.info(f"Process inputs triggered. Files: {len(dialog_state['files'])}, URL: {dialog_state['url_input']}")
+                            if len(dialog_state['files']) == 0 and not dialog_state['url_input']:
                                 ui.notify("Please upload a file or enter a URL.", type='warning')
                                 return
+
 
                             dialog_state['parsed_results'].clear()
                             dialog_state['ambiguous_items'].clear()
