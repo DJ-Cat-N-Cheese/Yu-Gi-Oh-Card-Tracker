@@ -23,7 +23,7 @@ OpenYuGi changes how you manage your cards by putting you in total control. By r
 ### 🔹 Practical Uses by Module (Navigation & Pages)
 
 #### 📦 Collection Management (Your Main Hub)
-The Collection tab is the heart of OpenYuGi. It allows you to build endless custom collections. Have a "Trade Binder," a "Personal Goat Format Collection," and "Bulk Boxes" all tracked entirely separately.
+The Collection tab is the heart of OpenYuGi. It allows you to build endless custom collections. Have a "Trade Collection," a "Personal Collection", etc. all tracked entirely separately or just use one Main collection.
 
 *   **Building Your Inventory:** Imagine you just bought a collection off a friend. You can quickly search and add cards, marking exact details like "Near Mint," "1st Edition," and "German language."
 *   **Two Ways to View Your Cards:**
