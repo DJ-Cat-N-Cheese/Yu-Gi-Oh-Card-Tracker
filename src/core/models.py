@@ -48,15 +48,6 @@ class Collection(BaseModel):
     storage_definitions: List[StorageDefinition] = []
 
     @property
-    def total_value(self) -> float:
-        val = 0.0
-        for card in self.cards:
-            for var in card.variants:
-                for entry in var.entries:
-                    val += (entry.market_value or 0.0) * entry.quantity
-        return val
-
-    @property
     def total_cards(self) -> int:
         return sum(c.total_quantity for c in self.cards)
 
@@ -100,6 +91,7 @@ class ApiCardSet(BaseModel):
     set_rarity_code: Optional[str] = None
     set_price: Optional[str] = None
     image_id: Optional[int] = Field(None, alias='card_image_id')
+    cardmarket_url: Optional[str] = None
 
     model_config = {
         "populate_by_name": True

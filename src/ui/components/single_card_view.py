@@ -2,6 +2,7 @@ from nicegui import ui, run
 from src.core.models import ApiCardSet
 from src.services.ygo_api import ApiCard, ygo_service
 from src.services.image_manager import image_manager
+from src.services.pricing_service import pricing_service
 from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, extract_language_code, LANGUAGE_COUNTRY_MAP
 from src.core.constants import CARD_CONDITIONS
 from typing import List, Optional, Dict, Set, Callable, Any
@@ -724,11 +725,14 @@ class SingleCardView:
                                     if p.cardmarket_price: cm_price = f"€{p.cardmarket_price}"
                                     if p.coolstuffinc_price: csi_price = f"${p.coolstuffinc_price}"
 
-                                info_label('TCGPlayer', tcg_price, 'green-400')
-                                info_label('CardMarket', cm_price, 'blue-400')
-                                info_label('CoolStuffInc', csi_price, 'orange-400')
+                                lbl_tcg = info_label('TCGPlayer', tcg_price, 'green-400')
+                                lbl_cm = info_label('CardMarket', cm_price, 'blue-400')
+                                lbl_csi = info_label('CoolStuffInc', csi_price, 'orange-400')
 
                                 lbl_set_price = info_label('Set Price', f"${set_price:.2f}" if set_price else "-", 'purple-400')
+
+                                # Immediately trigger stat update to load daily prices for cm_price
+                                ui.timer(0.1, lambda: update_display_stats(), once=True)
 
                         def update_display_stats():
                             base_code = input_state['set_base_code']
@@ -758,6 +762,37 @@ class SingleCardView:
 
                             lbl_set_price.text = f"${s_price:.2f}" if s_price is not None else "-"
 
+                            # Check for specific variant price in daily JSON
+                            c_id_str = str(card.id)
+                            matched_variant_id = None
+                            if card.card_sets:
+                                for s in card.card_sets:
+                                    s_img = s.image_id if s.image_id is not None else (card.card_images[0].id if card.card_images else None)
+                                    if s.set_code == final_code and s.set_rarity == input_state['rarity'] and s_img == input_state['image_id']:
+                                        matched_variant_id = s.variant_id
+                                        break
+
+                            if not matched_variant_id:
+                                matched_variant_id = generate_variant_id(card.id, final_code, input_state['rarity'], input_state['image_id'])
+
+                            has_cm_daily = False
+                            if matched_variant_id and c_id_str in pricing_service.daily_pricing:
+                                var_prices = pricing_service.daily_pricing[c_id_str].get(matched_variant_id, {})
+                                cm_prices = var_prices.get('cardmarket', {})
+                                if cm_prices:
+                                    # Get the most recent date
+                                    latest_date = sorted(cm_prices.keys())[-1]
+                                    latest_price = cm_prices[latest_date]
+                                    lbl_cm.text = f"€{latest_price:.2f}"
+                                    has_cm_daily = True
+
+                            if not has_cm_daily:
+                                # Fallback to default cardmarket price
+                                default_cm = '-'
+                                if card.card_prices and card.card_prices[0].cardmarket_price:
+                                    default_cm = f"€{card.card_prices[0].cardmarket_price}"
+                                lbl_cm.text = default_cm
+
                             cur_owned, text = get_ownership_text(
                                 input_state['set_base_code'],
                                 input_state['rarity'],
@@ -771,6 +806,120 @@ class SingleCardView:
                             owned_label.set_visibility(cur_owned > 0)
 
                             update_image()
+                            render_chart()
+
+                        chart_container = ui.element('div').classes('w-full mt-4')
+
+                        def calculate_daily_averages(card_id: str, var_id: str) -> List[Dict[str, float]]:
+                            if not card_id or not var_id:
+                                return []
+
+                            c_id_str = str(card_id)
+                            if c_id_str not in pricing_service.daily_pricing:
+                                return []
+                            if var_id not in pricing_service.daily_pricing[c_id_str]:
+                                return []
+
+                            var_data = pricing_service.daily_pricing[c_id_str][var_id]
+
+                            # Gather all dates
+                            all_dates = set()
+                            for source, dates in var_data.items():
+                                all_dates.update(dates.keys())
+
+                            sorted_dates = sorted(list(all_dates))
+                            avg_prices = []
+
+                            for date_str in sorted_dates:
+                                total_price = 0
+                                count = 0
+                                for source, dates in var_data.items():
+                                    if date_str in dates:
+                                        total_price += dates[date_str]
+                                        count += 1
+
+                                if count > 0:
+                                    avg_prices.append({
+                                        'date': date_str,
+                                        'price': round(total_price / count, 2)
+                                    })
+
+                            return avg_prices
+
+                        def render_chart():
+                            chart_container.clear()
+
+                            c_id_str = str(card.id)
+                            base_code = input_state['set_base_code']
+                            final_code = transform_set_code(base_code, input_state['language'])
+                            matched_variant_id = None
+                            if card.card_sets:
+                                for s in card.card_sets:
+                                    s_img = s.image_id if s.image_id is not None else (card.card_images[0].id if card.card_images else None)
+                                    if s.set_code == final_code and s.set_rarity == input_state['rarity'] and s_img == input_state['image_id']:
+                                        matched_variant_id = s.variant_id
+                                        break
+
+                            if not matched_variant_id:
+                                matched_variant_id = generate_variant_id(card.id, final_code, input_state['rarity'], input_state['image_id'])
+
+                            daily_averages = calculate_daily_averages(card.id, matched_variant_id)
+
+                            with chart_container:
+                                if daily_averages:
+                                    dates = [d['date'] for d in daily_averages]
+                                    prices = [d['price'] for d in daily_averages]
+
+                                    chart_options = {
+                                        'title': {
+                                            'text': 'Price History',
+                                            'textStyle': {'color': '#9CA3AF', 'fontSize': 14}
+                                        },
+                                        'tooltip': {
+                                            'trigger': 'axis',
+                                            'formatter': '{b}<br/>{c} €'
+                                        },
+                                        'xAxis': {
+                                            'type': 'category',
+                                            'data': dates,
+                                            'axisLabel': {'color': '#9CA3AF'},
+                                            'axisLine': {'lineStyle': {'color': '#4B5563'}}
+                                        },
+                                        'yAxis': {
+                                            'type': 'value',
+                                            'axisLabel': {'color': '#9CA3AF', 'formatter': '{value} €'},
+                                            'splitLine': {'lineStyle': {'color': '#374151'}},
+                                            'min': 'dataMin'
+                                        },
+                                        'series': [{
+                                            'data': prices,
+                                            'type': 'line',
+                                            'smooth': True,
+                                            'itemStyle': {'color': '#60A5FA'},
+                                            'areaStyle': {
+                                                'color': {
+                                                    'type': 'linear',
+                                                    'x': 0, 'y': 0, 'x2': 0, 'y2': 1,
+                                                    'colorStops': [{
+                                                        'offset': 0, 'color': 'rgba(96, 165, 250, 0.5)'
+                                                    }, {
+                                                        'offset': 1, 'color': 'rgba(96, 165, 250, 0)'
+                                                    }]
+                                                }
+                                            }
+                                        }],
+                                        'grid': {
+                                            'left': '3%',
+                                            'right': '4%',
+                                            'bottom': '3%',
+                                            'containLabel': True
+                                        }
+                                    }
+
+                                    ui.echart(chart_options).classes('w-full min-h-[250px]')
+
+                        # Initial render
+                        render_chart()
 
                         self._render_available_sets(card)
 
@@ -1089,16 +1238,25 @@ class SingleCardView:
         set_code: str,
         rarity: str,
         image_id: int,
-        on_save_callback: Callable[[str, str, int], Any],
+        on_save_callback: Callable[[str, str, int, str], Any],
         on_delete_callback: Callable[[], Any] = None,
         on_add_callback: Callable[[str, str, int], Any] = None,
         known_variants: List[Any] = None
     ):
         try:
+            # find variant to get its cardmarket_url
+            cm_url = ""
+            if card.card_sets:
+                for s in card.card_sets:
+                    if s.variant_id == variant_id:
+                        cm_url = s.cardmarket_url or ""
+                        break
+
             input_state = {
                 'set_code': set_code,
                 'rarity': rarity,
-                'image_id': image_id
+                'image_id': image_id,
+                'cardmarket_url': cm_url
             }
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
@@ -1207,6 +1365,10 @@ class SingleCardView:
 
                             art_select.on_value_change(on_art_change)
 
+                            # Cardmarket URL input
+                            ui.input('Cardmarket URL', value=input_state['cardmarket_url'],
+                                     on_change=lambda e: input_state.update({'cardmarket_url': e.value})).classes('w-full').props('dark')
+
                             ui.separator().classes('q-my-md bg-gray-600')
 
                             # Actions
@@ -1244,7 +1406,8 @@ class SingleCardView:
                                         success = await on_save_callback(
                                             input_state['set_code'],
                                             input_state['rarity'],
-                                            input_state['image_id']
+                                            input_state['image_id'],
+                                            input_state['cardmarket_url']
                                         )
                                         if success:
                                             d.close()
