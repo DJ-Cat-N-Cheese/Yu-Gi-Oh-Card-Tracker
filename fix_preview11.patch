@@ -1,0 +1,13 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -992,8 +992,8 @@
+                                             def on_change(e, img=preview_image, img_map=var_images):
+                                                 val = e.value
+                                                 if val and val in img_map:
+-                                                    img.set_source(img_map[val]) if hasattr(img, 'set_source') else setattr(img, 'source', img_map[val])
+-                                                    img.classes(remove='hidden').classes(add='block bg-gray-800')
++                                                    img.source = img_map[val]
++                                                    img.classes(remove='hidden', add='block')
+                                                     img.update()
+                                                 else:
+                                                     img.classes(add='hidden')

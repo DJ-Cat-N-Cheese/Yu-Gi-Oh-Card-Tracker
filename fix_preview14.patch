@@ -1,0 +1,15 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -992,10 +992,11 @@
+                                             def on_change(e, img=preview_image, img_map=var_images):
+                                                 val = e.value
+                                                 if val and val in img_map:
+-                                                    img.source = img_map[val]
+-                                                    img.classes(remove='hidden')
++                                                    # A standard way to ensure NiceGUI updates the actual native element props
++                                                    img.props(f'src="{img_map[val]}"')
++                                                    img.classes(remove='hidden', add='block')
+                                                     img.update()
+                                                 else:
+                                                     img.classes(add='hidden')
+                                                     img.update()

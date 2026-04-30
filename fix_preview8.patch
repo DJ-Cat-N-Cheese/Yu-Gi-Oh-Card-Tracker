@@ -1,0 +1,11 @@
+--- src/ui/db_editor.py
++++ src/ui/db_editor.py
+@@ -987,7 +987,7 @@
+                                                 if c.image_id and c.image_id > 0:
+                                                     img_url += f"?image_id={c.image_id}"
+                                                 var_images[vid] = img_url
+
+-                                            preview_image = ui.image('https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png').classes('w-48 h-auto mt-2 hidden')
++                                            preview_image = ui.image('https://upload.wikimedia.org/wikipedia/commons/c/ca/1x1.png').classes('w-48 h-[300px] mt-2 hidden object-contain')
+
+                                             def on_change(e, img=preview_image, img_map=var_images):
