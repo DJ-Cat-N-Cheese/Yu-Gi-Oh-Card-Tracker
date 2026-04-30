@@ -103,12 +103,15 @@ class PricingService:
             elif dt_text == "Printed in":
                 data['card_info']['printed_in'] = dd_text
             elif dt_text == "Rarity":
-                # Rarity might be inside an svg title, or just text
-                svg_el = dd.select_one('svg')
-                if svg_el and svg_el.has_attr('data-bs-original-title'):
-                    data['card_info']['rarity'] = svg_el['data-bs-original-title']
-                elif svg_el and svg_el.has_attr('aria-label'):
-                    data['card_info']['rarity'] = svg_el['aria-label']
+                # Rarity might be inside an svg title, on a wrapper tag, or just text
+                tooltip_el = dd.select_one('[data-bs-original-title], [title], [aria-label]')
+                if tooltip_el:
+                    if tooltip_el.has_attr('data-bs-original-title'):
+                        data['card_info']['rarity'] = tooltip_el['data-bs-original-title']
+                    elif tooltip_el.has_attr('title'):
+                        data['card_info']['rarity'] = tooltip_el['title']
+                    elif tooltip_el.has_attr('aria-label'):
+                        data['card_info']['rarity'] = tooltip_el['aria-label']
                 else:
                     data['card_info']['rarity'] = dd_text
 
