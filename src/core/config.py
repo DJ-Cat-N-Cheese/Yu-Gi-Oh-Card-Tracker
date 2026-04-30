@@ -24,7 +24,11 @@ class ConfigManager:
             "language": "en",
             "theme": "dark",
             "deck_builder_page_size": 9,
-            "bulk_add_page_size": 50
+            "bulk_add_page_size": 50,
+            "collection_show_total_value": True,
+            "collection_show_unique_counts": True,
+            "collection_show_rarity_breakdown": True,
+            "collection_show_language_breakdown": True
         }
 
     def save_config(self):
@@ -51,5 +55,24 @@ class ConfigManager:
     def set_bulk_add_page_size(self, size: int):
         self.config["bulk_add_page_size"] = size
         self.save_config()
+
+    def get_collection_metrics_config(self) -> Dict[str, bool]:
+        return {
+            "total_value": self.config.get("collection_show_total_value", True),
+            "unique_counts": self.config.get("collection_show_unique_counts", True),
+            "rarity_breakdown": self.config.get("collection_show_rarity_breakdown", True),
+            "language_breakdown": self.config.get("collection_show_language_breakdown", True)
+        }
+
+    def set_collection_metrics_config(self, key: str, value: bool):
+        valid_keys = {
+            "total_value": "collection_show_total_value",
+            "unique_counts": "collection_show_unique_counts",
+            "rarity_breakdown": "collection_show_rarity_breakdown",
+            "language_breakdown": "collection_show_language_breakdown"
+        }
+        if key in valid_keys:
+            self.config[valid_keys[key]] = value
+            self.save_config()
 
 config_manager = ConfigManager()
