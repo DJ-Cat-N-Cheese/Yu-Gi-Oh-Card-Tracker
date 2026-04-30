@@ -4,6 +4,7 @@ import os
 import re
 from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime
+
 from bs4 import BeautifulSoup
 import aiohttp
 
@@ -118,6 +119,17 @@ class PricingService:
             if rarity_match:
                 data['card_info']['rarity'] = rarity_match.group(1).strip()
 
+        # If the number is just a short 3-digit string (e.g., "078"), it's missing the set prefix.
+        # We can extract the "printed_in" set name from the definition list and map it to a set code prefix if possible.
+        printed_in = data['card_info'].get('printed_in', '')
+        number = data['card_info'].get('number', '')
+
+        # We can also attempt to extract the set prefix from the URL inside the HTML comments if it exists
+        # e.g., <!-- saved from url=(0078)https://www.cardmarket.com/en/YuGiOh/Products/Singles/Maze-of-Millennia/RESCUE -->
+        url_match = re.search(r'saved from url=\(\d+\)(https?://[^\s]+)', html_text)
+        if url_match:
+            data['card_info']['url'] = url_match.group(1).split('-->')[0].strip()
+
         # Extract Offers
         rows = soup.select('div.article-row')
         for row in rows:
@@ -164,6 +176,49 @@ class PricingService:
 
         return data
 
+    def _infer_target_set_code(self, parsed_info: Dict[str, Any], ygo_service) -> str:
+        number = parsed_info['card_info'].get('number', '').strip()
+        printed_in = parsed_info['card_info'].get('printed_in', '').strip()
+        url = parsed_info['card_info'].get('url', '').strip()
+
+        if not number:
+            return ""
+
+        if '-' in number:
+            return number
+
+        prefix = None
+
+        if printed_in:
+            for c in ygo_service._cards_cache.get('en', []):
+                for v in c.card_sets:
+                    if v.set_name and printed_in.lower() in v.set_name.lower():
+                        if '-' in v.set_code:
+                            prefix = v.set_code.split('-')[0]
+                            break
+                if prefix:
+                    break
+
+        if not prefix and url:
+            try:
+                url_slug = url.split('/')[-2].replace('-', ' ').lower()
+                for c in ygo_service._cards_cache.get('en', []):
+                    for v in c.card_sets:
+                        if v.set_name and url_slug in v.set_name.lower():
+                            if '-' in v.set_code:
+                                prefix = v.set_code.split('-')[0]
+                                break
+                    if prefix:
+                        break
+            except IndexError:
+                pass
+
+        if prefix:
+            # Assuming English region if it's just numbers
+            return f"{prefix}-EN{number}" if number.isdigit() and len(number) <= 3 else f"{prefix}-{number}"
+
+        return number
+
     def resolve_card_variant(self, parsed_info: Dict[str, Any], ygo_service) -> Tuple[Optional[str], Optional[str], List[Any]]:
         """
         Attempts to find a matching card_id and variant_id from the database.
@@ -172,29 +227,35 @@ class PricingService:
         If variant_id is None, it means ambiguity exists and candidates_list will contain the choices.
         """
         title = parsed_info['card_info'].get('title', '')
-        number = parsed_info['card_info'].get('number', '')
         rarity = parsed_info['card_info'].get('rarity', '')
+        target_set_code = self._infer_target_set_code(parsed_info, ygo_service)
+        parsed_info['card_info']['target_set_code'] = target_set_code
 
         # Clean title (remove (V.X) and suffix)
         import re
         clean_name = re.sub(r'\s*\(V\.\d+\s*-\s*[^\)]+\)', '', title)
         clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
 
-        # We need ygo_service to lookup
         api_card = None
 
-        # Attempt lookup by name
-        if clean_name:
+        # 1. Primary Lookup: Set Code
+        if target_set_code and '-' in target_set_code:
+            for c in ygo_service._cards_cache.get('en', []):
+                for v in c.card_sets:
+                    if target_set_code.lower() == v.set_code.lower() or target_set_code.lower() in v.set_code.lower():
+                        api_card = c
+                        break
+                if api_card:
+                    break
+
+        # 2. Fallback Lookup: Name
+        if not api_card and clean_name:
             api_card = ygo_service.search_by_name(clean_name, language='en')
             if not api_card:
                 # remove just the rarity if present
                 clean_name = re.sub(r'\s*\([^\)]+(?:Rare|Common|Ultimate|Ghost|Prismatic)\)', '', title).strip()
                 clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
                 api_card = ygo_service.search_by_name(clean_name, language='en')
-
-        # Attempt lookup by set code if we didn't find by name
-        if not api_card and number:
-            pass
 
         if not api_card:
             return None, None, []
@@ -203,37 +264,89 @@ class PricingService:
 
         from src.core.utils import generate_variant_id
 
-        # Find matching variants
-        candidates = []
+        # Robust Variant Scoring Strategy
+        scored_variants = []
+        printed_in = parsed_info['card_info'].get('printed_in', '')
+        url = parsed_info['card_info'].get('url', '')
+
+        def compute_similarity(str1, str2):
+            if not str1 or not str2: return 0
+            s1, s2 = str1.lower().strip(), str2.lower().strip()
+            if s1 == s2: return 1.0
+            if s1 in s2 or s2 in s1: return 0.8
+            # Simple word intersection fallback
+            w1, w2 = set(s1.split()), set(s2.split())
+            if w1 and w2:
+                return len(w1.intersection(w2)) / len(w1.union(w2))
+            return 0
+
         for v in api_card.card_sets:
-            # Check number (set code) match
-            if number:
-                if number.lower() not in v.set_code.lower():
-                    continue
+            score = 0
 
-            # Check rarity
+            # 1. Number / Target Set Code Match
+            if target_set_code:
+                n_clean = target_set_code.lower().strip()
+                vc_clean = v.set_code.lower().strip()
+                if n_clean == vc_clean:
+                    score += 50
+                elif n_clean in vc_clean or vc_clean in n_clean:
+                    if vc_clean.endswith(n_clean) or n_clean.endswith(vc_clean):
+                        score += 40
+                    else:
+                        score += 20
+
+            # 2. Set Name Match
+            set_name_score = 0
+            if printed_in and v.set_name:
+                set_name_score = max(set_name_score, compute_similarity(printed_in, v.set_name))
+
+            if url and v.set_name:
+                try:
+                    url_slug = url.split('/')[-2].replace('-', ' ').lower()
+                    set_name_score = max(set_name_score, compute_similarity(url_slug, v.set_name))
+                except IndexError:
+                    pass
+
+            score += set_name_score * 40
+
+
+            # 3. Rarity Match
             if rarity:
-                db_rarity = v.set_rarity.lower()
-                parsed_rarity = rarity.lower()
-                # For exact matches, prioritize them later, but for filtering we need at least a substring
-                if parsed_rarity != db_rarity and parsed_rarity not in db_rarity and db_rarity not in parsed_rarity:
-                    continue
+                r_clean = rarity.strip()
+                # Map abbreviation if necessary
+                from src.services.yugipedia_service import YugipediaService
+                if r_clean in YugipediaService.RARITY_MAP:
+                    r_clean = YugipediaService.RARITY_MAP[r_clean]
+                r_clean = r_clean.lower()
 
-            candidates.append(v)
+                vr_clean = v.set_rarity.lower().strip()
 
-        # Try to find an exact match first to narrow down candidates
-        if rarity:
-            exact_matches = [v for v in candidates if v.set_rarity.lower() == rarity.lower()]
-            if exact_matches:
-                candidates = exact_matches
+                if r_clean == vr_clean:
+                    score += 30
+                elif r_clean in vr_clean or vr_clean in r_clean:
+                    score += 15
 
-        if len(candidates) == 1:
-            # Exact match
-            v = candidates[0]
+            if score > 0:
+                scored_variants.append((score, v))
+
+        # Sort by score descending
+        scored_variants.sort(key=lambda x: x[0], reverse=True)
+
+        if not scored_variants:
+            return card_id, None, []
+
+        top_score = scored_variants[0][0]
+        # Gather all variants that tie for the top score (could be alternate arts of the exact same set)
+        top_candidates = [v for s, v in scored_variants if s == top_score]
+
+        # If there's only 1 top candidate and it's a reasonably strong match, resolve it automatically
+        if len(top_candidates) == 1 and top_score >= 40:
+            v = top_candidates[0]
             var_id = generate_variant_id(api_card.id, v.set_code, v.set_rarity, v.image_id)
-            return card_id, var_id, candidates
+            return card_id, var_id, top_candidates
 
-        return card_id, None, candidates
+        # Ambiguous (either tied scores or very weak matches)
+        return card_id, None, top_candidates
 
     def save_pricing_data(self, card_id: str, variant_id: str, html_date: str, parsed_data: Dict, save_daily: bool, save_offers: bool):
         card_id = str(card_id)
