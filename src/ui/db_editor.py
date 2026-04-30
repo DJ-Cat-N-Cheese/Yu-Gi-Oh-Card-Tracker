@@ -973,12 +973,12 @@ class DbEditorPage:
                                     item['selected_variant_id'] = None
                                     with ui.row().classes('w-full items-start gap-4 flex-nowrap'):
 
-                                        options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
+                                        options = {getattr(c, "variant_id", None) or generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
 
                                         # We need a mapping from variant_id to image url
                                         var_images = {}
                                         for c in item['candidates']:
-                                            vid = generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id)
+                                            vid = getattr(c, "variant_id", None) or generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id)
                                             img_url = f"/images/{c.image_id}.jpg" if c.image_id else f"/images/{item['card_id']}.jpg"
                                             var_images[vid] = img_url
 
