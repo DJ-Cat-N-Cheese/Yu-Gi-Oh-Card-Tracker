@@ -9,6 +9,7 @@ from src.core.utils import transform_set_code, generate_variant_id, normalize_se
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.services.collection_editor import CollectionEditor
+from src.services.pricing_service import pricing_service
 from dataclasses import dataclass, field, replace
 from typing import List, Optional, Dict, Set, Callable
 import asyncio
@@ -73,6 +74,33 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
 
         vms.append(CardViewModel(card, qty, qty > 0, lowest, owned_langs, owned_conds))
     return vms
+
+
+def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = None) -> float:
+    """Helper to get the daily cardmarket price for UI display, falling back to general cardmarket_price"""
+    price = 0.0
+
+    # 1. Try daily pricing
+    if variant_id:
+        try:
+            c_id_str = str(card.id)
+            v_id_str = str(variant_id)
+            if c_id_str in pricing_service.daily_pricing and v_id_str in pricing_service.daily_pricing[c_id_str]:
+                cm_data = pricing_service.daily_pricing[c_id_str][v_id_str].get('cardmarket', {})
+                if cm_data:
+                    latest_date = max(cm_data.keys())
+                    return float(cm_data[latest_date])
+        except Exception:
+            pass
+
+    # 2. Fallback to general cardmarket_price on card
+    if card.card_prices and card.card_prices[0].cardmarket_price:
+        try:
+            return float(card.card_prices[0].cardmarket_price)
+        except Exception:
+            pass
+
+    return price
 
 def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, CollectionCard], language: str) -> List[CollectorRow]:
     rows = []
@@ -139,10 +167,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                             break
 
                     set_name = best_api_set.set_name
-                    price = 0.0
-                    if best_api_set.set_price:
-                        try: price = float(best_api_set.set_price)
-                        except: pass
+                    price = get_display_price_for_variant(card, cv.variant_id)
 
                     for (lang, cond, first), qty in groups.items():
                         group_entries = [e for e in cv.entries if e.language == lang and e.condition == cond and e.first_edition == first]
@@ -193,10 +218,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
 
                 set_name = representative.set_name
                 set_code = representative.set_code
-                price = 0.0
-                if representative.set_price:
-                    try: price = float(representative.set_price)
-                    except: pass
+                price = get_display_price_for_variant(card, representative.variant_id)
 
                 row_img_url = img_url
                 if representative.image_id:
@@ -256,7 +278,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                         set_code=cv.set_code,
                         set_name="Custom / Unmatched",
                         rarity=cv.rarity,
-                        price=0.0,
+                        price=get_display_price_for_variant(card, cv.variant_id),
                         image_url=row_img_url,
                         owned_count=qty,
                         is_owned=True,
@@ -275,7 +297,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                     set_code="N/A",
                     set_name="No Set Info",
                     rarity="Common",
-                    price=0.0,
+                    price=get_display_price_for_variant(card, None),
                     image_url=img_url,
                     owned_count=0,
                     is_owned=False,
@@ -996,13 +1018,11 @@ class CollectionPage:
         else:
             if new_qty > 0:
                 set_name = "Unknown Set"
-                price = 0.0
+                price = get_display_price_for_variant(api_card, variant_id)
                 if api_card.card_sets:
                     for s in api_card.card_sets:
                         if s.set_code == set_code:
                             set_name = s.set_name
-                            try: price = float(s.set_price)
-                            except: pass
                             break
 
                 img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
@@ -1052,13 +1072,11 @@ class CollectionPage:
 
                  if is_standard:
                      set_name = "Unknown Set"
-                     price = 0.0
+                     price = get_display_price_for_variant(api_card, None)
                      if api_card.card_sets:
                         for s in api_card.card_sets:
                             if s.set_code == set_code:
                                 set_name = s.set_name
-                                try: price = float(s.set_price)
-                                except: pass
                                 break
                      img_url = api_card.card_images[0].image_url_small if api_card.card_images else None
 
