@@ -89,6 +89,16 @@ class PricingService:
         title_el = soup.select_one('title')
         if title_el:
             data['card_info']['title'] = title_el.text.strip()
+            if '|' in data['card_info']['title']:
+                data['card_info']['title'] = data['card_info']['title'].split('|')[0].strip()
+
+        # Fallback to h1 if title is empty or generic
+        if not data['card_info'].get('title') or 'Just a moment' in data['card_info']['title'] or 'Cardmarket' in data['card_info']['title']:
+            h1_el = soup.select_one('h1')
+            if h1_el:
+                title_text = ''.join(h1_el.find_all(string=True, recursive=False)).strip()
+                if title_text:
+                    data['card_info']['title'] = title_text
 
         # Extract number, rarity, printed in from the definition list
         dt_els = soup.select('dl.labeled dt')
@@ -226,13 +236,21 @@ class PricingService:
             (card_id, variant_id, candidates_list)
         If variant_id is None, it means ambiguity exists and candidates_list will contain the choices.
         """
+        import re
         title = parsed_info['card_info'].get('title', '')
         rarity = parsed_info['card_info'].get('rarity', '')
+
+        # Fallback rarity extraction from title if it was missed in parsing
+        if not rarity and title:
+            rarity_match = re.search(r'\((?:V\.\d+\s*-\s*)?([^\)]+Rare|[^\)]+Ultra|[^\)]+Common|[^\)]+Ghost|[^\)]+Ultimate|[^\)]+Prismatic)\)', title, re.IGNORECASE)
+            if rarity_match:
+                rarity = rarity_match.group(1).strip()
+                parsed_info['card_info']['rarity'] = rarity
+
         target_set_code = self._infer_target_set_code(parsed_info, ygo_service)
         parsed_info['card_info']['target_set_code'] = target_set_code
 
         # Clean title (remove (V.X) and suffix)
-        import re
         clean_name = re.sub(r'\s*\(V\.\d+\s*-\s*[^\)]+\)', '', title)
         clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
 
