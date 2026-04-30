@@ -356,6 +356,7 @@ class CollectionPage:
         self.pagination_total_label = None
         self.api_card_map = {}
         self.save_task = None
+        self.metrics = None
 
     async def _perform_save(self):
         try:
@@ -771,9 +772,102 @@ class CollectionPage:
             self.state['page'] = 1
         self.update_pagination()
 
+        await self.calculate_metrics()
+
         await self.prepare_current_page_images()
         if hasattr(self, 'render_card_display'): self.render_card_display.refresh()
         self.update_pagination_labels()
+        if hasattr(self, 'render_metrics_area'): self.render_metrics_area.refresh()
+
+    async def calculate_metrics(self):
+        from src.services.pricing_service import pricing_service
+
+        self.metrics = {
+            'total_value': 0.0,
+            'unique_cards': 0,
+            'unique_variants': 0,
+            'rarity_dist': {},
+            'language_dist': {}
+        }
+
+        if not self.state['filtered_items']:
+            return
+
+        unique_card_ids = set()
+        unique_variant_ids = set()
+
+        # Helper to get variant price
+        def get_variant_price(card_id, variant_id):
+            price = 0.02
+            try:
+                card_id_str = str(card_id)
+                var_id_str = str(variant_id)
+                if card_id_str in pricing_service.daily_pricing:
+                    if var_id_str in pricing_service.daily_pricing[card_id_str]:
+                        cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
+                        if cm_data:
+                            latest_date = max(cm_data.keys())
+                            price = float(cm_data[latest_date])
+            except Exception:
+                pass
+            return price
+
+        if self.state['view_scope'] == 'consolidated':
+            for vm in self.state['filtered_items']:
+                if vm.owned_quantity > 0:
+                    unique_card_ids.add(vm.api_card.id)
+
+                    # Need to check the actual collection to get variants
+                    if self.state['current_collection']:
+                        for c in self.state['current_collection'].cards:
+                            if c.card_id == vm.api_card.id:
+                                for v in c.variants:
+                                    # apply current filters to variant?
+                                    # this is a bit tricky for consolidated view since filters are applied at card level.
+                                    # however, we want the value of the filtered set.
+                                    # We can check if the variant matches filters.
+
+                                    # Simplified: check language and condition filters since we have them at variant entry level.
+                                    var_qty = 0
+                                    for e in v.entries:
+                                        if e.quantity > 0:
+                                            # Apply lang/cond/storage filters to entries
+                                            if self.state['filter_owned_lang'] and e.language != self.state['filter_owned_lang']: continue
+                                            if self.state['filter_condition'] and e.condition not in self.state['filter_condition']: continue
+                                            if self.state['filter_storage']:
+                                                loc = e.storage_location if e.storage_location else 'None'
+                                                if loc not in self.state['filter_storage']: continue
+
+                                            var_qty += e.quantity
+
+                                            # Update distributions
+                                            self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
+                                            self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
+
+                                    if var_qty > 0:
+                                        unique_variant_ids.add(v.variant_id)
+                                        price = get_variant_price(c.card_id, v.variant_id)
+                                        self.metrics['total_value'] += price * var_qty
+                                break
+        else:
+            # Collectors view
+            for row in self.state['filtered_items']:
+                if row.owned_count > 0:
+                    unique_card_ids.add(row.api_card.id)
+                    if row.variant_id:
+                        unique_variant_ids.add(row.variant_id)
+
+                    price = get_variant_price(row.api_card.id, row.variant_id)
+                    self.metrics['total_value'] += price * row.owned_count
+
+                    # Rarity
+                    self.metrics['rarity_dist'][row.rarity] = self.metrics['rarity_dist'].get(row.rarity, 0) + row.owned_count
+
+                    # Language (it's already broken down by language in CollectorRow)
+                    self.metrics['language_dist'][row.language] = self.metrics['language_dist'].get(row.language, 0) + row.owned_count
+
+        self.metrics['unique_cards'] = len(unique_card_ids)
+        self.metrics['unique_variants'] = len(unique_variant_ids)
 
     def update_pagination(self):
         count = len(self.state['filtered_items'])
@@ -1599,8 +1693,89 @@ class CollectionPage:
             else:
                  with undo_btn: ui.tooltip('Undo last action')
 
+            with ui.button(icon='settings', on_click=self.open_metrics_settings).props('flat color=white size=md'):
+                ui.tooltip('Header Metrics Settings')
+
             with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg'):
                 ui.tooltip('Open advanced filters')
+
+    def open_metrics_settings(self):
+        with ui.dialog() as d, ui.card().classes('w-96 bg-gray-900 text-white'):
+            ui.label('Header Metrics Settings').classes('text-h6 font-bold')
+            ui.label('Choose which metrics to display in the header based on your current filters.').classes('text-sm text-gray-400 q-mb-md')
+
+            def on_setting_change(key, value):
+                config_manager.set_collection_metrics_config(key, value)
+                if hasattr(self, 'render_metrics_area'):
+                    self.render_metrics_area.refresh()
+
+            metrics_config = config_manager.get_collection_metrics_config()
+
+            ui.checkbox('Total Value', value=metrics_config['total_value'],
+                        on_change=lambda e: on_setting_change('total_value', e.value)).props('dark')
+
+            ui.checkbox('Unique Cards & Variants', value=metrics_config['unique_counts'],
+                        on_change=lambda e: on_setting_change('unique_counts', e.value)).props('dark')
+
+            ui.checkbox('Rarity Breakdown', value=metrics_config['rarity_breakdown'],
+                        on_change=lambda e: on_setting_change('rarity_breakdown', e.value)).props('dark')
+
+            ui.checkbox('Language Breakdown', value=metrics_config['language_breakdown'],
+                        on_change=lambda e: on_setting_change('language_breakdown', e.value)).props('dark')
+
+            with ui.row().classes('w-full justify-end q-mt-md'):
+                ui.button('Close', on_click=d.close).props('flat color=primary')
+        d.open()
+
+    @ui.refreshable
+    def render_metrics_area(self):
+        config = config_manager.get_collection_metrics_config()
+
+        # Check if we should render anything at all
+        if not any(config.values()) or not self.metrics:
+            return
+
+        def metric_card(label, value, icon, color='accent'):
+            with ui.card().classes('flex-1 bg-dark border border-gray-700 p-4 items-center flex-row gap-4 min-w-[200px] hover:border-gray-500 transition-colors shadow-none'):
+                with ui.element('div').classes(f'p-3 rounded-full bg-{color}/10'):
+                    ui.icon(icon, size='2rem').classes(f'text-{color}')
+                with ui.column().classes('gap-0'):
+                    ui.label(label).classes('text-grey-4 text-xs uppercase font-bold tracking-wider')
+                    ui.label(str(value)).classes(f"text-2xl font-bold text-white")
+
+        with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
+
+            with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
+                if config['total_value']:
+                    metric_card('Filtered Value', f"€{self.metrics['total_value']:,.2f}", 'euro', 'positive')
+
+                if config['unique_counts']:
+                    metric_card('Unique Cards', f"{self.metrics['unique_cards']:,}", 'style', 'primary')
+                    metric_card('Unique Variants', f"{self.metrics['unique_variants']:,}", 'layers', 'secondary')
+
+            with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 w-full gap-4'):
+                if config['rarity_breakdown'] and self.metrics['rarity_dist']:
+                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
+                        ui.label('Rarity Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                        with ui.row().classes('w-full gap-2 flex-wrap'):
+                            sorted_rarities = sorted(self.metrics['rarity_dist'].items(), key=lambda x: x[1], reverse=True)
+                            for r_name, r_count in sorted_rarities:
+                                ui.label(f"{r_name}: {r_count}").classes('bg-gray-800 px-2 py-1 rounded text-xs text-white')
+
+                if config['language_breakdown'] and self.metrics['language_dist']:
+                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
+                        ui.label('Language Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                        with ui.row().classes('w-full gap-2 flex-wrap'):
+                            sorted_langs = sorted(self.metrics['language_dist'].items(), key=lambda x: x[1], reverse=True)
+                            for l_name, l_count in sorted_langs:
+                                l_code = l_name.strip().upper()
+                                country_code = LANGUAGE_COUNTRY_MAP.get(l_code)
+                                with ui.row().classes('items-center bg-gray-800 px-2 py-1 rounded gap-1'):
+                                    if country_code:
+                                        flag_url = image_manager.get_flag_image_url(country_code)
+                                        if flag_url:
+                                            ui.image(flag_url).classes('w-[18px] h-3 inline-block shadow-sm').props(f'alt="{l_code}" fit="fill"')
+                                    ui.label(f"{l_name}: {l_count}").classes('text-xs text-white')
 
     @ui.refreshable
     def render_card_display(self):
@@ -1675,6 +1850,7 @@ class CollectionPage:
                  self.filter_pane.build()
 
         self.render_header()
+        self.render_metrics_area()
 
         self.content_area()
         ui.timer(0.1, self.load_data, once=True)
