@@ -1227,7 +1227,8 @@ class DbEditorPage:
             # Use an html element for fast updating of many lines without re-creating ui elements
             results_html = ui.html('<div class="text-gray-400">Waiting to start...</div>').classes('w-full h-64 overflow-y-auto bg-gray-800 p-2 rounded text-sm')
 
-            close_btn = ui.button('Close', on_click=dialog.close).props('color=primary').classes('mt-4 w-full').set_visibility(False)
+            close_btn = ui.button('Close', on_click=dialog.close).props('color=primary').classes('mt-4 w-full')
+            close_btn.set_visibility(False)
 
         dialog.open()
 
