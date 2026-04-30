@@ -985,13 +985,14 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            preview_image = ui.image('').classes('w-48 h-auto mt-2 hidden rounded')
+                                            # Give ui.image a real working src initially and size
+                                            preview_image = ui.image('https://placehold.co/1x1/transparent/transparent.png').classes('w-32 h-auto mt-2 hidden object-contain bg-black rounded shadow')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
                                                 val = e.value
                                                 if val and val in img_map:
                                                     img.source = img_map[val]
-                                                    img.classes(remove='hidden')
+                                                    img.classes(remove='hidden', add='block')
                                                     img.update()
                                                 else:
                                                     img.classes(add='hidden')

@@ -985,13 +985,13 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            preview_image = ui.html('<img src="" style="max-width: 12rem; height: auto; border-radius: 0.25rem;" />').classes('mt-2 hidden')
+                                            # Use the actual card ID to get the default image immediately to prevent placehold missing picture, then swap out for correct one.
+                                            preview_image = ui.image(f"/api/images/{item['card_id']}").classes('w-32 h-auto mt-2 hidden object-contain rounded shadow')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
                                                 val = e.value
                                                 if val and val in img_map:
-                                                    # A standard way to ensure NiceGUI updates the actual native element props
-                                                    img.content = f'<img src="{img_map[val]}" style="max-width: 12rem; height: auto; border-radius: 0.25rem;" />'
+                                                    img.source = img_map[val]
                                                     img.classes(remove='hidden', add='block')
                                                     img.update()
                                                 else:
