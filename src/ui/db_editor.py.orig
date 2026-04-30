@@ -985,8 +985,8 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            # Give ui.image a real working src initially and size
-                                            preview_image = ui.image('https://placehold.co/1x1/transparent/transparent.png').classes('w-32 h-auto mt-2 hidden object-contain bg-black rounded shadow')
+                                            # Use the actual card ID to get the default image immediately to prevent placehold missing picture, then swap out for correct one.
+                                            preview_image = ui.image(f"/api/images/{item['card_id']}").classes('w-32 h-auto mt-2 hidden object-contain rounded shadow')
 
                                             def on_change(e, img=preview_image, img_map=var_images):
                                                 val = e.value

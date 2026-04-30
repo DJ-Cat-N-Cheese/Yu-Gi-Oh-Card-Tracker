@@ -985,18 +985,14 @@ class DbEditorPage:
                                                     img_url += f"?image_id={c.image_id}"
                                                 var_images[vid] = img_url
 
-                                            # Use the actual card ID to get the default image immediately to prevent placehold missing picture, then swap out for correct one.
-                                            preview_image = ui.image(f"/api/images/{item['card_id']}").classes('w-32 h-auto mt-2 hidden object-contain rounded shadow')
+                                            preview_container = ui.column().classes('mt-2')
 
-                                            def on_change(e, img=preview_image, img_map=var_images):
+                                            def on_change(e, cont=preview_container, img_map=var_images):
                                                 val = e.value
+                                                cont.clear()
                                                 if val and val in img_map:
-                                                    img.source = img_map[val]
-                                                    img.classes(remove='hidden', add='block')
-                                                    img.update()
-                                                else:
-                                                    img.classes(add='hidden')
-                                                    img.update()
+                                                    with cont:
+                                                        ui.image(img_map[val]).classes('w-32 h-auto object-contain rounded shadow')
 
                                             select = ui.select(options, label="Select Variant", on_change=on_change).classes('w-full')
                                             select.bind_value(item, 'selected_variant_id')
