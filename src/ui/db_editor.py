@@ -823,6 +823,7 @@ class DbEditorPage:
                 ui.space()
                 ui.button('+ New Card Info', on_click=self.show_yugipedia_import_dialog).props('color=green icon=add')
                 ui.button('Import Pricing Info', on_click=self.show_pricing_import_dialog).props('color=purple icon=euro')
+                ui.button('Update Prices', on_click=self.auto_update_prices).props('color=blue icon=sync')
                 ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg')
 
             else:
@@ -1197,7 +1198,145 @@ class DbEditorPage:
 
         dialog.open()
 
+
+
+    async def auto_update_prices(self):
+        from src.services.pricing_service import pricing_service
+        from src.services.ygo_api import ygo_service
+        from src.core.utils import generate_variant_id
+        import datetime
+        import asyncio
+        import random
+
+        dialog_state = {
+            'is_running': True,
+            'current_card': 'Initializing...',
+            'progress': 0.0,
+            'results': [], # List of dicts: {'name': str, 'status': str, 'reason': str}
+        }
+
+        dialog = ui.dialog().classes('w-full max-w-2xl bg-gray-900 border border-gray-700')
+        with dialog, ui.card().classes('w-full'):
+            ui.label("Auto-Updating Prices").classes('text-h6 text-white mb-4')
+
+            status_label = ui.label(dialog_state['current_card']).classes('text-gray-300 mb-2')
+            progress_bar = ui.linear_progress(value=0).props('color=purple')
+
+            ui.separator().classes('mt-4 mb-4')
+
+            # Use an html element for fast updating of many lines without re-creating ui elements
+            results_html = ui.html('<div class="text-gray-400">Waiting to start...</div>').classes('w-full h-64 overflow-y-auto bg-gray-800 p-2 rounded text-sm')
+
+            close_btn = ui.button('Close', on_click=dialog.close).props('color=primary').classes('mt-4 w-full')
+            close_btn.set_visibility(False)
+
+        dialog.open()
+
+        def update_ui(card_name, progress_val):
+            status_label.set_text(card_name)
+            progress_bar.set_value(progress_val)
+
+            # Build HTML for results
+            html_content = []
+            for res in reversed(dialog_state['results'][-100:]): # Show last 100
+                color = 'text-green-400' if res['status'] == 'Updated' else 'text-yellow-400' if res['status'] == 'Skipped' else 'text-red-400'
+                html_content.append(f"<div class='{color}'>{res['name']}: {res['status']} ({res['reason']})</div>")
+
+            if html_content:
+                results_html.set_content(''.join(html_content))
+            else:
+                results_html.set_content('<div class="text-gray-400">Waiting to start...</div>')
+
+        # Load all cards
+        cards = await ygo_service.load_card_database("en")
+
+        # Collect variants with URLs
+        variants_to_check = []
+        for card in cards:
+            for variant in card.card_sets:
+                if variant.cardmarket_url:
+                    variants_to_check.append({
+                        'card': card,
+                        'variant': variant
+                    })
+
+        total_variants = len(variants_to_check)
+        if total_variants == 0:
+            dialog_state['results'].append({'name': 'System', 'status': 'Skipped', 'reason': 'No cards with Cardmarket URLs found.'})
+            update_ui('Finished', 1.0)
+            close_btn.set_visibility(True)
+            return
+
+        now = datetime.datetime.now()
+        html_date = now.strftime("%Y-%m-%d")
+
+        for idx, item in enumerate(variants_to_check):
+            card = item['card']
+            variant = item['variant']
+            card_id_str = str(card.id)
+            variant_id = generate_variant_id(card.id, variant.set_code, variant.set_rarity, variant.image_id)
+
+            display_name = f"{card.name} ({variant.set_code} - {variant.set_rarity})"
+            update_ui(f"Checking: {display_name}", idx / total_variants)
+
+            # Check existing price date
+            needs_update = True
+
+            if card_id_str in pricing_service.daily_pricing and variant_id in pricing_service.daily_pricing[card_id_str]:
+                cm_data = pricing_service.daily_pricing[card_id_str][variant_id].get('cardmarket', {})
+                if cm_data:
+                    # Find newest date
+                    try:
+                        newest_date_str = max(cm_data.keys())
+                        newest_date = datetime.datetime.strptime(newest_date_str, "%Y-%m-%d")
+                        days_diff = (now - newest_date).days
+                        if days_diff <= 5:
+                            needs_update = False
+                            dialog_state['results'].append({'name': display_name, 'status': 'Skipped', 'reason': f'Recent price ({days_diff} days old)'})
+                    except Exception as e:
+                        pass
+
+            if needs_update:
+                update_ui(f"Fetching: {display_name}", idx / total_variants)
+
+                success = False
+                retries = 2
+                for attempt in range(retries + 1):
+                    try:
+                        html_text = await pricing_service.fetch_html_from_url(variant.cardmarket_url)
+                        if html_text and "No items found" not in html_text: # basic validation
+                            parsed_data = pricing_service.parse_cardmarket_html(html_text)
+                            if parsed_data:
+                                pricing_service.save_pricing_data(
+                                    card_id=card_id_str,
+                                    variant_id=variant_id,
+                                    html_date=html_date,
+                                    parsed_data=parsed_data,
+                                    save_daily=True,
+                                    save_offers=True,
+                                    ygo_service=ygo_service
+                                )
+                                success = True
+                                dialog_state['results'].append({'name': display_name, 'status': 'Updated', 'reason': 'Fetched new data'})
+                                break
+                    except Exception as e:
+                        print(f"Error fetching {variant.cardmarket_url}: {e}")
+
+                    if attempt < retries:
+                        await asyncio.sleep(random.uniform(1.5, 3.0)) # Wait before retry
+
+                if not success:
+                    dialog_state['results'].append({'name': display_name, 'status': 'Error', 'reason': 'Failed to fetch after retries'})
+
+                # Sleep to avoid bans
+                await asyncio.sleep(random.uniform(1.0, 2.0))
+
+        update_ui('Finished', 1.0)
+        close_btn.set_visibility(True)
+
     def switch_view_mode(self, mode):
+
+
         self.state['view_mode'] = mode
         persistence.save_ui_state({'db_editor_view_mode': mode})
         self.render_card_display.refresh()
