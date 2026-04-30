@@ -2,6 +2,7 @@ from nicegui import ui, run
 from src.core.persistence import persistence
 from src.services.ygo_api import ygo_service
 from src.core.config import config_manager
+from src.services.pricing_service import pricing_service
 import logging
 
 logger = logging.getLogger(__name__)
@@ -64,14 +65,32 @@ async def load_dashboard_data(filename=None):
         if collection:
             stats['unique_owned'] = len(collection.cards)
             stats['total_qty'] = collection.total_cards
-            stats['total_value'] = collection.total_value
 
-            # Count Unique Variants Owned
+            # Count Unique Variants Owned and Calculate Total Value
             unique_vars = 0
+            total_value = 0.0
+
             for card in collection.cards:
                 for var in card.variants:
                     if var.total_quantity > 0:
                         unique_vars += 1
+
+                    # Calculate value
+                    qty = var.total_quantity
+                    if qty > 0:
+                        price = 0.02 # fallback
+                        card_pricing = pricing_service.daily_pricing.get(str(card.id), {})
+                        var_pricing = card_pricing.get(str(var.id), {})
+                        cm_pricing = var_pricing.get('cardmarket', {})
+
+                        if cm_pricing:
+                            # get the latest date
+                            latest_date = max(cm_pricing.keys())
+                            price = cm_pricing[latest_date]
+
+                        total_value += qty * price
+
+            stats['total_value'] = total_value
             stats['unique_variants_owned'] = unique_vars
 
             if total_db_unique > 0:
@@ -150,15 +169,17 @@ def render_metrics(stats):
     # Display Collection Name context inside metrics area or above?
     # User asked for dropdown in header, so maybe just metrics here.
 
-    # Use responsive grid: 1 col on mobile, 2 on medium, 3 on large
-    with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 w-full gap-4'):
+    # Use responsive grid: 1 col on mobile, 2 on medium, 4 on large screens
+    with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
         # Row 1: Unique Focus
         metric_card('Unique Cards (Owned)', f"{stats['unique_owned']:,}", 'style', 'primary')
+        metric_card('Unique Variants (Owned)', f"{stats['unique_variants_owned']:,}", 'collections', 'primary')
         metric_card('Total DB Cards', f"{stats['total_db_unique']:,}", 'dns', 'primary')
         metric_card('Completion (Unique)', f"{stats['completion_unique_pct']:.1f}%", 'pie_chart', 'info')
 
         # Row 2: Variant Focus
         metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
+        metric_card('Total Card Value', f"€{stats['total_value']:,.2f}", 'euro', 'secondary')
         metric_card('Total DB Variants', f"{stats['total_db_variants']:,}", 'layers', 'secondary')
         metric_card('Completion (Variants)', f"{stats['completion_variants_pct']:.1f}%", 'donut_large', 'info')
 
