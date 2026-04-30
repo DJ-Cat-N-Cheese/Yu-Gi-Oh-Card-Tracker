@@ -1778,6 +1778,11 @@ class CollectionPage:
             ui.checkbox('Language Breakdown', value=metrics_config['language_breakdown'],
                         on_change=lambda e: on_setting_change('language_breakdown', e.value)).props('dark')
 
+            ui.separator().classes('my-2 bg-gray-700 w-full')
+
+            ui.checkbox('Show Price Preview (Collectors View)', value=metrics_config.get('price_preview', False),
+                        on_change=lambda e: [on_setting_change('price_preview', e.value), getattr(self, 'render_card_display', type('Dummy', (), {'refresh': lambda: None})).refresh()]).props('dark')
+
             with ui.row().classes('w-full justify-end q-mt-md'):
                 ui.button('Close', on_click=d.close).props('flat color=primary')
         d.open()
