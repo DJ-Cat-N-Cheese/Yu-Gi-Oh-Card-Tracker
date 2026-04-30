@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 class PricingService:
     def __init__(self):
-        self.daily_pricing_file = "data/daily_card_pricing.json"
-        self.offers_pricing_file = "data/cardmarket_offers_pricing.json"
+        self.daily_pricing_file = "data/prices/daily_card_pricing.json"
+        self.offers_pricing_file = "data/prices/cardmarket_offers_pricing.json"
 
         # Ensure data dir exists
-        os.makedirs("data", exist_ok=True)
+        os.makedirs("data/prices", exist_ok=True)
 
         # Load existing data
         self.daily_pricing = self._load_json(self.daily_pricing_file)
