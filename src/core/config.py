@@ -26,9 +26,12 @@ class ConfigManager:
             "deck_builder_page_size": 9,
             "bulk_add_page_size": 50,
             "collection_show_total_value": True,
-            "collection_show_unique_counts": True,
+            "collection_show_unique_cards": True,
+            "collection_show_unique_variants": True,
+            "collection_show_total_qty": True,
             "collection_show_rarity_breakdown": True,
-            "collection_show_language_breakdown": True
+            "collection_show_language_breakdown": True,
+            "collection_show_price_preview": False
         }
 
     def save_config(self):
@@ -57,19 +60,29 @@ class ConfigManager:
         self.save_config()
 
     def get_collection_metrics_config(self) -> Dict[str, bool]:
+        # Handle backwards compatibility for 'unique_counts'
+        unique_cards = self.config.get("collection_show_unique_cards", self.config.get("collection_show_unique_counts", True))
+        unique_variants = self.config.get("collection_show_unique_variants", self.config.get("collection_show_unique_counts", True))
+
         return {
             "total_value": self.config.get("collection_show_total_value", True),
-            "unique_counts": self.config.get("collection_show_unique_counts", True),
+            "unique_cards": unique_cards,
+            "unique_variants": unique_variants,
+            "total_qty": self.config.get("collection_show_total_qty", True),
             "rarity_breakdown": self.config.get("collection_show_rarity_breakdown", True),
-            "language_breakdown": self.config.get("collection_show_language_breakdown", True)
+            "language_breakdown": self.config.get("collection_show_language_breakdown", True),
+            "price_preview": self.config.get("collection_show_price_preview", False)
         }
 
     def set_collection_metrics_config(self, key: str, value: bool):
         valid_keys = {
             "total_value": "collection_show_total_value",
-            "unique_counts": "collection_show_unique_counts",
+            "unique_cards": "collection_show_unique_cards",
+            "unique_variants": "collection_show_unique_variants",
+            "total_qty": "collection_show_total_qty",
             "rarity_breakdown": "collection_show_rarity_breakdown",
-            "language_breakdown": "collection_show_language_breakdown"
+            "language_breakdown": "collection_show_language_breakdown",
+            "price_preview": "collection_show_price_preview"
         }
         if key in valid_keys:
             self.config[valid_keys[key]] = value

@@ -808,6 +808,7 @@ class CollectionPage:
             'total_value': 0.0,
             'unique_cards': 0,
             'unique_variants': 0,
+            'total_qty': 0,
             'rarity_dist': {},
             'language_dist': {}
         }
@@ -849,6 +850,7 @@ class CollectionPage:
                                             # Update distributions
                                             self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
                                             self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
+                                            self.metrics['total_qty'] += e.quantity
 
                                     if var_qty > 0:
                                         unique_variant_ids.add(v.variant_id)
@@ -871,6 +873,8 @@ class CollectionPage:
 
                     # Language (it's already broken down by language in CollectorRow)
                     self.metrics['language_dist'][row.language] = self.metrics['language_dist'].get(row.language, 0) + row.owned_count
+
+                    self.metrics['total_qty'] += row.owned_count
 
         self.metrics['unique_cards'] = len(unique_card_ids)
         self.metrics['unique_variants'] = len(unique_variant_ids)
@@ -1716,8 +1720,14 @@ class CollectionPage:
             ui.checkbox('Total Value', value=metrics_config['total_value'],
                         on_change=lambda e: on_setting_change('total_value', e.value)).props('dark')
 
-            ui.checkbox('Unique Cards & Variants', value=metrics_config['unique_counts'],
-                        on_change=lambda e: on_setting_change('unique_counts', e.value)).props('dark')
+            ui.checkbox('Unique Cards', value=metrics_config['unique_cards'],
+                        on_change=lambda e: on_setting_change('unique_cards', e.value)).props('dark')
+
+            ui.checkbox('Unique Variants', value=metrics_config['unique_variants'],
+                        on_change=lambda e: on_setting_change('unique_variants', e.value)).props('dark')
+
+            ui.checkbox('Total QTY', value=metrics_config['total_qty'],
+                        on_change=lambda e: on_setting_change('total_qty', e.value)).props('dark')
 
             ui.checkbox('Rarity Breakdown', value=metrics_config['rarity_breakdown'],
                         on_change=lambda e: on_setting_change('rarity_breakdown', e.value)).props('dark')
@@ -1754,11 +1764,16 @@ class CollectionPage:
 
             with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
                 if config['total_value']:
-                    metric_card('Filtered Value', f"€{self.metrics['total_value']:,.2f}", 'euro', 'positive')
+                    metric_card('Value', f"€{self.metrics['total_value']:,.2f}", 'euro', 'positive')
 
-                if config['unique_counts']:
+                if config['unique_cards']:
                     metric_card('Unique Cards', f"{self.metrics['unique_cards']:,}", 'style', 'primary')
+
+                if config['unique_variants']:
                     metric_card('Unique Variants', f"{self.metrics['unique_variants']:,}", 'layers', 'secondary')
+
+                if config.get('total_qty', True):
+                    metric_card('Total QTY', f"{self.metrics['total_qty']:,}", 'inventory', 'info')
 
             with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 w-full gap-4'):
                 if config['rarity_breakdown'] and self.metrics['rarity_dist']:
