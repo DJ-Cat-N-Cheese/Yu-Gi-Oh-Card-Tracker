@@ -875,13 +875,24 @@ class DbEditorPage:
 
                         with ui.tab_panels(tabs, value=file_tab).classes('w-full bg-transparent'):
                             with ui.tab_panel(file_tab):
-                                def handle_upload(e):
-                                    content = e.content.read()
-                                    if content:
-                                        dialog_state['files'].append({'name': e.name, 'content': content})
-                                        ui.notify(f"Added {e.name}")
+                                async def handle_upload(e):
+                                    if hasattr(e, 'file'): # NiceGUI 1.4.15+ / 2.0+ / 3.0+
+                                        content = await e.file.read()
+                                        filename = e.file.name
+                                    elif hasattr(e, 'content'): # Legacy
+                                        content = e.content.read()
+                                        filename = getattr(e, 'name', 'unknown')
+                                        if asyncio.iscoroutine(content):
+                                            content = await content
                                     else:
-                                        ui.notify(f"Failed to read file {e.name}", type='negative')
+                                        ui.notify("Failed to parse upload event", type='negative')
+                                        return
+
+                                    if content:
+                                        dialog_state['files'].append({'name': filename, 'content': content})
+                                        ui.notify(f"Added {filename}")
+                                    else:
+                                        ui.notify(f"Failed to read file {filename}", type='negative')
 
                                 ui.upload(on_upload=handle_upload, multiple=True, auto_upload=True, label="Upload Cardmarket HTML files").props('accept=".html" dark').classes('w-full')
 
