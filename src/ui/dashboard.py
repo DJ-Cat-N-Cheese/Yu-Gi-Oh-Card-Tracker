@@ -79,14 +79,18 @@ async def load_dashboard_data(filename=None):
                     qty = var.total_quantity
                     if qty > 0:
                         price = 0.02 # fallback
-                        card_pricing = pricing_service.daily_pricing.get(str(card.id), {})
-                        var_pricing = card_pricing.get(str(var.id), {})
-                        cm_pricing = var_pricing.get('cardmarket', {})
+                        try:
+                            if pricing_service and hasattr(pricing_service, 'daily_pricing') and pricing_service.daily_pricing:
+                                card_pricing = pricing_service.daily_pricing.get(str(card.card_id), {})
+                                var_pricing = card_pricing.get(str(var.variant_id), {})
+                                cm_pricing = var_pricing.get('cardmarket', {})
 
-                        if cm_pricing:
-                            # get the latest date
-                            latest_date = max(cm_pricing.keys())
-                            price = cm_pricing[latest_date]
+                                if cm_pricing:
+                                    # get the latest date
+                                    latest_date = max(cm_pricing.keys())
+                                    price = cm_pricing[latest_date]
+                        except Exception as e:
+                            logger.error(f"Error calculating price for {card.card_id}/{var.variant_id}: {e}")
 
                         total_value += qty * price
 
@@ -129,7 +133,7 @@ async def load_dashboard_data(filename=None):
         return stats, files, selected_file
 
     except Exception as e:
-        logger.error(f"Error loading dashboard data: {e}")
+        logger.exception(f"Error loading dashboard data: {e}")
         return None, [], None
 
 def metric_card(label, value, icon, color='accent', sub_text=None):
