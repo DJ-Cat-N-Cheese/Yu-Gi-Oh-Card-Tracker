@@ -974,7 +974,7 @@ class DbEditorPage:
                                         # To show the selected image we need a place for it, or we could just show all candidate images
                                         with ui.column().classes('w-full'):
                                             # Create select options with HTML or simple text. Since ui.select doesn't support complex HTML options natively well without slot overrides, we'll keep the text select, but add a preview image below it that updates.
-                                            options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity}" for c in item['candidates']}
+                                            options = {generate_variant_id(item['card_id'], c.set_code, c.set_rarity, c.image_id): f"{c.set_code} - {c.set_rarity} (Art: {c.image_id})" for c in item['candidates']}
 
                                             # We need a mapping from variant_id to image url
                                             var_images = {}
@@ -993,7 +993,9 @@ class DbEditorPage:
                                                 # Use e.sender.value since this is triggered by value change.
                                                 # Native .on() event gives GenericEventArguments, but we need the sender's value or e.args.
                                                 val = e.args if hasattr(e, 'args') else e.value if hasattr(e, 'value') else e.sender.value
-                                                if val and val in img_map:
+                                                if isinstance(val, dict):
+                                                    val = val.get('value', val)
+                                                if val and isinstance(val, str) and val in img_map:
                                                     img.source = img_map[val]
                                                     img.classes(remove='hidden')
                                                 else:
