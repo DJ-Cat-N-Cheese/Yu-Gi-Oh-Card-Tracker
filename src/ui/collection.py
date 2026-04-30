@@ -45,8 +45,6 @@ class CollectorRow:
     variant_id: Optional[str] = None
     entries: List[CollectionEntry] = field(default_factory=list)
 
-from src.services.pricing_service import pricing_service
-
 def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, CollectionCard]) -> List[CardViewModel]:
     vms = []
     for card in api_cards:
@@ -62,18 +60,7 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
 
         lowest = 0.0
         prices = []
-        card_id_str = str(card.id)
-
-        # Check daily prices first
-        if card_id_str in pricing_service.daily_pricing:
-            for var_id_str, var_prices in pricing_service.daily_pricing[card_id_str].items():
-                cm_data = var_prices.get('cardmarket', {})
-                if cm_data:
-                    latest_date = max(cm_data.keys())
-                    prices.append(float(cm_data[latest_date]))
-
-        # Fallback to general API prices if no daily prices exist
-        if not prices and card.card_prices:
+        if card.card_prices:
             p = card.card_prices[0]
             for val in [p.cardmarket_price, p.tcgplayer_price, p.coolstuffinc_price]:
                  if val:
@@ -152,18 +139,8 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                             break
 
                     set_name = best_api_set.set_name
-
-                    # Fetch daily price if available
                     price = 0.0
-                    card_id_str = str(card.id)
-                    var_id_str = str(cv.variant_id)
-                    if card_id_str in pricing_service.daily_pricing and var_id_str in pricing_service.daily_pricing[card_id_str]:
-                        cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
-                        if cm_data:
-                            latest_date = max(cm_data.keys())
-                            price = float(cm_data[latest_date])
-
-                    if price == 0.0 and best_api_set.set_price:
+                    if best_api_set.set_price:
                         try: price = float(best_api_set.set_price)
                         except: pass
 
@@ -216,18 +193,8 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
 
                 set_name = representative.set_name
                 set_code = representative.set_code
-
-                # Fetch daily price if available
                 price = 0.0
-                card_id_str = str(card.id)
-                var_id_str = str(representative.variant_id)
-                if card_id_str in pricing_service.daily_pricing and var_id_str in pricing_service.daily_pricing[card_id_str]:
-                    cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
-                    if cm_data:
-                        latest_date = max(cm_data.keys())
-                        price = float(cm_data[latest_date])
-
-                if price == 0.0 and representative.set_price:
+                if representative.set_price:
                     try: price = float(representative.set_price)
                     except: pass
 
@@ -282,16 +249,6 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                              row_img_url = img.image_url_small
                              break
 
-                # Fetch daily price if available
-                price = 0.0
-                card_id_str = str(card.id)
-                var_id_str = str(cv.variant_id)
-                if card_id_str in pricing_service.daily_pricing and var_id_str in pricing_service.daily_pricing[card_id_str]:
-                    cm_data = pricing_service.daily_pricing[card_id_str][var_id_str].get('cardmarket', {})
-                    if cm_data:
-                        latest_date = max(cm_data.keys())
-                        price = float(cm_data[latest_date])
-
                 for (lang, cond, first), qty in groups.items():
                      group_entries = [e for e in cv.entries if e.language == lang and e.condition == cond and e.first_edition == first]
                      rows.append(CollectorRow(
@@ -299,7 +256,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                         set_code=cv.set_code,
                         set_name="Custom / Unmatched",
                         rarity=cv.rarity,
-                        price=price,
+                        price=0.0,
                         image_url=row_img_url,
                         owned_count=qty,
                         is_owned=True,
@@ -1508,14 +1465,7 @@ class CollectionPage:
                     else:
                         ui.label(lang_code).classes('text-sm font-bold')
 
-                    metrics_config = config_manager.get_collection_metrics_config()
-                    if metrics_config.get('price_preview', False):
-                        if item.price > 0.0:
-                            ui.label(f"€{item.price:.2f}").classes('text-sm text-green-400')
-                        else:
-                            ui.label("N/A").classes('text-sm text-gray-500')
-                    else:
-                        ui.label("").classes('text-sm')
+                    ui.label(f"${item.price:.2f}").classes('text-sm text-green-400')
 
                     with ui.row().classes('w-full justify-center'):
                          if item.is_owned:
@@ -1566,12 +1516,7 @@ class CollectionPage:
                     with ui.column().classes('p-2 gap-0 w-full'):
                         ui.label(item.api_card.name).classes('text-xs font-bold truncate w-full')
                         ui.label(f"{item.rarity}").classes('text-[10px] text-gray-400')
-                        metrics_config = config_manager.get_collection_metrics_config()
-                        if metrics_config.get('price_preview', False):
-                            if item.price > 0.0:
-                                ui.label(f"€{item.price:.2f}").classes('text-xs text-green-400')
-                            else:
-                                ui.label("N/A").classes('text-xs text-gray-500')
+                        ui.label(f"${item.price:.2f}").classes('text-xs text-green-400')
 
                     self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
 
@@ -1802,7 +1747,7 @@ class CollectionPage:
 
             with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
                 if config['total_value']:
-                    metric_card('Value', f"€{self.metrics['total_value']:,.2f}", 'euro', 'positive')
+                    metric_card('Filtered Value', f"€{self.metrics['total_value']:,.2f}", 'euro', 'positive')
 
                 if config['unique_counts']:
                     metric_card('Unique Cards', f"{self.metrics['unique_cards']:,}", 'style', 'primary')
