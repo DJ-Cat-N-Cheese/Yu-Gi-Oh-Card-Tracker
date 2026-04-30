@@ -11,11 +11,11 @@ logger = logging.getLogger(__name__)
 
 class PricingService:
     def __init__(self):
-        self.daily_pricing_file = "data/daily_card_pricing.json"
-        self.offers_pricing_file = "data/cardmarket_offers_pricing.json"
+        self.daily_pricing_file = "data/prices/daily_card_pricing.json"
+        self.offers_pricing_file = "data/prices/cardmarket_offers_pricing.json"
 
         # Ensure data dir exists
-        os.makedirs("data", exist_ok=True)
+        os.makedirs("data/prices", exist_ok=True)
 
         # Load existing data
         self.daily_pricing = self._load_json(self.daily_pricing_file)
@@ -118,6 +118,17 @@ class PricingService:
             if rarity_match:
                 data['card_info']['rarity'] = rarity_match.group(1).strip()
 
+        # If the number is just a short 3-digit string (e.g., "078"), it's missing the set prefix.
+        # We can extract the "printed_in" set name from the definition list and map it to a set code prefix if possible.
+        printed_in = data['card_info'].get('printed_in', '')
+        number = data['card_info'].get('number', '')
+
+        # We can also attempt to extract the set prefix from the URL inside the HTML comments if it exists
+        # e.g., <!-- saved from url=(0078)https://www.cardmarket.com/en/YuGiOh/Products/Singles/Maze-of-Millennia/RESCUE -->
+        url_match = re.search(r'saved from url=\(\d+\)(https?://[^\s]+)', html_text)
+        if url_match:
+            data['card_info']['url'] = url_match.group(1).split('-->')[0].strip()
+
         # Extract Offers
         rows = soup.select('div.article-row')
         for row in rows:
@@ -194,13 +205,17 @@ class PricingService:
 
         # Attempt lookup by set code if we didn't find by name
         if not api_card and number:
-            for c in ygo_service._cards_cache.get('en', []):
-                for v in c.card_sets:
-                    if number.lower() in v.set_code.lower() or v.set_code.lower() in number.lower():
-                        api_card = c
+            # We must be careful if the number is extremely short (e.g., "078").
+            # A blind partial match will return the first random card like "LOD-048".
+            # We only do this fallback if the number has a hyphen (like "LOB-EN001") which strongly implies a full set code.
+            if '-' in number:
+                for c in ygo_service._cards_cache.get('en', []):
+                    for v in c.card_sets:
+                        if number.lower() in v.set_code.lower() or v.set_code.lower() in number.lower():
+                            api_card = c
+                            break
+                    if api_card:
                         break
-                if api_card:
-                    break
 
         if not api_card:
             return None, None, []
@@ -211,12 +226,28 @@ class PricingService:
 
         # Find matching variants
         candidates = []
+
+        printed_in = parsed_info['card_info'].get('printed_in', '')
+
         for v in api_card.card_sets:
             # Check number (set code) match
             if number:
                 # Need to allow loose matching for set code
                 if number.lower() not in v.set_code.lower() and v.set_code.lower() not in number.lower():
                     continue
+
+            # If the number was too loose (e.g. just "078" from Cardmarket),
+            # and we know the "Printed in" set name, filter by it to prevent capturing other sets like "LOD-048".
+            # For robustness, we only strictly filter if BOTH printed_in and v.set_name are well-populated.
+            if printed_in and v.set_name:
+                if printed_in.lower() not in v.set_name.lower() and v.set_name.lower() not in printed_in.lower():
+                    continue
+            # If printed_in didn't match or wasn't available, check if the extracted URL helps filter the set.
+            elif parsed_info['card_info'].get('url') and v.set_name:
+                url_slug = parsed_info['card_info']['url'].split('/')[-2].replace('-', ' ').lower()
+                if url_slug not in v.set_name.lower() and v.set_name.lower() not in url_slug:
+                    continue
+
             candidates.append(v)
 
         # Try to filter by rarity to narrow down candidates
