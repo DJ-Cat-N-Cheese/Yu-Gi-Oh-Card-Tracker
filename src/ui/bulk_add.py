@@ -1495,11 +1495,11 @@ class BulkAddPage:
             res = [e for e in res if matches(e)]
 
         s = self.state
-        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
-        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
-        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        if s['filter_card_type']: res = [e for e in res if e.api_card and any(t in e.api_card.type for t in s['filter_card_type'])]
+        if s['filter_attr']: res = [e for e in res if e.api_card and e.api_card.attribute == s['filter_attr']]
+        if s['filter_monster_race']: res = [e for e in res if e.api_card and "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if e.api_card and ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
+        if s['filter_archetype']: res = [e for e in res if e.api_card and e.api_card.archetype == s['filter_archetype']]
         if s['filter_set']:
              parts = s['filter_set'].split('|')
              name_target = parts[0].strip().lower()
@@ -1514,7 +1514,7 @@ class BulkAddPage:
              res = [e for e in res if e.rarity.lower() == target]
         if s['filter_monster_category']:
              cats = s['filter_monster_category']
-             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
+             res = [e for e in res if e.api_card and any(e.api_card.matches_category(cat) for cat in cats)]
         if s['filter_level'] is not None:
              res = [e for e in res if e.api_card.level == int(s['filter_level'])]
         atk_min, atk_max = s['filter_atk_min'], s['filter_atk_max']
@@ -1535,7 +1535,7 @@ class BulkAddPage:
         elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
         elif key == 'Price': res.sort(key=lambda x: x.price, reverse=reverse)
         elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
-        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
+        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id if x.api_card else 0, reverse=reverse)
 
         self.state['library_filtered'] = res
         self.state['library_page'] = 1
@@ -1585,11 +1585,11 @@ class BulkAddPage:
                         txt in e.api_card.desc.lower())
             res = [e for e in res if matches(e)]
 
-        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
-        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
-        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        if s['filter_card_type']: res = [e for e in res if e.api_card and any(t in e.api_card.type for t in s['filter_card_type'])]
+        if s['filter_attr']: res = [e for e in res if e.api_card and e.api_card.attribute == s['filter_attr']]
+        if s['filter_monster_race']: res = [e for e in res if e.api_card and "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if e.api_card and ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
+        if s['filter_archetype']: res = [e for e in res if e.api_card and e.api_card.archetype == s['filter_archetype']]
         if s['filter_set']:
              parts = s['filter_set'].split('|')
              name_target = parts[0].strip().lower()
@@ -1604,7 +1604,7 @@ class BulkAddPage:
              res = [e for e in res if e.rarity.lower() == target]
         if s['filter_monster_category']:
              cats = s['filter_monster_category']
-             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
+             res = [e for e in res if e.api_card and any(e.api_card.matches_category(cat) for cat in cats)]
         if s['filter_owned_lang']:
              res = [e for e in res if e.language == s['filter_owned_lang']]
         if s['filter_condition']:
