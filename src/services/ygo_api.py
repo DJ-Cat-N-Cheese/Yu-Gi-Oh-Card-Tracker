@@ -400,7 +400,7 @@ class YugiohService:
 
     async def update_card_variant(self, card_id: int, variant_id: str,
                                   set_code: str, set_rarity: str, image_id: int,
-                                  language: str = "en") -> bool:
+                                  language: str = "en", cardmarket_url: Optional[str] = None) -> bool:
         """
         Updates an existing card variant in the database.
         """
@@ -437,7 +437,8 @@ class YugiohService:
                 set_code=set_code,
                 set_rarity=set_rarity,
                 set_rarity_code=rarity_code,
-                image_id=image_id
+                image_id=image_id,
+                cardmarket_url=cardmarket_url
             )
             card.card_sets.append(new_set)
 
@@ -449,6 +450,8 @@ class YugiohService:
         variant.set_code = set_code
         variant.set_rarity = set_rarity
         variant.image_id = image_id
+        if cardmarket_url is not None:
+            variant.cardmarket_url = cardmarket_url
 
         # Update rarity code
         abbr = RARITY_ABBREVIATIONS.get(set_rarity)

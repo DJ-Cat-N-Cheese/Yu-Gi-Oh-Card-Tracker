@@ -378,7 +378,7 @@ class DbEditorPage:
         # Find all variants for this card
         all_card_rows = [r for r in self.state['cards_rows'] if r.api_card.id == row.api_card.id]
 
-        async def on_save(set_code, rarity, image_id):
+        async def on_save(set_code, rarity, image_id, cardmarket_url):
             logger.info(f"Saving changes for variant {row.variant_id}")
             success = await ygo_service.update_card_variant(
                 card_id=row.api_card.id,
@@ -386,7 +386,8 @@ class DbEditorPage:
                 set_code=set_code,
                 set_rarity=rarity,
                 image_id=image_id,
-                language=self.state['language']
+                language=self.state['language'],
+                cardmarket_url=cardmarket_url
             )
             if success:
                 # Reload data to reflect changes
@@ -1034,19 +1035,25 @@ class DbEditorPage:
                                     ui.label(str(len(item['parsed'].get('prices', []))))
                                     ui.label(str(len(item['parsed'].get('offers', []))))
 
-                        def finalize_import():
+                        async def finalize_import():
                             try:
                                 for item in dialog_state['parsed_results']:
+                                    # Use url from input if this is from URL and no url was in card_info
+                                    if item['source'] == 'URL' and 'url' not in item['parsed']['card_info'] and dialog_state['url_input']:
+                                        item['parsed']['card_info']['url'] = dialog_state['url_input']
+
                                     pricing_service.save_pricing_data(
                                         card_id=item['card_id'],
                                         variant_id=item['variant_id'],
                                         html_date=dialog_state['offers_date'], # User specified date
                                         parsed_data=item['parsed'],
                                         save_daily=dialog_state['import_daily'],
-                                        save_offers=dialog_state['import_offers']
+                                        save_offers=dialog_state['import_offers'],
+                                        ygo_service=ygo_service
                                     )
                                 ui.notify("Pricing imported successfully!", type='positive')
                                 dialog.close()
+                                await self.load_data()
                             except Exception as e:
                                 logger.error(f"Error finalizing import: {e}")
                                 ui.notify("Error saving data", type='negative')

@@ -1089,16 +1089,25 @@ class SingleCardView:
         set_code: str,
         rarity: str,
         image_id: int,
-        on_save_callback: Callable[[str, str, int], Any],
+        on_save_callback: Callable[[str, str, int, str], Any],
         on_delete_callback: Callable[[], Any] = None,
         on_add_callback: Callable[[str, str, int], Any] = None,
         known_variants: List[Any] = None
     ):
         try:
+            # find variant to get its cardmarket_url
+            cm_url = ""
+            if card.card_sets:
+                for s in card.card_sets:
+                    if s.variant_id == variant_id:
+                        cm_url = s.cardmarket_url or ""
+                        break
+
             input_state = {
                 'set_code': set_code,
                 'rarity': rarity,
-                'image_id': image_id
+                'image_id': image_id,
+                'cardmarket_url': cm_url
             }
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
@@ -1207,6 +1216,10 @@ class SingleCardView:
 
                             art_select.on_value_change(on_art_change)
 
+                            # Cardmarket URL input
+                            ui.input('Cardmarket URL', value=input_state['cardmarket_url'],
+                                     on_change=lambda e: input_state.update({'cardmarket_url': e.value})).classes('w-full').props('dark')
+
                             ui.separator().classes('q-my-md bg-gray-600')
 
                             # Actions
@@ -1244,7 +1257,8 @@ class SingleCardView:
                                         success = await on_save_callback(
                                             input_state['set_code'],
                                             input_state['rarity'],
-                                            input_state['image_id']
+                                            input_state['image_id'],
+                                            input_state['cardmarket_url']
                                         )
                                         if success:
                                             d.close()
