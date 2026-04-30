@@ -194,7 +194,13 @@ class PricingService:
 
         # Attempt lookup by set code if we didn't find by name
         if not api_card and number:
-            pass
+            for c in ygo_service._cards_cache.get('en', []):
+                for v in c.card_sets:
+                    if number.lower() in v.set_code.lower() or v.set_code.lower() in number.lower():
+                        api_card = c
+                        break
+                if api_card:
+                    break
 
         if not api_card:
             return None, None, []
@@ -208,24 +214,30 @@ class PricingService:
         for v in api_card.card_sets:
             # Check number (set code) match
             if number:
-                if number.lower() not in v.set_code.lower():
+                # Need to allow loose matching for set code
+                if number.lower() not in v.set_code.lower() and v.set_code.lower() not in number.lower():
                     continue
-
-            # Check rarity
-            if rarity:
-                db_rarity = v.set_rarity.lower()
-                parsed_rarity = rarity.lower()
-                # For exact matches, prioritize them later, but for filtering we need at least a substring
-                if parsed_rarity != db_rarity and parsed_rarity not in db_rarity and db_rarity not in parsed_rarity:
-                    continue
-
             candidates.append(v)
 
-        # Try to find an exact match first to narrow down candidates
+        # Try to filter by rarity to narrow down candidates
         if rarity:
-            exact_matches = [v for v in candidates if v.set_rarity.lower() == rarity.lower()]
+            parsed_rarity = rarity.lower()
+            rarity_filtered = []
+            exact_matches = []
+            for v in candidates:
+                db_rarity = v.set_rarity.lower()
+                if parsed_rarity == db_rarity:
+                    exact_matches.append(v)
+                    rarity_filtered.append(v)
+                elif parsed_rarity in db_rarity or db_rarity in parsed_rarity:
+                    rarity_filtered.append(v)
+
             if exact_matches:
                 candidates = exact_matches
+            elif rarity_filtered:
+                candidates = rarity_filtered
+            # Note: If rarity_filtered is empty, we DO NOT replace candidates.
+            # We keep the candidates that matched the set_code so the user can manually resolve the ambiguity!
 
         if len(candidates) == 1:
             # Exact match
