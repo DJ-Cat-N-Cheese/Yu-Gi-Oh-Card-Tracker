@@ -91,8 +91,9 @@ class PricingService:
             data['card_info']['title'] = title_el.text.strip()
 
         # Extract number, rarity, printed in from the definition list
-        dt_els = soup.select('dl.labeled dt')
-        dd_els = soup.select('dl.labeled dd')
+        # We also check general dt/dd pairs in case the class is missing or it's a div
+        dt_els = soup.select('dl.labeled dt') or soup.select('dt')
+        dd_els = soup.select('dl.labeled dd') or soup.select('dd')
 
         for dt, dd in zip(dt_els, dd_els):
             dt_text = dt.text.strip()
