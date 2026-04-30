@@ -103,14 +103,24 @@ class PricingService:
             elif dt_text == "Printed in":
                 data['card_info']['printed_in'] = dd_text
             elif dt_text == "Rarity":
-                # Rarity might be inside an svg title, or just text
+                # Rarity might be inside an svg title, wrapper span title, or just text
                 svg_el = dd.select_one('svg')
+                icon_span = dd.select_one('.icon')
+
                 if svg_el and svg_el.has_attr('data-bs-original-title'):
                     data['card_info']['rarity'] = svg_el['data-bs-original-title']
                 elif svg_el and svg_el.has_attr('aria-label'):
                     data['card_info']['rarity'] = svg_el['aria-label']
+                elif icon_span and icon_span.has_attr('title'):
+                    data['card_info']['rarity'] = icon_span['title']
+                elif icon_span and icon_span.has_attr('data-bs-original-title'):
+                    data['card_info']['rarity'] = icon_span['data-bs-original-title']
                 else:
                     data['card_info']['rarity'] = dd_text
+
+        # Strip string to handle empty space
+        if 'rarity' in data['card_info'] and isinstance(data['card_info']['rarity'], str):
+            data['card_info']['rarity'] = data['card_info']['rarity'].strip()
 
         # Try to infer rarity from title if not found (e.g. "(V.1 - Secret Rare)")
         if 'rarity' not in data['card_info'] or not data['card_info']['rarity']:
