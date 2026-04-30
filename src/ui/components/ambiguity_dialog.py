@@ -49,7 +49,8 @@ class AmbiguityDialog(ui.dialog):
         self.ocr_set_id = scan_result.get('raw_ocr', [{}])[0].get('set_id')
 
         # Trigger async load
-        ui.timer(0.1, self.load_full_data, once=True)
+        self.timer = ui.timer(0.1, self.load_full_data, once=True)
+        self.on('close', lambda e: self.timer.cancel() if hasattr(self, 'timer') else None)
 
         with self, ui.card().classes('w-[900px] h-[700px] flex flex-row p-4 gap-4'):
              # LEFT: Image Preview

@@ -516,6 +516,7 @@ class SingleCardView:
         storage_options: Dict[str, str] = None
     ):
         try:
+            active_timers = []
             set_options = {}
             set_info_map = {}
             rarity_map = {}
@@ -621,6 +622,7 @@ class SingleCardView:
                 return cur_owned, text
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+                d.on('close', lambda e: [t.cancel() for t in active_timers])
                 d.open()
                 ui.button(icon='close', on_click=d.close).props('flat round color=white bg-black/50').classes('absolute top-2 right-2 z-50')
 
@@ -732,7 +734,8 @@ class SingleCardView:
                                 lbl_set_price = info_label('Set Price', f"${set_price:.2f}" if set_price else "-", 'purple-400')
 
                                 # Immediately trigger stat update to load daily prices for cm_price
-                                ui.timer(0.1, lambda: update_display_stats(), once=True)
+                                t = ui.timer(0.1, lambda: update_display_stats(), once=True)
+                                active_timers.append(t)
 
                         def update_display_stats():
                             base_code = input_state['set_base_code']

@@ -52,7 +52,8 @@ class StructureDeckDialog:
                     self.add_btn.disable()
 
         # Start loading decks
-        ui.timer(0.1, self._load_decks, once=True)
+        self.timer = ui.timer(0.1, self._load_decks, once=True)
+        self.dialog.on('close', lambda e: self.timer.cancel() if hasattr(self, 'timer') else None)
 
     async def _load_decks(self):
         self.deck_select.disable()
