@@ -1,4 +1,6 @@
+from src.services.pricing_service import pricing_service
 
+code = """
 <<<<<<< SEARCH
         # Filter by rarity from HTML (using existing mapping table) before deferring to ambiguity
         if len(top_candidates) > 1 and rarity:
@@ -73,3 +75,8 @@
         # Ambiguous (either tied scores or very weak matches)
         return card_id, None, top_candidates
 >>>>>>> REPLACE
+"""
+
+import sys
+with open('patch_tmp.txt', 'w') as f:
+    f.write(code)
