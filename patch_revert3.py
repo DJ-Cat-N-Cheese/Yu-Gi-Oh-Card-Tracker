@@ -1,4 +1,6 @@
+from src.services.pricing_service import pricing_service
 
+code = """
 <<<<<<< SEARCH
         # Ambiguous (either tied scores or very weak matches)
         return card_id, None, top_candidates
@@ -14,3 +16,8 @@
         # Ambiguous (either tied scores or very weak matches)
         return card_id, None, top_candidates
 >>>>>>> REPLACE
+"""
+
+import sys
+with open('patch_tmp.txt', 'w') as f:
+    f.write(code)
