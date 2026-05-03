@@ -233,7 +233,7 @@ class PricingService:
 
         # Clean title (remove (V.X) and suffix)
         import re
-        clean_name = re.sub(r'\s*\(V\.\d+\s*-\s*[^\)]+\)', '', title)
+        clean_name = re.sub(r'\s*\(V\.\d+(?:\s*-\s*[^\)]+)?\)', '', title)
         clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
 
         api_card = None
@@ -326,7 +326,7 @@ class PricingService:
         scored_variants.sort(key=lambda x: x[0], reverse=True)
 
         if not scored_variants:
-            return card_id, None, []
+            return card_id, None, api_card.card_sets
 
         top_score = scored_variants[0][0]
         # Gather all variants that tie for the top score (could be alternate arts of the exact same set)
