@@ -574,12 +574,33 @@ class CollectionPage:
             self.update_pagination_labels()
             return
 
+        # Use run.io_bound for the heavy lifting of filtering and sorting if there are many items
+        if len(source) > 2000:
+            res = await run.io_bound(self._filter_and_sort_task, source)
+        else:
+            res = self._filter_and_sort_task(source)
+
+        self.state['filtered_items'] = res
+        if reset_page:
+            self.state['page'] = 1
+        self.update_pagination()
+
+        await self.calculate_metrics()
+
+        await self.prepare_current_page_images()
+        if hasattr(self, 'render_card_display'): self.render_card_display.refresh()
+        self.update_pagination_labels()
+        if hasattr(self, 'render_metrics_area'): self.render_metrics_area.refresh()
+
+    def _filter_and_sort_task(self, source: List) -> List:
         res = list(source)
 
         txt = self.state['search_text'].lower()
         if txt:
             def matches_search(item):
                 # 1. Check common fields
+                # Optimization: Access name/type/desc directly, avoid repeated .lower() if possible?
+                # (api_card strings are likely already the right case or not too long)
                 if (txt in item.api_card.name.lower() or
                     txt in item.api_card.type.lower() or
                     txt in item.api_card.desc.lower()):
@@ -749,6 +770,7 @@ class CollectionPage:
         elif key == 'Newest':
             timestamp_map = {}
             if self.state['selected_file']:
+                # Optimization: changelog_manager.load_history should ideally be cached if not changed
                 history = changelog_manager.load_history(self.state['selected_file'])
                 for entry in history:
                     ts = entry.get('timestamp', 0)
@@ -789,17 +811,7 @@ class CollectionPage:
             else:
                 res.sort(key=lambda x: x.set_code, reverse=reverse)
 
-        self.state['filtered_items'] = res
-        if reset_page:
-            self.state['page'] = 1
-        self.update_pagination()
-
-        await self.calculate_metrics()
-
-        await self.prepare_current_page_images()
-        if hasattr(self, 'render_card_display'): self.render_card_display.refresh()
-        self.update_pagination_labels()
-        if hasattr(self, 'render_metrics_area'): self.render_metrics_area.refresh()
+        return res
 
     async def calculate_metrics(self):
         from src.services.pricing_service import pricing_service
@@ -819,47 +831,52 @@ class CollectionPage:
         unique_card_ids = set()
         unique_variant_ids = set()
 
+        # Optimization: Pre-build a lookup for the collection to avoid O(N*M) nested loops
+        owned_card_map = {}
+        if self.state['current_collection']:
+            owned_card_map = {c.card_id: c for c in self.state['current_collection'].cards}
+
         if self.state['view_scope'] == 'consolidated':
-            for vm in self.state['filtered_items']:
+            for i, vm in enumerate(self.state['filtered_items']):
+                # Yield to the event loop periodically for very large collections
+                if i > 0 and i % 500 == 0:
+                    await asyncio.sleep(0)
+
                 if vm.owned_quantity > 0:
                     unique_card_ids.add(vm.api_card.id)
 
-                    # Need to check the actual collection to get variants
-                    if self.state['current_collection']:
-                        for c in self.state['current_collection'].cards:
-                            if c.card_id == vm.api_card.id:
-                                for v in c.variants:
-                                    # apply current filters to variant?
-                                    # this is a bit tricky for consolidated view since filters are applied at card level.
-                                    # however, we want the value of the filtered set.
-                                    # We can check if the variant matches filters.
+                    c_card = owned_card_map.get(vm.api_card.id)
+                    if c_card:
+                        for v in c_card.variants:
+                            # Simplified: check language and condition filters since we have them at variant entry level.
+                            var_qty = 0
+                            for e in v.entries:
+                                if e.quantity > 0:
+                                    # Apply lang/cond/storage filters to entries
+                                    if self.state['filter_owned_lang'] and e.language != self.state['filter_owned_lang']: continue
+                                    if self.state['filter_condition'] and e.condition not in self.state['filter_condition']: continue
+                                    if self.state['filter_storage']:
+                                        loc = e.storage_location if e.storage_location else 'None'
+                                        if loc not in self.state['filter_storage']: continue
 
-                                    # Simplified: check language and condition filters since we have them at variant entry level.
-                                    var_qty = 0
-                                    for e in v.entries:
-                                        if e.quantity > 0:
-                                            # Apply lang/cond/storage filters to entries
-                                            if self.state['filter_owned_lang'] and e.language != self.state['filter_owned_lang']: continue
-                                            if self.state['filter_condition'] and e.condition not in self.state['filter_condition']: continue
-                                            if self.state['filter_storage']:
-                                                loc = e.storage_location if e.storage_location else 'None'
-                                                if loc not in self.state['filter_storage']: continue
+                                    var_qty += e.quantity
 
-                                            var_qty += e.quantity
+                                    # Update distributions
+                                    self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
+                                    self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
+                                    self.metrics['total_qty'] += e.quantity
 
-                                            # Update distributions
-                                            self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
-                                            self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
-                                            self.metrics['total_qty'] += e.quantity
-
-                                    if var_qty > 0:
-                                        unique_variant_ids.add(v.variant_id)
-                                        price = get_display_price_for_variant(vm.api_card, v.variant_id)
-                                        self.metrics['total_value'] += price * var_qty
-                                break
+                            if var_qty > 0:
+                                unique_variant_ids.add(v.variant_id)
+                                price = get_display_price_for_variant(vm.api_card, v.variant_id)
+                                self.metrics['total_value'] += price * var_qty
         else:
             # Collectors view
-            for row in self.state['filtered_items']:
+            for i, row in enumerate(self.state['filtered_items']):
+                # Yield to the event loop periodically
+                if i > 0 and i % 1000 == 0:
+                    await asyncio.sleep(0)
+
                 if row.owned_count > 0:
                     unique_card_ids.add(row.api_card.id)
                     if row.variant_id:
