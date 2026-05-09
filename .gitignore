@@ -10,3 +10,4 @@ venv/
 .DS_Store
 data/*
 !data/binder_1.json
+node_modules/

@@ -192,10 +192,13 @@ class PricingService:
         if printed_in:
             for c in ygo_service._cards_cache.get('en', []):
                 for v in c.card_sets:
-                    if v.set_name and printed_in.lower() in v.set_name.lower():
-                        if '-' in v.set_code:
-                            prefix = v.set_code.split('-')[0]
-                            break
+                    if v.set_name:
+                        sn_lower = v.set_name.lower()
+                        pi_lower = printed_in.lower()
+                        if pi_lower in sn_lower or sn_lower in pi_lower:
+                            if '-' in v.set_code:
+                                prefix = v.set_code.split('-')[0]
+                                break
                 if prefix:
                     break
 
@@ -250,12 +253,34 @@ class PricingService:
 
         # 2. Fallback Lookup: Name
         if not api_card and clean_name:
+            # Strip common suffixes that might be lingering
+            clean_name = re.sub(r'\s*-\s*Yu-Gi-Oh!$', '', clean_name, flags=re.IGNORECASE).strip()
             api_card = ygo_service.search_by_name(clean_name, language='en')
+
+            if not api_card:
+                # Try progressively splitting by " - " and matching parts
+                parts = clean_name.split(' - ')
+                for i in range(len(parts), 0, -1):
+                    attempt = ' - '.join(parts[:i]).strip()
+                    api_card = ygo_service.search_by_name(attempt, language='en')
+                    if api_card:
+                        break
+
             if not api_card:
                 # remove just the rarity if present
                 clean_name = re.sub(r'\s*\([^\)]+(?:Rare|Common|Ultimate|Ghost|Prismatic)\)', '', title).strip()
                 clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
+                clean_name = re.sub(r'\s*-\s*Yu-Gi-Oh!$', '', clean_name, flags=re.IGNORECASE).strip()
                 api_card = ygo_service.search_by_name(clean_name, language='en')
+
+                if not api_card:
+                    # Try progressively splitting by " - " again on the fallback name
+                    parts = clean_name.split(' - ')
+                    for i in range(len(parts), 0, -1):
+                        attempt = ' - '.join(parts[:i]).strip()
+                        api_card = ygo_service.search_by_name(attempt, language='en')
+                        if api_card:
+                            break
 
         if not api_card:
             return None, None, []
