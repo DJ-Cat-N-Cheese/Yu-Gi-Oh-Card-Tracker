@@ -739,7 +739,7 @@ class CollectionPage:
         reverse = self.state.get('sort_descending', False)
 
         if key == 'Name':
-            res.sort(key=lambda x: (x.api_card.name or ''), reverse=reverse)
+            res.sort(key=lambda x: x.api_card.name, reverse=reverse)
         elif key == 'ATK':
             res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
         elif key == 'DEF':
@@ -783,11 +783,11 @@ class CollectionPage:
                 # Sort by the first set code found
                 def get_set_code(x):
                     if x.api_card.card_sets:
-                         return (x.api_card.card_sets[0].set_code or '')
+                         return x.api_card.card_sets[0].set_code
                     return ""
                 res.sort(key=get_set_code, reverse=reverse)
             else:
-                res.sort(key=lambda x: (x.set_code or ''), reverse=reverse)
+                res.sort(key=lambda x: x.set_code, reverse=reverse)
 
         self.state['filtered_items'] = res
         if reset_page:

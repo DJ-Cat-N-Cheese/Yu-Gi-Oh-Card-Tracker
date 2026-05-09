@@ -581,7 +581,7 @@ class StoragePage:
         desc = self.state['storage_detail_sort_desc']
 
         if key == 'Name':
-            res.sort(key=lambda x: (x.api_card.name or ''), reverse=desc)
+            res.sort(key=lambda x: x.api_card.name, reverse=desc)
         elif key == 'ATK':
             res.sort(key=lambda x: (x.api_card.atk or -1), reverse=desc)
         elif key == 'DEF':
@@ -595,7 +595,7 @@ class StoragePage:
         elif key == 'Quantity':
              res.sort(key=lambda x: x.quantity, reverse=desc)
         elif key == 'Set Code':
-            res.sort(key=lambda x: (x.set_code or ''), reverse=desc)
+            res.sort(key=lambda x: x.set_code, reverse=desc)
 
         self.state['filtered_rows'] = res
         self.update_pagination()
@@ -618,7 +618,7 @@ class StoragePage:
 
         def get_sort_key(s):
             if key == 'Name':
-                return (s.get('name') or '').lower()
+                return s['name'].lower()
             elif key == 'Count':
                 return self.state['storage_counts'].get(s['name'], 0)
             return s['name']

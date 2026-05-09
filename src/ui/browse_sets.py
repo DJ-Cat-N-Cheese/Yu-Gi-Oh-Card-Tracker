@@ -429,7 +429,7 @@ class BrowseSetsPage:
         desc = self.state['sort_desc']
 
         if key == 'Name':
-            res.sort(key=lambda x: (x.get('name') or ''), reverse=desc)
+            res.sort(key=lambda x: x['name'], reverse=desc)
         elif key == 'Date':
             def date_key(x):
                 d = x.get('date')
@@ -589,7 +589,7 @@ class BrowseSetsPage:
         desc = self.state['detail_sort_desc']
 
         if key == 'Name':
-            res.sort(key=lambda x: (x.api_card.name or ''), reverse=desc)
+            res.sort(key=lambda x: x.api_card.name, reverse=desc)
         elif key == 'Rarity':
             # Use RARITY_RANKING index
             def rarity_rank(x):
@@ -625,11 +625,11 @@ class BrowseSetsPage:
                      if x.api_card.card_sets:
                          for s in x.api_card.card_sets:
                              if s.set_code.split('-')[0].lower() == current_set_prefix:
-                                 return (s.set_code or '')
-                         return (x.api_card.card_sets[0].set_code or '')
+                                 return s.set_code
+                         return x.api_card.card_sets[0].set_code
                      return ""
                  else:
-                     return (x.set_code or '')
+                     return x.set_code
              res.sort(key=get_set_code, reverse=desc)
 
         self.state['detail_filtered_rows'] = res

@@ -1488,17 +1488,17 @@ class BulkAddPage:
         txt = self.state['library_search_text'].lower()
         if txt:
             def matches(e: LibraryEntry):
-                return (txt in (e.api_card.name or '').lower() or
-                        txt in (e.set_code or '').lower() or
+                return (txt in e.api_card.name.lower() or
+                        txt in e.set_code.lower() or
                         txt in e.set_name.lower() or
-                        txt in (e.api_card.desc or '').lower())
+                        txt in e.api_card.desc.lower())
             res = [e for e in res if matches(e)]
 
         s = self.state
-        if s['filter_card_type']: res = [e for e in res if any(t in (e.api_card.type or '') for t in s['filter_card_type'])]
+        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
         if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in (e.api_card.type or '') and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in (e.api_card.type or '') or "Trap" in (e.api_card.type or '')) and e.api_card.race == s['filter_st_race']]
+        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
         if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
         if s['filter_set']:
              parts = s['filter_set'].split('|')
@@ -1506,9 +1506,9 @@ class BulkAddPage:
              code_target = parts[1].strip().lower() if len(parts) > 1 else None
 
              if code_target:
-                 res = [e for e in res if code_target in (e.set_code or '').lower()]
+                 res = [e for e in res if code_target in e.set_code.lower()]
              else:
-                 res = [e for e in res if name_target in (e.set_name or '').lower() or name_target in (e.set_code or '').lower()]
+                 res = [e for e in res if name_target in e.set_name.lower() or name_target in e.set_code.lower()]
         if s['filter_rarity']:
              target = s['filter_rarity'].lower()
              res = [e for e in res if e.rarity.lower() == target]
@@ -1529,12 +1529,12 @@ class BulkAddPage:
 
         key = s['library_sort_by']
         reverse = s['library_sort_desc']
-        if key == 'Name': res.sort(key=lambda x: (x.api_card.name or ''), reverse=reverse)
+        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
         elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
         elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
         elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
-        elif key == 'Price': res.sort(key=lambda x: (x.price or 0.0), reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: (x.set_code or ''), reverse=reverse)
+        elif key == 'Price': res.sort(key=lambda x: x.price, reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
         elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
 
         self.state['library_filtered'] = res
@@ -1580,15 +1580,15 @@ class BulkAddPage:
         txt = s['search_text'].lower()
         if txt:
             def matches(e: BulkCollectionEntry):
-                return (txt in (e.api_card.name or '').lower() or
-                        txt in (e.set_code or '').lower() or
-                        txt in (e.api_card.desc or '').lower())
+                return (txt in e.api_card.name.lower() or
+                        txt in e.set_code.lower() or
+                        txt in e.api_card.desc.lower())
             res = [e for e in res if matches(e)]
 
-        if s['filter_card_type']: res = [e for e in res if any(t in (e.api_card.type or '') for t in s['filter_card_type'])]
+        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
         if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in (e.api_card.type or '') and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in (e.api_card.type or '') or "Trap" in (e.api_card.type or '')) and e.api_card.race == s['filter_st_race']]
+        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
+        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
         if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
         if s['filter_set']:
              parts = s['filter_set'].split('|')
@@ -1596,9 +1596,9 @@ class BulkAddPage:
              code_target = parts[1].strip().lower() if len(parts) > 1 else None
 
              if code_target:
-                 res = [e for e in res if code_target in (e.set_code or '').lower()]
+                 res = [e for e in res if code_target in e.set_code.lower()]
              else:
-                 res = [e for e in res if name_target in (e.set_name or '').lower() or name_target in (e.set_code or '').lower()]
+                 res = [e for e in res if name_target in e.set_name.lower() or name_target in e.set_code.lower()]
         if s['filter_rarity']:
              target = s['filter_rarity'].lower()
              res = [e for e in res if e.rarity.lower() == target]
@@ -1618,11 +1618,11 @@ class BulkAddPage:
 
         key = s['sort_by']
         reverse = s['sort_desc']
-        if key == 'Name': res.sort(key=lambda x: (x.api_card.name or ''), reverse=reverse)
+        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
         elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
         elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
         elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: (x.set_code or ''), reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
         elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
         elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
 
