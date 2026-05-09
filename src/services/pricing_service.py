@@ -228,25 +228,13 @@ class PricingService:
         """
         title = parsed_info['card_info'].get('title', '')
         rarity = parsed_info['card_info'].get('rarity', '')
-        url = parsed_info['card_info'].get('url', '')
-
-        # Fallback if title is obscured by Cloudflare or missing
-        if not title or "Just a moment" in title or title == "Access denied":
-            if url:
-                import re
-                slug = url.split('/')[-1]
-                # Strip out common suffixes like -V2 or -Rarity
-                slug = re.sub(r'-V\d+.*$', '', slug, flags=re.IGNORECASE)
-                title = slug.replace('-', ' ')
-                parsed_info['card_info']['title'] = title
-
         target_set_code = self._infer_target_set_code(parsed_info, ygo_service)
         parsed_info['card_info']['target_set_code'] = target_set_code
 
         # Clean title (remove (V.X) and suffix)
         import re
         clean_name = re.sub(r'\s*\(V\.\d+(?:\s*-\s*[^\)]+)?\)', '', title)
-        clean_name = re.split(r'\s*-\s*YGO Singles|\s*\|\s*Yu-Gi-Oh!', clean_name)[0].strip()
+        clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
 
         api_card = None
 
@@ -266,17 +254,8 @@ class PricingService:
             if not api_card:
                 # remove just the rarity if present
                 clean_name = re.sub(r'\s*\([^\)]+(?:Rare|Common|Ultimate|Ghost|Prismatic)\)', '', title).strip()
-                clean_name = re.split(r'\s*-\s*YGO Singles|\s*\|\s*Yu-Gi-Oh!', clean_name)[0].strip()
+                clean_name = re.split(r'\s*-\s*YGO Singles', clean_name)[0].strip()
                 api_card = ygo_service.search_by_name(clean_name, language='en')
-
-            if not api_card:
-                # fuzzy alphanumeric fallback for inferred URL titles that lost hyphens (e.g. "Black Luster Soldier Envoy of the Beginning")
-                alphanumeric_clean = re.sub(r'[^a-zA-Z0-9]', '', clean_name).lower()
-                if alphanumeric_clean:
-                    for c in ygo_service._cards_cache.get('en', []):
-                        if re.sub(r'[^a-zA-Z0-9]', '', c.name).lower() == alphanumeric_clean:
-                            api_card = c
-                            break
 
         if not api_card:
             return None, None, []
