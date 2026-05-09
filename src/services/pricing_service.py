@@ -282,6 +282,20 @@ class PricingService:
                         if api_card:
                             break
 
+            if not api_card:
+                # One last attempt: Cardmarket often puts set prefixes or rarity codes in parentheses in the title
+                # e.g., "Mulcharmy Meowls (L26D)". Try aggressively stripping ANY parentheses blocks before the set name.
+                attempt = re.sub(r'\s*\([^)]+\)', '', clean_name).strip()
+                api_card = ygo_service.search_by_name(attempt, language='en')
+                if not api_card:
+                    # Also try stripping it and THEN splitting by " - "
+                    parts = attempt.split(' - ')
+                    for i in range(len(parts), 0, -1):
+                        sub_attempt = ' - '.join(parts[:i]).strip()
+                        api_card = ygo_service.search_by_name(sub_attempt, language='en')
+                        if api_card:
+                            break
+
         if not api_card:
             return None, None, []
 
