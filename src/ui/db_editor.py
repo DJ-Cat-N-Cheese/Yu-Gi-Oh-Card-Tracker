@@ -151,7 +151,7 @@ class DbEditorPage:
             if "Monster" in c.type: m_races.add(c.race)
             elif ("Spell" in c.type or "Trap" in c.type) and c.race: st_races.add(c.race)
 
-        self.state['available_sets'] = sorted(list(sets))
+        self.state['available_sets'] = sorted([s for s in sets if s])
         self.state['available_monster_races'] = sorted([r for r in list(m_races) if r])
         self.state['available_st_races'] = sorted([r for r in list(st_races) if r])
         self.state['available_archetypes'] = sorted([a for a in list(archetypes) if a])

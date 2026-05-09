@@ -613,10 +613,10 @@ class ScanPage:
                 elif "Spell" in c.type or "Trap" in c.type:
                     if c.race: st_races.add(c.race)
 
-            self.col_state['available_sets'] = sorted(list(sets))
-            self.col_state['available_monster_races'] = sorted(list(m_races))
-            self.col_state['available_st_races'] = sorted(list(st_races))
-            self.col_state['available_archetypes'] = sorted(list(archetypes))
+            self.col_state['available_sets'] = sorted([s for s in sets if s])
+            self.col_state['available_monster_races'] = sorted([r for r in m_races if r])
+            self.col_state['available_st_races'] = sorted([r for r in st_races if r])
+            self.col_state['available_archetypes'] = sorted([a for a in archetypes if a])
 
             # Initial Data Load (Recent Scans -> View Model)
             await self.load_data()
