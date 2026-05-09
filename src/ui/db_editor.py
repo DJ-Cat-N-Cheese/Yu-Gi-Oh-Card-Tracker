@@ -915,7 +915,15 @@ class DbEditorPage:
                             ui.notify("Processing...", type='info')
 
                             # Process Files
-                            for f in dialog_state['files']:
+                            total_files = len(dialog_state['files'])
+                            progress_notify = ui.notify("Processing files...", type='info', timeout=0) if total_files > 0 else None
+
+                            for i, f in enumerate(dialog_state['files']):
+                                await asyncio.sleep(0)  # Yield to event loop to prevent UI freezing
+                                logger.info(f"Processing file {i+1}/{total_files}: {f['name']}")
+                                if progress_notify and i % max(1, total_files // 10) == 0:
+                                    progress_notify.message = f"Processing file {i+1} of {total_files}..."
+
                                 try:
                                     html_text = f['content'].decode('utf-8')
                                     parsed = pricing_service.parse_cardmarket_html(html_text)
@@ -929,6 +937,9 @@ class DbEditorPage:
                                 except Exception as e:
                                     logger.error(f"Failed to parse file {f['name']}: {e}")
                                     ui.notify(f"Failed to parse {f['name']}", type='negative')
+
+                            if progress_notify:
+                                progress_notify.dismiss()
 
                             # Process URL
                             if dialog_state['url_input']:
