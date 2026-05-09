@@ -9,6 +9,40 @@ mock_ui = MagicMock()
 sys.modules['nicegui'] = mock_ui
 sys.modules['nicegui.ui'] = mock_ui
 
+# Mock yaml
+mock_yaml = MagicMock()
+sys.modules['yaml'] = mock_yaml
+
+# Mock pydantic
+class MockBaseModel:
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+    @classmethod
+    def model_validate(cls, obj):
+        return obj
+
+mock_pydantic = MagicMock()
+mock_pydantic.BaseModel = MockBaseModel
+sys.modules['pydantic'] = mock_pydantic
+
+# Mock requests
+mock_requests = MagicMock()
+sys.modules['requests'] = mock_requests
+
+# Mock aiohttp
+mock_aiohttp = MagicMock()
+sys.modules['aiohttp'] = mock_aiohttp
+
+# Mock PIL
+mock_pil = MagicMock()
+sys.modules['PIL'] = mock_pil
+sys.modules['PIL.Image'] = mock_pil.Image
+
+# Mock bs4
+mock_bs4 = MagicMock()
+sys.modules['bs4'] = mock_bs4
+
 # Ensure src is in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 

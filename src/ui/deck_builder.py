@@ -245,14 +245,15 @@ class DeckBuilderPage:
         return usage
 
     def calculate_deck_counts(self) -> Dict[int, int]:
-        """Calculates total quantities of each card across Main, Extra, and Side decks."""
+        """Calculates total quantities of each card across Main, Extra, and Side decks, aggregated by Base ID."""
         deck = self.state['current_deck']
         if not deck: return {}
 
         counts = {}
         for zone in ['main', 'extra', 'side']:
             for cid in getattr(deck, zone, []):
-                counts[cid] = counts.get(cid, 0) + 1
+                base_id = self._resolve_card_id(cid)
+                counts[base_id] = counts.get(base_id, 0) + 1
         return counts
 
     def calculate_genesys_points(self) -> int:
@@ -266,7 +267,8 @@ class DeckBuilderPage:
 
         for zone in ['main', 'extra', 'side']:
             for cid in getattr(deck, zone, []):
-                val_str = ban_map.get(str(cid), "0")
+                base_id = self._resolve_card_id(cid)
+                val_str = ban_map.get(str(base_id), "0")
                 if val_str.isdigit():
                     total += int(val_str)
         return total
@@ -312,7 +314,7 @@ class DeckBuilderPage:
                 # Flag zones containing violated cards
                 for zone in ['main', 'extra', 'side']:
                     zone_cards = getattr(deck, zone, [])
-                    if any(cid in violated_cards for cid in zone_cards):
+                    if any(self._resolve_card_id(cid) in violated_cards for cid in zone_cards):
                         violations[zone] = True
 
         return violations
@@ -420,22 +422,25 @@ class DeckBuilderPage:
 
         # Process Main
         for card_id in current_deck.main:
-            if owned_map.get(card_id, 0) > 0:
-                owned_map[card_id] -= 1
+            base_id = self._resolve_card_id(card_id)
+            if owned_map.get(base_id, 0) > 0:
+                owned_map[base_id] -= 1
             else:
                 missing_deck.main.append(card_id)
 
         # Process Extra
         for card_id in current_deck.extra:
-            if owned_map.get(card_id, 0) > 0:
-                owned_map[card_id] -= 1
+            base_id = self._resolve_card_id(card_id)
+            if owned_map.get(base_id, 0) > 0:
+                owned_map[base_id] -= 1
             else:
                 missing_deck.extra.append(card_id)
 
         # Process Side
         for card_id in current_deck.side:
-            if owned_map.get(card_id, 0) > 0:
-                owned_map[card_id] -= 1
+            base_id = self._resolve_card_id(card_id)
+            if owned_map.get(base_id, 0) > 0:
+                owned_map[base_id] -= 1
             else:
                 missing_deck.side.append(card_id)
 
@@ -1445,40 +1450,9 @@ class DeckBuilderPage:
 
         img_src = f"/images/{img_id}.jpg" if image_manager.image_exists(img_id) else url_small
 
-        # Ownership
-        # We need to check ownership using Base ID because Collection aggregates by Base ID
-        base_id = card.id
-        # Note: usage_counter tracks specific ID usage.
-        # But ownership is shared across all variants of the base card.
-        # So we need to track usage of the BASE card to compare against OWNED total.
-        # However, usage_counter is passed in from _refresh_zone_content which iterates deck IDs.
-        # If deck has 1x Base and 1x Alt, usage_counter will have separate entries.
-        # This means we might overestimate availability if we don't aggregate usage.
-        # But modifying usage_counter structure here is risky as it is used for "used_so_far".
-
-        # Correct approach:
-        # We need a shared counter for Base IDs passed down from _refresh_zone_content.
-        # But _refresh_zone_content only passes a Dict[int, int].
-        # Let's check owned_map. It is keyed by Base ID (card_id).
-
-        # If we want strict ownership checking, we should probably track usage by base_id.
-        # But for now, let's just resolve to Base ID for lookup.
-        # If the user has 3x Blue Eyes, and deck has 3x Blue Eyes (Alt Art),
-        # usage_counter[AltID] will go 0, 1, 2.
-        # owned_map[BaseID] is 3.
-        # 0 < 3 (True), 1 < 3 (True), 2 < 3 (True). Works.
-
-        # BUT if deck has 3x Base and 3x Alt.
-        # Base: usage 0,1,2. All < 3. OK.
-        # Alt: usage 0,1,2. All < 3. OK.
-        # Total used: 6. Owned: 3. Result: All 6 marked owned? WRONG.
-
-        # FIX: We need to count usage by BASE ID.
-        # I will change usage_counter to key by Base ID.
-        # But wait, _render_deck_card is called in a loop.
-        # If I resolve card_id to Base ID, I can update usage_counter[BaseID].
-
-        base_id = card.id
+        # Ownership Check
+        # We track usage by Base ID to accurately compare against total owned copies in the collection.
+        base_id = self._resolve_card_id(card_id)
         used_so_far = usage_counter.get(base_id, 0)
 
         is_owned_copy = True
@@ -1502,7 +1476,7 @@ class DeckBuilderPage:
             with ui.element('div').classes('absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center'):
                 ui.icon('remove', color='white').classes('text-lg')
 
-            self._render_ban_icon(card.id)
+            self._render_ban_icon(card_id)
 
             # Warning Logic
             warnings = []
@@ -1816,13 +1790,14 @@ class DeckBuilderPage:
                      # This ensures that if we have enough Owned copies, this one is colored.
                      # If we exceeded Owned copies, this NEW one becomes Grayscale, preserving the others.
 
+                     base_id = self._resolve_card_id(new_card_id)
                      global_usage = self.calculate_global_usage()
-                     total_copies = global_usage.get(new_card_id, 0)
+                     total_copies = global_usage.get(base_id, 0)
 
                      # The 'usage_so_far' passed to _render_deck_card is the count of *previous* copies.
                      # Since we want this card to be the Last one, we say there are (Total - 1) copies before it.
                      used_so_far = max(0, total_copies - 1)
-                     usage_counter = {new_card_id: used_so_far}
+                     usage_counter = {base_id: used_so_far}
 
                      # 4. Render the new real card (appends to end)
                      grid = self.deck_grids[to_zone]
