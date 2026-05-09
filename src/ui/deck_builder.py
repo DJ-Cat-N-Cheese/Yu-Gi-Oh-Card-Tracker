@@ -366,7 +366,7 @@ class DeckBuilderPage:
             })
 
         # Sort by name for nicer output
-        export_list.sort(key=lambda x: x['name'])
+        export_list.sort(key=lambda x: (x.get('name') or ''))
         return export_list
 
     def generate_csv_export(self, data: List[Dict]) -> str:
@@ -805,7 +805,7 @@ class DeckBuilderPage:
         reverse = self.state['sort_descending']
 
         if key == 'Name':
-            res.sort(key=lambda x: x.name, reverse=reverse)
+            res.sort(key=lambda x: (x.name or ''), reverse=reverse)
         elif key == 'ATK':
             res.sort(key=lambda x: (x.atk or -1), reverse=reverse)
         elif key == 'DEF':
@@ -820,7 +820,7 @@ class DeckBuilderPage:
              res.sort(key=lambda x: get_qty(x), reverse=reverse)
         elif key == 'Set Code':
              def get_set_code(x):
-                 if x.card_sets: return x.card_sets[0].set_code
+                 if x.card_sets: return (x.card_sets[0].set_code or '')
                  return ""
              res.sort(key=get_set_code, reverse=reverse)
 

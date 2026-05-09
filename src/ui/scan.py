@@ -793,10 +793,10 @@ class ScanPage:
 
         key = s['sort_by']
         reverse = s['sort_desc']
-        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
+        if key == 'Name': res.sort(key=lambda x: (x.api_card.name or ''), reverse=reverse)
+        elif key == 'Set Code': res.sort(key=lambda x: (x.set_code or ''), reverse=reverse)
         elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
-        elif key == 'Rarity': res.sort(key=lambda x: x.rarity, reverse=reverse)
+        elif key == 'Rarity': res.sort(key=lambda x: (x.rarity or ''), reverse=reverse)
         elif key == 'Newest':
              # Assuming natural order is Oldest -> Newest
              if reverse:

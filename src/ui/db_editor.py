@@ -174,7 +174,7 @@ class DbEditorPage:
         else:
             self.state['set_gallery_items'] = all_sets
 
-        self.state['set_gallery_items'].sort(key=lambda x: x['name'])
+        self.state['set_gallery_items'].sort(key=lambda x: (x.get('name') or ''))
 
         # Reset pagination for sets
         self.state['page'] = 1
@@ -313,7 +313,7 @@ class DbEditorPage:
         reverse = self.state.get('sort_descending', False)
 
         if key == 'Name':
-            res.sort(key=lambda x: x.api_card.name, reverse=reverse)
+            res.sort(key=lambda x: (x.api_card.name or ''), reverse=reverse)
         elif key == 'ATK':
             res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
         elif key == 'DEF':
@@ -323,9 +323,9 @@ class DbEditorPage:
         elif key == 'Newest':
             res.sort(key=lambda x: x.api_card.id, reverse=reverse)
         elif key == 'Price':
-             res.sort(key=lambda x: x.set_price, reverse=reverse)
+             res.sort(key=lambda x: (x.set_price or ''), reverse=reverse)
         elif key == 'Set Code':
-             res.sort(key=lambda x: x.set_code, reverse=reverse)
+             res.sort(key=lambda x: (x.set_code or ''), reverse=reverse)
 
         self.state['filtered_items'] = res
 
