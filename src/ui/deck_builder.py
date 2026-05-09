@@ -521,10 +521,10 @@ class DeckBuilderPage:
                 elif "Spell" in c.type or "Trap" in c.type:
                     if c.race: st_races.add(c.race)
 
-            self.state['available_sets'] = sorted(list(sets))
-            self.state['available_monster_races'] = sorted(list(m_races))
-            self.state['available_st_races'] = sorted(list(st_races))
-            self.state['available_archetypes'] = sorted(list(archetypes))
+            self.state['available_sets'] = sorted([s for s in sets if s])
+            self.state['available_monster_races'] = sorted([r for r in m_races if r])
+            self.state['available_st_races'] = sorted([r for r in st_races if r])
+            self.state['available_archetypes'] = sorted([a for a in archetypes if a])
             self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
 
             # Load Decks List

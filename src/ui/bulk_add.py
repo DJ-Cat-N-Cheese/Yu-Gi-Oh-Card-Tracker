@@ -1453,10 +1453,10 @@ class BulkAddPage:
                     ))
 
             self.state['library_cards'] = entries
-            self.metadata['available_sets'][:] = sorted(list(sets))
-            self.metadata['available_monster_races'][:] = sorted(list(m_races))
-            self.metadata['available_st_races'][:] = sorted(list(st_races))
-            self.metadata['available_archetypes'][:] = sorted(list(archetypes))
+            self.metadata['available_sets'][:] = sorted([s for s in sets if s])
+            self.metadata['available_monster_races'][:] = sorted([r for r in m_races if r])
+            self.metadata['available_st_races'][:] = sorted([r for r in st_races if r])
+            self.metadata['available_archetypes'][:] = sorted([a for a in archetypes if a])
 
             for k, v in self.metadata.items():
                 self.state[k] = v

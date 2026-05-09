@@ -788,8 +788,8 @@ class YugipediaService:
             "atk": None,
             "def": None,
             "level": None,
-            "race": None,
-            "attribute": None,
+            "race": "",
+            "attribute": "",
             "sets": [],
             "database_id": None,
             "image_url": None
