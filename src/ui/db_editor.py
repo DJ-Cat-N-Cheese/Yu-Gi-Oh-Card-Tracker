@@ -824,6 +824,9 @@ class DbEditorPage:
                 ui.button('+ New Card Info', on_click=self.show_yugipedia_import_dialog).props('color=green icon=add')
                 ui.button('Import Pricing Info', on_click=self.show_pricing_import_dialog).props('color=purple icon=euro')
                 ui.button('Update Prices', on_click=self.auto_update_prices).props('color=blue icon=sync')
+                with ui.dropdown_button('Export Prices', icon='download').props('color=secondary'):
+                    ui.item('Daily Prices', on_click=self.export_daily_prices)
+                    ui.item('Offers Prices', on_click=self.export_offers_prices)
                 ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg')
 
             else:
@@ -836,6 +839,25 @@ class DbEditorPage:
                     ui.input(placeholder='Search Sets...', on_change=on_set_search) \
                         .bind_value(self.state, 'sets_search_query').props('debounce=300 icon=search dark clearable').classes('w-64')
 
+
+
+    def export_daily_prices(self):
+        import os
+        from nicegui import ui
+        path = "data/prices/daily_card_pricing.json"
+        if os.path.exists(path):
+            ui.download(path, "daily_card_pricing.json")
+        else:
+            ui.notify("No daily pricing data found.", type='warning')
+
+    def export_offers_prices(self):
+        import os
+        from nicegui import ui
+        path = "data/prices/cardmarket_offers_pricing.json"
+        if os.path.exists(path):
+            ui.download(path, "cardmarket_offers_pricing.json")
+        else:
+            ui.notify("No offers pricing data found.", type='warning')
 
     def show_pricing_import_dialog(self):
         from src.services.pricing_service import pricing_service

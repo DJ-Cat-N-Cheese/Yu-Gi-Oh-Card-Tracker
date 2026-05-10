@@ -52,6 +52,12 @@ class UnifiedImportController:
         self.ambiguous_rows: List[Dict[str, Any]] = [] # {row, matches, selected_index}
         self.failed_rows: List[ParsedRow] = []
 
+        # Pricing specific
+        self.pricing_overwrite = False
+        self.pricing_preview = [] # Preview of pricing changes
+        self.pricing_data_to_import = None # Parsed JSON dict
+        self.pricing_import_type = None # 'daily' or 'offers'
+
         self.undo_stack: List[Dict[str, Any]] = []
         self.db_lookup: Dict[str, List[Dict[str, Any]]] = {}
 
@@ -71,6 +77,14 @@ class UnifiedImportController:
     def on_collection_change(self, e):
         self.selected_collection = e.value
         persistence.save_ui_state({'import_last_collection': e.value})
+
+    def update_pricing_visibility(self):
+        if hasattr(self, 'pricing_options_row'):
+            self.pricing_options_row.set_visibility(self.import_type == 'PRICING')
+        if hasattr(self, 'collection_select_row'):
+            self.collection_select_row.set_visibility(self.import_type != 'PRICING')
+        if hasattr(self, 'mode_toggle_column'):
+            self.mode_toggle_column.set_visibility(self.import_type != 'PRICING')
 
     def refresh_collections(self):
         self.collections = persistence.list_collections()
@@ -151,6 +165,8 @@ class UnifiedImportController:
                 await self.process_json(self.last_uploaded_content)
             elif self.import_type == 'SCAN':
                 await self.process_scan_import(self.last_uploaded_content)
+            elif self.import_type == 'PRICING':
+                await self.process_pricing(self.last_uploaded_content)
             else:
                 await self.process_cardmarket(self.last_uploaded_content, self.last_uploaded_filename)
         except Exception as e:
@@ -262,6 +278,78 @@ class UnifiedImportController:
             ui.notify(f"Parsed {count} entries from Scan Export.", type='positive')
         else:
             ui.notify("No valid entries found in Scan Export.", type='warning')
+
+
+    async def process_pricing(self, content: bytes):
+        try:
+            json_str = content.decode('utf-8')
+            data = json.loads(json_str)
+        except Exception as ex:
+            ui.notify(f"Invalid JSON: {ex}", type='negative')
+            return
+
+        from src.services.pricing_service import pricing_service
+        self.pricing_preview = []
+        self.pricing_data_to_import = data
+
+        # Determine if it's daily or offers by looking at the first leaf node
+        self.pricing_import_type = 'unknown'
+        for card_id, variants in data.items():
+            for variant_id, platforms in variants.items():
+                if 'cardmarket' in platforms:
+                    for date_key, date_data in platforms['cardmarket'].items():
+                        if isinstance(date_data, float) or isinstance(date_data, int):
+                            self.pricing_import_type = 'daily'
+                        elif isinstance(date_data, dict) and 'offers' in date_data:
+                            self.pricing_import_type = 'offers'
+                        break
+                if self.pricing_import_type != 'unknown':
+                    break
+            if self.pricing_import_type != 'unknown':
+                break
+
+        if self.pricing_import_type == 'unknown':
+            ui.notify("Could not detect valid pricing data format.", type='negative')
+            return
+
+        # Build preview of changes
+        local_data = pricing_service.daily_pricing if self.pricing_import_type == 'daily' else pricing_service.offers_pricing
+
+        for card_id, variants in data.items():
+            for variant_id, platforms in variants.items():
+                if 'cardmarket' not in platforms:
+                    continue
+
+                local_platforms = local_data.get(card_id, {}).get(variant_id, {})
+                local_cm = local_platforms.get('cardmarket', {})
+
+                imported_dates = platforms['cardmarket']
+
+                added_dates = 0
+                updated_dates = 0
+
+                for date_key, val in imported_dates.items():
+                    if date_key not in local_cm:
+                        added_dates += 1
+                    else:
+                        if self.pricing_overwrite and local_cm[date_key] != val:
+                            updated_dates += 1
+
+                if added_dates > 0 or updated_dates > 0:
+                    # Get friendly name
+                    card = ygo_service.get_card(int(card_id))
+                    name = card.name if card else f"Unknown Card {card_id}"
+
+                    self.pricing_preview.append({
+                        'card_id': card_id,
+                        'name': name,
+                        'variant_id': variant_id,
+                        'added': added_dates,
+                        'updated': updated_dates
+                    })
+
+        if not self.pricing_preview:
+            ui.notify("No new or changing data found to import.", type='info')
 
     async def process_json(self, content: bytes):
         try:
@@ -775,6 +863,48 @@ class UnifiedImportController:
         return legacy_candidate if legacy_candidate else std_target
 
     async def apply_import(self):
+        if self.import_type == 'PRICING':
+            from src.services.pricing_service import pricing_service
+
+            if not self.pricing_data_to_import or self.pricing_import_type == 'unknown':
+                ui.notify("No valid pricing data to import", type='warning')
+                return
+
+            local_data = pricing_service.daily_pricing if self.pricing_import_type == 'daily' else pricing_service.offers_pricing
+            file_path = pricing_service.daily_pricing_file if self.pricing_import_type == 'daily' else pricing_service.offers_pricing_file
+
+            changes = 0
+            for card_id, variants in self.pricing_data_to_import.items():
+                for variant_id, platforms in variants.items():
+                    if 'cardmarket' not in platforms:
+                        continue
+
+                    if card_id not in local_data:
+                        local_data[card_id] = {}
+                    if variant_id not in local_data[card_id]:
+                        local_data[card_id][variant_id] = {}
+                    if 'cardmarket' not in local_data[card_id][variant_id]:
+                        local_data[card_id][variant_id]['cardmarket'] = {}
+
+                    local_cm = local_data[card_id][variant_id]['cardmarket']
+                    imported_dates = platforms['cardmarket']
+
+                    for date_key, val in imported_dates.items():
+                        if date_key not in local_cm or self.pricing_overwrite:
+                            if date_key not in local_cm or local_cm[date_key] != val:
+                                local_cm[date_key] = val
+                                changes += 1
+
+            if changes > 0:
+                pricing_service._save_json(file_path, local_data)
+                ui.notify(f"Imported/Updated {changes} pricing entries successfully.", type='positive')
+                self.pricing_preview = []
+                self.pricing_data_to_import = None
+                self.refresh_status_ui()
+            else:
+                ui.notify("No changes applied.", type='warning')
+            return
+
         if not self.selected_collection:
             ui.notify("No collection selected", type='warning')
             return
@@ -1297,12 +1427,25 @@ class UnifiedImportController:
                     ui.label(f"Import Errors: {len(self.import_failures)}").classes('text-negative font-bold text-lg')
                     ui.button("Download Report", on_click=self.download_import_failures).props('flat color=negative')
 
+            if self.pricing_preview:
+                with ui.column().classes('w-full mt-4'):
+                    ui.label(f"Pricing Preview ({self.pricing_import_type.capitalize()}):").classes('font-bold text-lg')
+                    with ui.card().classes('w-full bg-dark border border-gray-700 max-h-64 overflow-y-auto'):
+                        for item in self.pricing_preview:
+                            color = 'text-positive' if item['added'] > 0 else 'text-warning'
+                            ui.label(f"{item['name']} ({item['variant_id']}): +{item['added']} added, ~{item['updated']} updated").classes(color)
+
             # Update Import Button
             if self.import_btn:
-                can_import = len(self.pending_changes) > 0 and len(self.ambiguous_rows) == 0
-                self.import_btn.enabled = can_import
-                mode_text = "ADD" if self.import_mode == 'ADD' else "SUBTRACT"
-                self.import_btn.text = f"Import {len(self.pending_changes)} Items ({mode_text})"
+                if self.import_type == 'PRICING':
+                    can_import = len(self.pricing_preview) > 0
+                    self.import_btn.enabled = can_import
+                    self.import_btn.text = f"Import Pricing ({sum(x['added'] + x['updated'] for x in self.pricing_preview)} Changes)"
+                else:
+                    can_import = len(self.pending_changes) > 0 and len(self.ambiguous_rows) == 0
+                    self.import_btn.enabled = can_import
+                    mode_text = "ADD" if self.import_mode == 'ADD' else "SUBTRACT"
+                    self.import_btn.text = f"Import {len(self.pending_changes)} Items ({mode_text})"
 
 class MergeController:
     def __init__(self):
@@ -1311,6 +1454,14 @@ class MergeController:
         self.coll_b: Optional[str] = None
         self.new_name: str = ""
         self.refresh_collections()
+
+    def update_pricing_visibility(self):
+        if hasattr(self, 'pricing_options_row'):
+            self.pricing_options_row.set_visibility(self.import_type == 'PRICING')
+        if hasattr(self, 'collection_select_row'):
+            self.collection_select_row.set_visibility(self.import_type != 'PRICING')
+        if hasattr(self, 'mode_toggle_column'):
+            self.mode_toggle_column.set_visibility(self.import_type != 'PRICING')
 
     def refresh_collections(self):
         self.collections = persistence.list_collections()
@@ -1382,7 +1533,8 @@ def import_tools_page():
             ui.label('Import Manager').classes('text-xl font-bold q-mb-md')
 
             # Row 1: Target Collection
-            with ui.row().classes('items-center gap-4 w-full'):
+            controller.collection_select_row = ui.row().classes('items-center gap-4 w-full')
+            with controller.collection_select_row:
                 controller.collection_select = ui.select(
                     options=controller.collections,
                     label="Target Collection",
@@ -1407,19 +1559,32 @@ def import_tools_page():
                 # Type Toggle
                 with ui.column().classes('gap-1'):
                     ui.label('Source Type').classes('text-sm text-grey')
+                    def on_type_change(e):
+                        setattr(controller, 'import_type', e.value)
+                        if hasattr(controller, 'update_pricing_visibility'):
+                            controller.update_pricing_visibility()
+
                     ui.toggle({
                         'JSON': 'JSON Backup',
                         'CARDMARKET': 'Cardmarket (PDF/Text)',
-                        'SCAN': 'Import Scans'
-                    }, value='CARDMARKET', on_change=lambda e: setattr(controller, 'import_type', e.value)).props('dark')
+                        'SCAN': 'Import Scans',
+                        'PRICING': 'Pricing JSON'
+                    }, value='CARDMARKET', on_change=on_type_change).props('dark')
 
                 # Mode Toggle
-                with ui.column().classes('gap-1'):
+                controller.mode_toggle_column = ui.column().classes('gap-1')
+                with controller.mode_toggle_column:
                     ui.label('Mode').classes('text-sm text-grey')
                     ui.toggle({
                         'ADD': 'Add to Collection',
                         'SUBTRACT': 'Remove from Collection'
                     }, value='ADD', on_change=lambda e: [setattr(controller, 'import_mode', e.value), controller.refresh_status_ui()]).props('dark color=red')
+
+
+            controller.pricing_options_row = ui.row().classes('items-center gap-4 w-full q-mb-md')
+            with controller.pricing_options_row:
+                ui.checkbox('Overwrite existing local data', value=controller.pricing_overwrite).bind_value(controller, 'pricing_overwrite').classes('text-warning')
+            controller.pricing_options_row.set_visibility(False)
 
             # Row 4: Upload Area
             # Note: We can't easily change props of ui.upload after creation dynamically in a clean way
