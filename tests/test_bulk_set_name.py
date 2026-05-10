@@ -15,7 +15,7 @@ def test_build_collection_entries_german_card_set_name_resolution():
         name="Blue-Eyes White Dragon",
         type="Monster",
         frameType="normal",
-        desc="Dragon",
+        , desc="Dragon", frameType="normal", frameType="normal",
         card_sets=[api_set],
         card_images=[ApiCardImage(id=123, image_url="", image_url_small="")]
     )

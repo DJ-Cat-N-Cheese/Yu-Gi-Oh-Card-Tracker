@@ -1201,7 +1201,76 @@ class BrowseSetsPage:
                     ui.label(f"Completion: {pct:.1f}%").classes(f'text-xl font-bold {color}')
                     ui.label(f"({owned}/{total})").classes('text-sm text-gray-500')
 
+
                 ui.button('Back to Sets', icon='arrow_back', on_click=self.back_to_gallery).props('flat color=white').classes('mt-4')
+
+            ui.space()
+
+            # Chart Area
+            with ui.column().classes('w-96 min-h-[250px]'):
+                from src.services.pricing_service import pricing_service
+                ns_pricing = None
+                for ns_key, ns_val in pricing_service.sealed_pricing.items():
+                    if info['name'].lower() in ns_key.lower():
+                        ns_pricing = ns_val
+                        break
+
+                if ns_pricing and 'daily_pricing' in ns_pricing and ns_pricing['daily_pricing']:
+                    daily_data = ns_pricing['daily_pricing']
+                    dates = sorted(list(daily_data.keys()))
+                    prices = [daily_data[d].get('avg', 0) for d in dates]
+
+                    chart_options = {
+                        'title': {
+                            'text': 'Sealed Product Price History',
+                            'textStyle': {'color': '#9CA3AF', 'fontSize': 14}
+                        },
+                        'tooltip': {
+                            'trigger': 'axis',
+                            'formatter': '{b}<br/>{c} €'
+                        },
+                        'xAxis': {
+                            'type': 'category',
+                            'data': dates,
+                            'axisLabel': {'color': '#9CA3AF'},
+                            'axisLine': {'lineStyle': {'color': '#4B5563'}}
+                        },
+                        'yAxis': {
+                            'type': 'value',
+                            'axisLabel': {'color': '#9CA3AF', 'formatter': '{value} €'},
+                            'splitLine': {'lineStyle': {'color': '#374151'}},
+                            'min': 'dataMin'
+                        },
+                        'series': [{
+                            'data': prices,
+                            'type': 'line',
+                            'smooth': True,
+                            'lineStyle': {'color': '#60A5FA', 'width': 2},
+                            'itemStyle': {'color': '#60A5FA'},
+                            'areaStyle': {
+                                'color': {
+                                    'type': 'linear',
+                                    'x': 0, 'y': 0, 'x2': 0, 'y2': 1,
+                                    'colorStops': [{
+                                        'offset': 0, 'color': 'rgba(96, 165, 250, 0.5)'
+                                    }, {
+                                        'offset': 1, 'color': 'rgba(96, 165, 250, 0)'
+                                    }]
+                                }
+                            }
+                        }],
+                        'grid': {
+                            'left': '3%',
+                            'right': '4%',
+                            'bottom': '3%',
+                            'containLabel': True
+                        }
+                    }
+                    ui.echart(chart_options).classes('w-full h-[250px]')
+                else:
+                    ui.label("No price history available.").classes('text-grey italic self-center mt-4')
+
+
 
             ui.space()
 

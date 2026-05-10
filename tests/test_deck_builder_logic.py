@@ -44,9 +44,9 @@ class TestDeckBuilderLogic(unittest.TestCase):
 
     def test_search_set_code(self):
         # Setup data
-        c1 = ApiCard(id=1, name="Card 1", type="Monster", frameType="normal", desc="desc",
+        c1 = ApiCard(id=1, name="Card 1", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
                      card_sets=[ApiCardSet(set_name="Set A", set_code="SETA-EN001", set_rarity="Common")])
-        c2 = ApiCard(id=2, name="Card 2", type="Monster", frameType="normal", desc="desc",
+        c2 = ApiCard(id=2, name="Card 2", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
                      card_sets=[ApiCardSet(set_name="Set B", set_code="SETB-EN001", set_rarity="Rare")])
 
         self.page.state['all_api_cards'] = [c1, c2]
@@ -73,11 +73,11 @@ class TestDeckBuilderLogic(unittest.TestCase):
         self.assertEqual(len(res), 2)
 
     def test_sort_price(self):
-        c1 = ApiCard(id=1, name="Cheap", type="Monster", frameType="normal", desc=".",
+        c1 = ApiCard(id=1, name="Cheap", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal",
                      card_prices=[ApiCardPrice(tcgplayer_price="1.50")])
-        c2 = ApiCard(id=2, name="Expensive", type="Monster", frameType="normal", desc=".",
+        c2 = ApiCard(id=2, name="Expensive", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal",
                      card_prices=[ApiCardPrice(tcgplayer_price="100.00")])
-        c3 = ApiCard(id=3, name="Unknown", type="Monster", frameType="normal", desc=".", card_prices=[])
+        c3 = ApiCard(id=3, name="Unknown", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal", card_prices=[])
 
         self.page.state['all_api_cards'] = [c1, c2, c3]
         self.page.state['filter_card_type'] = []
@@ -98,9 +98,9 @@ class TestDeckBuilderLogic(unittest.TestCase):
         self.assertEqual([c.id for c in res], [2, 1, 3])
 
     def test_sort_quantity(self):
-        c1 = ApiCard(id=1, name="Owned 5", type="Monster", frameType="normal", desc=".")
-        c2 = ApiCard(id=2, name="Owned 0", type="Monster", frameType="normal", desc=".")
-        c3 = ApiCard(id=3, name="Owned 2", type="Monster", frameType="normal", desc=".")
+        c1 = ApiCard(id=1, name="Owned 5", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal")
+        c2 = ApiCard(id=2, name="Owned 0", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal")
+        c3 = ApiCard(id=3, name="Owned 2", type="Monster", , desc=".", frameType="normal", frameType="normal", frameType="normal")
 
         col = Collection(name="TestCol", cards=[
             CollectionCard(card_id=1, name="C1", variants=[

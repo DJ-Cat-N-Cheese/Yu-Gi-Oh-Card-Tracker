@@ -6,22 +6,22 @@ def test_matches_category():
 
     # Stardust Dragon
     stardust = ApiCard(
-        id=1, name="Stardust Dragon", type="Synchro Monster", frameType="synchro", desc="...",
+        id=1, name="Stardust Dragon", type="Synchro Monster", frameType="synchro", , desc="...", frameType="normal", frameType="normal",
         typeline=["Dragon", "Synchro", "Effect"]
     )
     # Gaia Knight
     gaia = ApiCard(
-        id=2, name="Gaia Knight", type="Synchro Monster", frameType="synchro", desc="...",
+        id=2, name="Gaia Knight", type="Synchro Monster", frameType="synchro", , desc="...", frameType="normal", frameType="normal",
         typeline=["Warrior", "Synchro"]
     )
     # Blue-Eyes
     blue_eyes = ApiCard(
-        id=3, name="Blue-Eyes", type="Normal Monster", frameType="normal", desc="...",
+        id=3, name="Blue-Eyes", type="Normal Monster", , desc="...", frameType="normal", frameType="normal",
         typeline=["Dragon", "Normal"]
     )
     # Token (assuming no typeline or no Normal/Effect in it)
     token = ApiCard(
-        id=4, name="Token", type="Token", frameType="token", desc="...",
+        id=4, name="Token", type="Token", frameType="token", , desc="...", frameType="normal", frameType="normal",
         typeline=[] # Assume empty
     )
 

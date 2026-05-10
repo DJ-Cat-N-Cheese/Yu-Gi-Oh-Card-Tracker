@@ -18,9 +18,12 @@ class PricingService:
         # Ensure data dir exists
         os.makedirs("data/prices", exist_ok=True)
 
+        self.sealed_pricing_file = "data/prices/products_nonsingles.json"
+
         # Load existing data
         self.daily_pricing = self._load_json(self.daily_pricing_file)
         self.offers_pricing = self._load_json(self.offers_pricing_file)
+        self.sealed_pricing = self._load_json(self.sealed_pricing_file)
 
     def _load_json(self, path: str) -> Dict:
         if os.path.exists(path):
@@ -488,5 +491,140 @@ class PricingService:
                     logger.info(f"Updated cardmarket_url for variant {variant_id} of card {card_id}")
         except Exception as e:
             logger.error(f"Failed to update cardmarket_url: {e}")
+
+    async def fetch_cardmarket_export(self, singles_url: str, nonsingles_url: str, priceguide_url: str) -> Tuple[List[Dict], List[Dict], List[Dict]]:
+        """Fetches the 3 JSON exports from Cardmarket."""
+        import aiohttp
+        import json
+        async with aiohttp.ClientSession() as session:
+            async def _fetch(url):
+                try:
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json(content_type=None)
+                            return data.get('products', data) if isinstance(data, dict) and 'products' in data else data
+                except Exception as e:
+                    logger.error(f"Failed to fetch {url}: {e}")
+                return []
+
+            return await asyncio.gather(
+                _fetch(singles_url),
+                _fetch(nonsingles_url),
+                _fetch(priceguide_url)
+            )
+
+    async def process_cardmarket_exports(self, singles_data: List[Dict], nonsingles_data: List[Dict], priceguide_data: List[Dict], ygo_service, progress_callback=None):
+        """Processes the exports and saves to daily/sealed pricing."""
+        import copy
+
+        iso_date = datetime.now().strftime("%Y-%m-%d")
+
+        # Unpack the 'products' wrapper if present
+        if isinstance(singles_data, dict) and 'products' in singles_data:
+            singles_data = singles_data['products']
+        if isinstance(nonsingles_data, dict) and 'products' in nonsingles_data:
+            nonsingles_data = nonsingles_data['products']
+        if isinstance(priceguide_data, dict) and 'products' in priceguide_data:
+            priceguide_data = priceguide_data['products']
+        elif isinstance(priceguide_data, dict) and 'priceGuide' in priceguide_data:
+            priceguide_data = priceguide_data['priceGuide']
+        elif isinstance(priceguide_data, dict) and 'priceGuides' in priceguide_data:
+            priceguide_data = priceguide_data['priceGuides']
+
+        # Create lookups
+        singles_map = {item['idProduct']: item for item in singles_data if isinstance(item, dict) and 'idProduct' in item}
+        nonsingles_map = {item['idProduct']: item for item in nonsingles_data if isinstance(item, dict) and 'idProduct' in item}
+
+        # We need a lookup by card name -> card_id -> base_card for singles matching
+        # And we'll match set name if possible
+        cards = ygo_service._cards_cache.get('en', [])
+
+        # Name lookup map to speed up search
+        # Lowercase alphanumeric name -> list of cards
+        import re
+        name_map = {}
+        for c in cards:
+            c_name = re.sub(r'[^a-z0-9]', '', c.name.lower())
+            if c_name not in name_map:
+                name_map[c_name] = []
+            name_map[c_name].append(c)
+
+        total = len(priceguide_data)
+        processed = 0
+
+        # Load sets cache if not loaded
+        await ygo_service.fetch_all_sets()
+
+        for pg in priceguide_data:
+            prod_id = pg.get('idProduct')
+            if not prod_id:
+                continue
+
+            price_avg = pg.get('avg')
+            if price_avg is None:
+                price_avg = pg.get('trend')
+            if price_avg is None:
+                continue
+
+            price_avg = float(price_avg)
+
+            # Check if single
+            if prod_id in singles_map:
+                s_info = singles_map[prod_id]
+                s_name = s_info.get('name', '')
+
+                c_name_clean = re.sub(r'[^a-z0-9]', '', s_name.lower())
+                matched_cards = name_map.get(c_name_clean, [])
+
+                # Apply to matched cards
+                for c in matched_cards:
+                    card_id = str(c.id)
+                    if card_id not in self.daily_pricing:
+                        self.daily_pricing[card_id] = {}
+
+                    # For singles without explicit set match logic right now, we apply to all variants
+                    # If there's a way to map idExpansion to our set code, we could refine this.
+                    # Currently, applying base price to the first variant or 'none' variant
+                    for v in c.card_sets:
+                        var_id = str(v.variant_id)
+                        if var_id not in self.daily_pricing[card_id]:
+                            self.daily_pricing[card_id][var_id] = {}
+                        if 'cardmarket' not in self.daily_pricing[card_id][var_id]:
+                            self.daily_pricing[card_id][var_id]['cardmarket'] = {}
+
+                        self.daily_pricing[card_id][var_id]['cardmarket'][iso_date] = price_avg
+
+            # Check if nonsingle (sealed)
+            elif prod_id in nonsingles_map:
+                ns_info = nonsingles_map[prod_id]
+                ns_name = ns_info.get('name', '')
+                # Store in sealed pricing
+                if ns_name not in self.sealed_pricing:
+                    self.sealed_pricing[ns_name] = {'daily_pricing': {}}
+
+                self.sealed_pricing[ns_name]['idProduct'] = prod_id
+                self.sealed_pricing[ns_name]['categoryName'] = ns_info.get('categoryName')
+                self.sealed_pricing[ns_name]['idExpansion'] = ns_info.get('idExpansion')
+
+                self.sealed_pricing[ns_name]['daily_pricing'][iso_date] = {
+                    'avg': pg.get('avg'),
+                    'low': pg.get('low'),
+                    'trend': pg.get('trend'),
+                    'avg1': pg.get('avg1'),
+                    'avg7': pg.get('avg7'),
+                    'avg30': pg.get('avg30')
+                }
+
+            processed += 1
+            if progress_callback and processed % 1000 == 0:
+                progress_callback(processed / total)
+
+        # Save to disk
+        self._save_json(self.daily_pricing_file, self.daily_pricing)
+        self._save_json(self.sealed_pricing_file, self.sealed_pricing)
+
+        if progress_callback:
+            progress_callback(1.0)
+
 
 pricing_service = PricingService()

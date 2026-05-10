@@ -26,7 +26,7 @@ def mock_dependencies():
             name="Test Card",
             type="Monster",
             frameType="effect",
-            desc="Desc",
+            , desc="Desc", frameType="normal", frameType="normal",
             race="Dragon",
             attribute="LIGHT",
             card_sets=[

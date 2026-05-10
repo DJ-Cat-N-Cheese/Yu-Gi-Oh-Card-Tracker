@@ -32,9 +32,9 @@ class TestDeckBuilderWarnings(unittest.TestCase):
 
         # Setup test cards
         # 1: Main Deck (Normal Monster)
-        self.c1 = ApiCard(id=1, name="Blue-Eyes", type="Normal Monster", frameType="normal", desc=".")
+        self.c1 = ApiCard(id=1, name="Blue-Eyes", type="Normal Monster", , desc=".", frameType="normal", frameType="normal")
         # 2: Extra Deck (Synchro)
-        self.c2 = ApiCard(id=2, name="Stardust", type="Synchro Monster", frameType="synchro", desc=".")
+        self.c2 = ApiCard(id=2, name="Stardust", type="Synchro Monster", frameType="synchro", , desc=".", frameType="normal", frameType="normal")
 
         self.page.api_card_map = {1: self.c1, 2: self.c2}
         self.page.state['reference_collection'] = None
