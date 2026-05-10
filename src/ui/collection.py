@@ -1436,10 +1436,17 @@ class CollectionPage:
                               ui.label('-').classes('text-gray-600')
 
     def render_collectors_list(self, items: List[CollectorRow]):
+        metrics_config = config_manager.get_collection_metrics_config()
+        show_price = metrics_config.get('price_preview', False)
+
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
-        headers = ['Image', 'Name', 'Set', 'Rarity', 'Cond', '1st', 'Lang', 'Price', 'Owned']
-        cols = '60px 4fr 2fr 1.5fr 0.8fr 0.5fr 0.5fr 1fr 0.8fr'
+        if show_price:
+            headers = ['Image', 'Name', 'Set', 'Rarity', 'Cond', '1st', 'Lang', 'Price', 'Owned']
+            cols = '60px 4fr 2fr 1.5fr 0.8fr 0.5fr 0.5fr 1fr 0.8fr'
+        else:
+            headers = ['Image', 'Name', 'Set', 'Rarity', 'Cond', '1st', 'Lang', 'Owned']
+            cols = '60px 4fr 2fr 1.5fr 0.8fr 0.5fr 0.5fr 0.8fr'
 
         with ui.column().classes('w-full gap-1'):
             with ui.grid(columns=cols).classes('w-full bg-gray-800 p-2 font-bold rounded'):
@@ -1474,7 +1481,8 @@ class CollectionPage:
                     else:
                         ui.label(lang_code).classes('text-sm font-bold')
 
-                    ui.label(f"${item.price:.2f}").classes('text-sm text-green-400')
+                    if show_price:
+                        ui.label(f"€{item.price:.2f}").classes('text-sm text-green-400')
 
                     with ui.row().classes('w-full justify-center'):
                          if item.is_owned:
@@ -1483,6 +1491,9 @@ class CollectionPage:
                               ui.label('-').classes('text-gray-600')
 
     def render_collectors_grid(self, items: List[CollectorRow]):
+        metrics_config = config_manager.get_collection_metrics_config()
+        show_price = metrics_config.get('price_preview', False)
+
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
         with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
@@ -1525,7 +1536,8 @@ class CollectionPage:
                     with ui.column().classes('p-2 gap-0 w-full'):
                         ui.label(item.api_card.name).classes('text-xs font-bold truncate w-full')
                         ui.label(f"{item.rarity}").classes('text-[10px] text-gray-400')
-                        ui.label(f"${item.price:.2f}").classes('text-xs text-green-400')
+                        if show_price:
+                            ui.label(f"€{item.price:.2f}").classes('text-xs text-green-400')
 
                     self._setup_card_tooltip(item.api_card, specific_image_id=item.image_id)
 
