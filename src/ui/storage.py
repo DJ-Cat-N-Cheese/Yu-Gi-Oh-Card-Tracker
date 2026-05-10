@@ -405,7 +405,7 @@ class StoragePage:
         lang = config_manager.get_language()
         await ygo_service.load_card_database(lang)
 
-        api_card_map = {c.id: c for c in ygo_service._cards_cache.get(lang, [])}
+        api_card_map = ygo_service._cards_id_map.get(lang, {})
 
         sets = set()
         m_races = set()
@@ -963,8 +963,7 @@ class StoragePage:
         elif quantity_change > 0:
             # Create new row if adding
             lang = config_manager.get_language()
-            cards = ygo_service._cards_cache.get(lang, [])
-            api_card = next((c for c in cards if c.id == card_id), None)
+            api_card = ygo_service.get_card(card_id, lang)
 
             if api_card:
                 # Resolve Set Name
@@ -1016,11 +1015,7 @@ class StoragePage:
                 lang = config_manager.get_language()
                 if not ygo_service._cards_cache.get(lang):
                      await ygo_service.load_card_database(lang)
-                cards = ygo_service._cards_cache.get(lang, [])
-                for c in cards:
-                    if c.id == card_id:
-                        return c
-                return None
+                return ygo_service.get_card(card_id, lang)
 
             async def apply_revert(change):
                 action = change['action']
