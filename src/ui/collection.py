@@ -820,43 +820,46 @@ class CollectionPage:
         unique_variant_ids = set()
 
         if self.state['view_scope'] == 'consolidated':
+            collection_cards_map = {}
+            if self.state['current_collection']:
+                collection_cards_map = {c.card_id: c for c in self.state['current_collection'].cards}
+
             for vm in self.state['filtered_items']:
                 if vm.owned_quantity > 0:
                     unique_card_ids.add(vm.api_card.id)
 
                     # Need to check the actual collection to get variants
                     if self.state['current_collection']:
-                        for c in self.state['current_collection'].cards:
-                            if c.card_id == vm.api_card.id:
-                                for v in c.variants:
-                                    # apply current filters to variant?
-                                    # this is a bit tricky for consolidated view since filters are applied at card level.
-                                    # however, we want the value of the filtered set.
-                                    # We can check if the variant matches filters.
+                        c = collection_cards_map.get(vm.api_card.id)
+                        if c:
+                            for v in c.variants:
+                                # apply current filters to variant?
+                                # this is a bit tricky for consolidated view since filters are applied at card level.
+                                # however, we want the value of the filtered set.
+                                # We can check if the variant matches filters.
 
-                                    # Simplified: check language and condition filters since we have them at variant entry level.
-                                    var_qty = 0
-                                    for e in v.entries:
-                                        if e.quantity > 0:
-                                            # Apply lang/cond/storage filters to entries
-                                            if self.state['filter_owned_lang'] and e.language != self.state['filter_owned_lang']: continue
-                                            if self.state['filter_condition'] and e.condition not in self.state['filter_condition']: continue
-                                            if self.state['filter_storage']:
-                                                loc = e.storage_location if e.storage_location else 'None'
-                                                if loc not in self.state['filter_storage']: continue
+                                # Simplified: check language and condition filters since we have them at variant entry level.
+                                var_qty = 0
+                                for e in v.entries:
+                                    if e.quantity > 0:
+                                        # Apply lang/cond/storage filters to entries
+                                        if self.state['filter_owned_lang'] and e.language != self.state['filter_owned_lang']: continue
+                                        if self.state['filter_condition'] and e.condition not in self.state['filter_condition']: continue
+                                        if self.state['filter_storage']:
+                                            loc = e.storage_location if e.storage_location else 'None'
+                                            if loc not in self.state['filter_storage']: continue
 
-                                            var_qty += e.quantity
+                                        var_qty += e.quantity
 
-                                            # Update distributions
-                                            self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
-                                            self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
-                                            self.metrics['total_qty'] += e.quantity
+                                        # Update distributions
+                                        self.metrics['language_dist'][e.language] = self.metrics['language_dist'].get(e.language, 0) + e.quantity
+                                        self.metrics['rarity_dist'][v.rarity] = self.metrics['rarity_dist'].get(v.rarity, 0) + e.quantity
+                                        self.metrics['total_qty'] += e.quantity
 
-                                    if var_qty > 0:
-                                        unique_variant_ids.add(v.variant_id)
-                                        price = get_display_price_for_variant(vm.api_card, v.variant_id)
-                                        self.metrics['total_value'] += price * var_qty
-                                break
+                                if var_qty > 0:
+                                    unique_variant_ids.add(v.variant_id)
+                                    price = get_display_price_for_variant(vm.api_card, v.variant_id)
+                                    self.metrics['total_value'] += price * var_qty
         else:
             # Collectors view
             for row in self.state['filtered_items']:
