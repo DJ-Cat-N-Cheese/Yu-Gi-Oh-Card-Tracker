@@ -1,0 +1,13 @@
+{
+  "language": "en",
+  "theme": "dark",
+  "deck_builder_page_size": 9,
+  "bulk_add_page_size": 50,
+  "collection_show_total_value": true,
+  "collection_show_unique_cards": true,
+  "collection_show_unique_variants": true,
+  "collection_show_total_qty": true,
+  "collection_show_rarity_breakdown": true,
+  "collection_show_language_breakdown": true,
+  "collection_show_price_preview": false
+}
