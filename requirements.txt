@@ -14,3 +14,4 @@ python-doctr[torch]
 numpy<2
 orjson
 beautifulsoup4
+aiofiles

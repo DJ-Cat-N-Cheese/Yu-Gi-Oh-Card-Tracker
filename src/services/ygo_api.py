@@ -6,6 +6,7 @@ try:
 except ImportError:
     HAS_ORJSON = False
 import os
+import aiofiles
 import asyncio
 import uuid
 import logging
@@ -87,10 +88,7 @@ class YugiohService:
             local_cards = []
             try:
                 # Attempt to read file directly to avoid recursive fetch
-                if hasattr(run, 'io_bound'):
-                     local_raw = await run.io_bound(self._read_db_file, language)
-                else:
-                     local_raw = self._read_db_file(language)
+                local_raw = await self._read_db_file_async(language)
 
                 if local_raw:
                     try:
@@ -512,17 +510,42 @@ class YugiohService:
         if language not in self._cards_cache and os.path.exists(db_file):
              logger.info(f"Loading database from disk: {db_file}")
              # Read file
+             # Use aiofiles for fast, non-blocking file read
+             data = await self._read_db_file_async(language)
+
+             # Parsing is CPU-bound, keep it in a thread
              try:
-                 data = await run.io_bound(self._read_db_file, language)
                  parsed_cards = await run.io_bound(parse_cards_data, data)
              except RuntimeError:
-                 data = await asyncio.to_thread(self._read_db_file, language)
-                 parsed_cards = parse_cards_data(data)
+                 parsed_cards = await asyncio.to_thread(parse_cards_data, data)
 
              self._cards_cache[language] = parsed_cards
              logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
+
+    async def _read_db_file_async(self, language: str = "en"):
+        db_file = self._get_db_file(language)
+        return await self._read_json_file_async(db_file)
+
+    async def _read_json_file_async(self, filepath: str) -> Any:
+        """Reads a JSON file using orjson if available, otherwise json. Async using aiofiles."""
+        if HAS_ORJSON:
+            async with aiofiles.open(filepath, 'rb') as f:
+                content = await f.read()
+                # Parsing huge JSON is CPU-bound; defer to a thread to not block event loop
+                try:
+                    return await run.io_bound(orjson.loads, content)
+                except RuntimeError:
+                    return await asyncio.to_thread(orjson.loads, content)
+        else:
+            async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
+                content = await f.read()
+                # Parsing huge JSON is CPU-bound; defer to a thread to not block event loop
+                try:
+                    return await run.io_bound(json.loads, content)
+                except RuntimeError:
+                    return await asyncio.to_thread(json.loads, content)
 
     def _read_db_file(self, language: str = "en"):
         db_file = self._get_db_file(language)
