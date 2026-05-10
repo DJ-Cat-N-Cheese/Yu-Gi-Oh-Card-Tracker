@@ -83,6 +83,7 @@ class DeckBuilderPage:
         # Load persisted UI state
         ui_state = persistence.load_ui_state()
         last_deck = ui_state.get('deck_builder_last_deck')
+        last_deck_group = ui_state.get('deck_builder_last_deck_group', 'main')
         last_col = ui_state.get('deck_builder_last_collection')
 
         last_sort_by = ui_state.get('deck_builder_sort_by', 'Name')
@@ -124,11 +125,13 @@ class DeckBuilderPage:
 
             'current_deck': None, # Deck object
             'current_deck_name': last_deck, # Initialize from session
+            'current_deck_group': last_deck_group,
             'reference_collection': None, # Collection object for ownership check
             'reference_collection_name': last_col, # Track filename
             'reference_storage': None, # None = All, '__UNASSIGNED__' = None location, else specific string
 
             'available_decks': [],
+            'available_deck_groups': [],
             'available_collections': [],
 
             'available_banlists': [],
@@ -528,7 +531,13 @@ class DeckBuilderPage:
             self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
 
             # Load Decks List
-            self.state['available_decks'] = persistence.list_decks()
+            self.state['available_deck_groups'] = persistence.list_deck_groups()
+
+            # Ensure the saved group exists or fallback to main
+            if self.state['current_deck_group'] not in self.state['available_deck_groups']:
+                self.state['current_deck_group'] = 'main'
+
+            self.state['available_decks'] = persistence.list_decks(self.state['current_deck_group'])
 
             # Load Collections List (for reference)
             cols = persistence.list_collections()
@@ -565,7 +574,8 @@ class DeckBuilderPage:
 
     async def load_deck(self, filename):
         try:
-            deck = await run.io_bound(persistence.load_deck, filename)
+            group = self.state['current_deck_group']
+            deck = await run.io_bound(persistence.load_deck, filename, group)
             self.state['current_deck'] = deck
             name = filename.replace('.ydk', '')
             self.state['current_deck_name'] = name
@@ -597,9 +607,10 @@ class DeckBuilderPage:
             return
         try:
             filename = f"{self.state['current_deck_name']}.ydk"
-            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename)
+            group = self.state['current_deck_group']
+            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename, group)
             ui.notify('Deck saved.', type='positive')
-            self.state['available_decks'] = persistence.list_decks()
+            self.state['available_decks'] = persistence.list_decks(group)
             self.render_header.refresh()
         except Exception as e:
             logger.error(f"Error saving deck: {e}")
@@ -628,7 +639,8 @@ class DeckBuilderPage:
     def _log_change(self, action: str, card_id: int, quantity: int, target_zone: str, from_zone: str = None):
         if not self.state['current_deck_name']: return
 
-        filename = f"{self.state['current_deck_name']}.ydk"
+        group = self.state['current_deck_group']
+        filename = f"{group}_{self.state['current_deck_name']}.ydk"
 
         card_data = {
             'card_id': card_id,
@@ -875,6 +887,47 @@ class DeckBuilderPage:
         if self.filter_pane: self.filter_pane.reset_ui_elements()
         await self.apply_filters()
 
+    def open_new_group_dialog(self):
+        with ui.dialog() as d, ui.card():
+            ui.label('Create New Deck Group').classes('text-h6')
+            name_input = ui.input('Group Name')
+
+            async def create():
+                name = name_input.value
+                if not name: return
+
+                # Check duplicates (case-insensitive)
+                existing = {g.lower() for g in self.state['available_deck_groups']}
+                if name.lower() in existing:
+                    ui.notify("Group already exists!", type='warning')
+                    return
+
+                # Sanitize name loosely
+                name = "".join([c for c in name if c.isalnum() or c in " -_"]).strip()
+                if not name:
+                    ui.notify("Invalid group name.", type='warning')
+                    return
+
+                # Create the folder using persistence helper indirectly by saving a dummy file or just getting the dir
+                # Actually, the best way is to let PersistenceManager create it when getting the group dir
+                group_dir = persistence._get_group_dir(name)
+
+                self.state['available_deck_groups'] = persistence.list_deck_groups()
+                self.state['current_deck_group'] = name
+                persistence.save_ui_state({'deck_builder_last_deck_group': name})
+                self.state['available_decks'] = []
+                self.state['current_deck'] = None
+                self.state['current_deck_name'] = None
+                persistence.save_ui_state({'deck_builder_last_deck': None})
+
+                self.refresh_deck_area()
+                self.render_header.refresh()
+                d.close()
+                ui.notify(f"Created group: {name}", type='positive')
+
+            ui.button('Create', on_click=create).props('color=positive')
+        d.open()
+
     def open_new_deck_dialog(self):
         with ui.dialog() as d, ui.card().classes('w-[600px] max-w-full'):
              ui.label('Create New Deck').classes('text-h6')
@@ -909,8 +962,11 @@ class DeckBuilderPage:
 
                              name = os.path.basename(raw_name).replace('.ydk', '')
                              filename = f"{name}.ydk"
-                             filepath = f"data/decks/{filename}"
+                             group = self.state['current_deck_group']
+                             group_dir = persistence._get_group_dir(group)
+                             filepath = os.path.join(group_dir, filename)
                              with open(filepath, 'w', encoding='utf-8') as f: f.write(content)
+                             self.state['available_decks'] = persistence.list_decks(group)
                              await self.load_deck(filename)
                              d.close()
                              ui.notify(f"Imported deck: {name}", type='positive')
@@ -940,10 +996,11 @@ class DeckBuilderPage:
 
                                  deck.name = name
                                  filename = f"{name}.ydk"
-                                 await run.io_bound(persistence.save_deck, deck, filename)
+                                 group = self.state['current_deck_group']
+                                 await run.io_bound(persistence.save_deck, deck, filename, group)
 
                                  # Refresh deck list and load
-                                 self.state['available_decks'] = persistence.list_decks()
+                                 self.state['available_decks'] = persistence.list_decks(group)
                                  await self.load_deck(filename)
 
                                  n.dismiss()
@@ -965,12 +1022,44 @@ class DeckBuilderPage:
         with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
             ui.label('Deck Builder').classes('text-h5')
 
+            group_options = {g: g for g in self.state['available_deck_groups']}
+            group_options['__NEW__'] = '+ New Group'
+
+            async def on_group_change(e):
+                if e.value == '__NEW__':
+                    self.open_new_group_dialog()
+                    # Revert visual selection until group is actually created
+                    e.sender.value = self.state['current_deck_group']
+                elif e.value:
+                    self.state['current_deck_group'] = e.value
+                    persistence.save_ui_state({'deck_builder_last_deck_group': e.value})
+                    self.state['available_decks'] = persistence.list_decks(e.value)
+
+                    # Auto-select the first deck in the new group, or None
+                    if self.state['available_decks']:
+                        next_deck = self.state['available_decks'][0]
+                        await self.load_deck(next_deck)
+                    else:
+                        self.state['current_deck'] = None
+                        self.state['current_deck_name'] = None
+                        persistence.save_ui_state({'deck_builder_last_deck': None})
+                        self.refresh_deck_area()
+                        self.render_header.refresh()
+
+            selected_group = self.state['current_deck_group']
+            ui.select(group_options, value=selected_group, label='Deck Group', on_change=on_group_change).classes('min-w-[150px]')
+
             deck_options = {f: f.replace('.ydk', '') for f in self.state['available_decks']}
             deck_options['__NEW__'] = '+ New Deck'
 
             async def on_deck_change(e):
                 if e.value == '__NEW__':
                     self.open_new_deck_dialog()
+                    # Revert visual selection until deck is created
+                    if self.state['current_deck_name']:
+                        e.sender.value = f"{self.state['current_deck_name']}.ydk"
+                    else:
+                        e.sender.value = None
                 elif e.value:
                     await self.load_deck(e.value)
 
@@ -998,12 +1087,13 @@ class DeckBuilderPage:
 
                         try:
                             filename = f"{name}.ydk"
+                            group = self.state['current_deck_group']
                             # Save current deck content to new file
-                            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename)
+                            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename, group)
 
                             # Switch to new deck
                             self.state['current_deck_name'] = name
-                            self.state['available_decks'] = persistence.list_decks()
+                            self.state['available_decks'] = persistence.list_decks(group)
                             persistence.save_ui_state({'deck_builder_last_deck': name})
 
                             self.render_header.refresh()
@@ -1143,7 +1233,8 @@ class DeckBuilderPage:
 
             # Undo Button
             has_history = False
-            deck_filename = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
+            group = self.state['current_deck_group']
+            deck_filename = f"{group}_{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
             if deck_filename:
                  last = self.deck_changelog_manager.get_last_change(deck_filename)
                  has_history = last is not None
@@ -1674,13 +1765,14 @@ class DeckBuilderPage:
             async def confirm():
                 try:
                     filename = f"{self.state['current_deck_name']}.ydk"
+                    group = self.state['current_deck_group']
                     # Use run.io_bound to keep UI responsive
-                    await run.io_bound(persistence.delete_deck, filename)
+                    await run.io_bound(persistence.delete_deck, filename, group)
 
                     ui.notify(f"Deleted deck: {self.state['current_deck_name']}", type='positive')
 
                     # Refresh list
-                    self.state['available_decks'] = persistence.list_decks()
+                    self.state['available_decks'] = persistence.list_decks(group)
 
                     # Load next deck or reset
                     if self.state['available_decks']:
@@ -1920,7 +2012,8 @@ class DeckBuilderPage:
 
     async def undo_last_action(self):
         if not self.state['current_deck_name']: return
-        filename = f"{self.state['current_deck_name']}.ydk"
+        group = self.state['current_deck_group']
+        filename = f"{group}_{self.state['current_deck_name']}.ydk"
 
         last_change = self.deck_changelog_manager.undo_last_change(filename)
         if not last_change:
