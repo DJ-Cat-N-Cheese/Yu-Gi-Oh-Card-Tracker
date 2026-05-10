@@ -574,33 +574,12 @@ class CollectionPage:
             self.update_pagination_labels()
             return
 
-        # Use run.io_bound for the heavy lifting of filtering and sorting if there are many items
-        if len(source) > 2000:
-            res = await run.io_bound(self._filter_and_sort_task, source)
-        else:
-            res = self._filter_and_sort_task(source)
-
-        self.state['filtered_items'] = res
-        if reset_page:
-            self.state['page'] = 1
-        self.update_pagination()
-
-        await self.calculate_metrics()
-
-        await self.prepare_current_page_images()
-        if hasattr(self, 'render_card_display'): self.render_card_display.refresh()
-        self.update_pagination_labels()
-        if hasattr(self, 'render_metrics_area'): self.render_metrics_area.refresh()
-
-    def _filter_and_sort_task(self, source: List) -> List:
         res = list(source)
 
         txt = self.state['search_text'].lower()
         if txt:
             def matches_search(item):
                 # 1. Check common fields
-                # Optimization: Access name/type/desc directly, avoid repeated .lower() if possible?
-                # (api_card strings are likely already the right case or not too long)
                 if (txt in item.api_card.name.lower() or
                     txt in item.api_card.type.lower() or
                     txt in item.api_card.desc.lower()):
@@ -770,7 +749,6 @@ class CollectionPage:
         elif key == 'Newest':
             timestamp_map = {}
             if self.state['selected_file']:
-                # Optimization: changelog_manager.load_history should ideally be cached if not changed
                 history = changelog_manager.load_history(self.state['selected_file'])
                 for entry in history:
                     ts = entry.get('timestamp', 0)
@@ -811,7 +789,17 @@ class CollectionPage:
             else:
                 res.sort(key=lambda x: x.set_code, reverse=reverse)
 
-        return res
+        self.state['filtered_items'] = res
+        if reset_page:
+            self.state['page'] = 1
+        self.update_pagination()
+
+        await self.calculate_metrics()
+
+        await self.prepare_current_page_images()
+        if hasattr(self, 'render_card_display'): self.render_card_display.refresh()
+        self.update_pagination_labels()
+        if hasattr(self, 'render_metrics_area'): self.render_metrics_area.refresh()
 
     async def calculate_metrics(self):
         from src.services.pricing_service import pricing_service
