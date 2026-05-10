@@ -28,6 +28,7 @@ class CardViewModel:
     lowest_price: float = 0.0
     owned_languages: Set[str] = field(default_factory=set)
     owned_conditions: Set[str] = field(default_factory=set)
+    owned_storages: Set[str] = field(default_factory=set)
 
 @dataclass
 class CollectorRow:
@@ -53,11 +54,13 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
         qty = c_card.total_quantity if c_card else 0
         owned_langs = set()
         owned_conds = set()
+        owned_storages = set()
         if c_card:
             for v in c_card.variants:
                 for e in v.entries:
                     owned_langs.add(e.language)
                     owned_conds.add(e.condition)
+                    owned_storages.add(e.storage_location if e.storage_location else 'None')
 
         lowest = 0.0
         prices = []
@@ -72,7 +75,7 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
         if prices:
             lowest = min(prices)
 
-        vms.append(CardViewModel(card, qty, qty > 0, lowest, owned_langs, owned_conds))
+        vms.append(CardViewModel(card, qty, qty > 0, lowest, owned_langs, owned_conds, owned_storages))
     return vms
 
 
@@ -601,9 +604,9 @@ class CollectionPage:
                 # 1. Check common fields
                 # Optimization: Access name/type/desc directly, avoid repeated .lower() if possible?
                 # (api_card strings are likely already the right case or not too long)
-                if (txt in item.api_card.name.lower() or
-                    txt in item.api_card.type.lower() or
-                    txt in item.api_card.desc.lower()):
+                if (txt in (item.api_card.name or "").lower() or
+                    txt in (item.api_card.type or "").lower() or
+                    txt in (item.api_card.desc or "").lower()):
                     return True
 
                 # 2. Check Set Code
@@ -660,9 +663,11 @@ class CollectionPage:
         if self.state.get('filter_storage'):
             selected_storage = set(self.state['filter_storage'])
 
-            new_res = []
-            for item in res:
-                if self.state['view_scope'] == 'collectors':
+            if self.state['view_scope'] == 'consolidated':
+                res = [c for c in res if any(loc in c.owned_storages for loc in selected_storage)]
+            else:
+                new_res = []
+                for item in res:
                     visible_qty = 0
                     for e in item.entries:
                         loc = e.storage_location if e.storage_location else 'None'
@@ -672,10 +677,6 @@ class CollectionPage:
                     if visible_qty > 0:
                         new_item = replace(item, owned_count=visible_qty)
                         new_res.append(new_item)
-                else:
-                    new_res.append(item)
-
-            if self.state['view_scope'] == 'collectors':
                 res = new_res
 
         if self.state['filter_attr']:
@@ -843,9 +844,8 @@ class CollectionPage:
                     await asyncio.sleep(0)
 
                 if vm.owned_quantity > 0:
-                    unique_card_ids.add(vm.api_card.id)
-
                     c_card = owned_card_map.get(vm.api_card.id)
+                    card_has_matches = False
                     if c_card:
                         for v in c_card.variants:
                             # Simplified: check language and condition filters since we have them at variant entry level.
@@ -867,9 +867,13 @@ class CollectionPage:
                                     self.metrics['total_qty'] += e.quantity
 
                             if var_qty > 0:
+                                card_has_matches = True
                                 unique_variant_ids.add(v.variant_id)
                                 price = get_display_price_for_variant(vm.api_card, v.variant_id)
                                 self.metrics['total_value'] += price * var_qty
+
+                    if card_has_matches:
+                        unique_card_ids.add(vm.api_card.id)
         else:
             # Collectors view
             for i, row in enumerate(self.state['filtered_items']):
@@ -934,22 +938,26 @@ class CollectionPage:
                 total_qty = c_card.total_quantity
                 owned_langs = set()
                 owned_conds = set()
+                owned_storages = set()
                 for v in c_card.variants:
                     for e in v.entries:
                         owned_langs.add(e.language)
                         owned_conds.add(e.condition)
+                        owned_storages.add(e.storage_location if e.storage_location else 'None')
 
                 vm = self.state['cards_consolidated'][vm_index]
                 vm.owned_quantity = total_qty
                 vm.is_owned = total_qty > 0
                 vm.owned_languages = owned_langs
                 vm.owned_conditions = owned_conds
+                vm.owned_storages = owned_storages
             else:
                 vm = self.state['cards_consolidated'][vm_index]
                 vm.owned_quantity = 0
                 vm.is_owned = False
                 vm.owned_languages = set()
                 vm.owned_conditions = set()
+                vm.owned_storages = set()
 
         # 2. Update Collectors View
         if not variant_id:

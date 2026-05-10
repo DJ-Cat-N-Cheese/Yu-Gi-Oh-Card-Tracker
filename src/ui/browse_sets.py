@@ -121,7 +121,9 @@ def build_consolidated_rows(api_cards, collection):
             is_owned=is_owned,
             lowest_price=lowest,
             owned_languages=owned_langs,
-            owned_conditions=owned_conds
+            owned_conditions=owned_conds,
+            # Browse Sets doesn't populate storage initially for display purposes right now
+            owned_storages=set()
         ))
     return rows
 
