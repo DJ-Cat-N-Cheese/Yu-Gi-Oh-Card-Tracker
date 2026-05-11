@@ -13,6 +13,7 @@ sys.modules['src.core.persistence'] = MagicMock()
 sys.modules['src.core.changelog_manager'] = MagicMock()
 sys.modules['src.core.config'] = MagicMock()
 sys.modules['src.services.ygo_api'] = MagicMock()
+sys.modules['src.services.ygo_api'].ygo_service.ensure_card_variants = AsyncMock()
 sys.modules['src.services.image_manager'] = MagicMock()
 sys.modules['src.services.collection_editor'] = MagicMock()
 
