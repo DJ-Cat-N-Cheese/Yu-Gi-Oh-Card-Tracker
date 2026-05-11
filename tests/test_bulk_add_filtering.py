@@ -17,7 +17,7 @@ sys.modules['src.services.ygo_api'] = MagicMock()
 sys.modules['src.services.image_manager'] = MagicMock()
 sys.modules['src.services.collection_editor'] = MagicMock()
 
-from src.ui.bulk_add import BulkAddPage, BulkCollectionEntry
+from src.ui.bulk_add import BulkAddPage, BulkCollectionEntry, _build_collection_entries
 from src.core.models import ApiCard, ApiCardSet, Collection, CollectionCard, CollectionVariant, CollectionEntry
 
 class TestBulkAddFiltering(unittest.TestCase):
@@ -87,7 +87,11 @@ class TestBulkAddFiltering(unittest.TestCase):
         # Setup run.io_bound to return the collection
         # We patch the 'io_bound' method on the 'run' object in src.ui.bulk_add
         with patch('src.ui.bulk_add.run.io_bound', new_callable=AsyncMock) as mock_io:
-            mock_io.return_value = col
+            def side_effect(func, *args, **kwargs):
+                if func == _build_collection_entries:
+                    return _build_collection_entries(args[0], args[1])
+                return col
+            mock_io.side_effect = side_effect
 
             self.page.state['selected_collection'] = "Test Col"
 
@@ -109,7 +113,11 @@ class TestBulkAddFiltering(unittest.TestCase):
                     ])
                 ])
             ])
-            mock_io.return_value = col2
+            def side_effect2(func, *args, **kwargs):
+                if func == _build_collection_entries:
+                    return _build_collection_entries(args[0], args[1])
+                return col2
+            mock_io.side_effect = side_effect2
             asyncio.run(self.page.load_collection_data())
 
             entries = self.page.col_state['collection_cards']

@@ -123,7 +123,8 @@ class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
             price=0.0
         )
 
-        await self.page.process_batch_update([entry])
+        with patch('src.ui.bulk_add.ygo_service.ensure_card_variants', new_callable=AsyncMock) as mock_ensure:
+            await self.page.process_batch_update([entry])
 
         print("Calls:", self.collection_editor_mock.apply_change.call_args_list)
 

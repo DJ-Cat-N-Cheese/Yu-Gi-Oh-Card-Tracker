@@ -93,6 +93,13 @@ def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = Non
         except Exception:
             pass
 
+    # 1.5 Try API Card Set Price
+    if variant_id and card.card_sets:
+        for s in card.card_sets:
+            if s.variant_id == variant_id and s.set_price:
+                try: return float(s.set_price)
+                except Exception: pass
+
     # 2. Fallback to general cardmarket_price on card
     if card.card_prices and card.card_prices[0].cardmarket_price:
         try:
