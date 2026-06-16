@@ -7,7 +7,7 @@ import asyncio
 import os
 import uuid
 import shutil
-import pickle
+import json
 from typing import Optional, Dict, Any, List, Tuple, Union, Callable
 
 try:
@@ -262,16 +262,17 @@ class ScannerManager:
         """Builds or loads the Art Match index from data/images."""
         if not self.scanner: return
 
-        index_path = os.path.join(self.debug_dir, "art_index_yolo.pkl")
+        index_path = os.path.join(self.debug_dir, "art_index_yolo.json")
         img_dir = "data/images"
 
         # Load Cache (if not forced)
         if not force and os.path.exists(index_path) and not self.art_index:
             try:
-                with open(index_path, "rb") as f:
-                    loaded_index = pickle.load(f)
+                with open(index_path, "r") as f:
+                    loaded_index = json.load(f)
                     if loaded_index and len(loaded_index) > 0:
-                        self.art_index = loaded_index
+                        # Convert lists back to numpy arrays
+                        self.art_index = {k: np.array(v) if np is not None else v for k, v in loaded_index.items()}
                         logger.info(f"Loaded Art Index: {len(self.art_index)} items")
                         return
                     else:
@@ -329,8 +330,10 @@ class ScannerManager:
 
         # Save Cache
         try:
-            with open(index_path, "wb") as f:
-                pickle.dump(self.art_index, f)
+            # Convert numpy arrays to lists for JSON serialization
+            serializable_index = {k: v.tolist() if hasattr(v, 'tolist') else v for k, v in self.art_index.items()}
+            with open(index_path, "w") as f:
+                json.dump(serializable_index, f)
         except Exception as e:
             logger.error(f"Failed to save cache: {e}")
 

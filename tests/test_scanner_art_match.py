@@ -74,8 +74,8 @@ class TestScannerArtMatch(unittest.TestCase):
              patch('os.path.exists', return_value=True), \
              patch('cv2.imread', return_value=np.zeros((10,10,3))), \
              patch('builtins.open', mock_open()) as mocked_file, \
-             patch('pickle.load', side_effect=Exception("No cache")), \
-             patch('pickle.dump') as mock_dump:
+             patch('json.load', side_effect=Exception("No cache")), \
+             patch('json.dump') as mock_dump:
 
              # Force empty index to trigger build
              manager.art_index = {}
