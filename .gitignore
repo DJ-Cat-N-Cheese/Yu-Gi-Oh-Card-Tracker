@@ -10,3 +10,6 @@ venv/
 .DS_Store
 data/*
 !data/binder_1.json
+dist/
+build/
+*.spec
