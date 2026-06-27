@@ -26,12 +26,14 @@ sys.modules['mmocr.apis'] = MagicMock()
 # I installed ultralytics, numpy, cv2 earlier.
 
 from src.services.scanner.pipeline import CardScanner
+import src.services.scanner.pipeline as scanner_pipeline
 from src.services.scanner.manager import ScannerManager
 from src.services.scanner.models import ScanDebugReport
 
 class TestScannerArtMatch(unittest.TestCase):
     def setUp(self):
-        self.yolo_patcher = patch('src.services.scanner.pipeline.YOLO')
+        scanner_pipeline.np = np
+        self.yolo_patcher = patch('src.services.scanner.pipeline.YOLO', create=True)
         self.MockYOLO = self.yolo_patcher.start()
 
     def tearDown(self):
@@ -72,10 +74,11 @@ class TestScannerArtMatch(unittest.TestCase):
         # Mock filesystem
         with patch('os.listdir', return_value=['img1.jpg', 'img2.png', 'other.txt']), \
              patch('os.path.exists', return_value=True), \
-             patch('cv2.imread', return_value=np.zeros((10,10,3))), \
+             patch('src.services.scanner.manager.cv2') as mock_cv2, \
              patch('builtins.open', mock_open()) as mocked_file, \
              patch('pickle.load', side_effect=Exception("No cache")), \
              patch('pickle.dump') as mock_dump:
+             mock_cv2.imread.return_value = np.zeros((10,10,3))
 
              # Force empty index to trigger build
              manager.art_index = {}
