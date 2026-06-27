@@ -76,15 +76,39 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
     return vms
 
 
-def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = None) -> float:
-    """Helper to get the daily cardmarket price for UI display, falling back to general cardmarket_price"""
+def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = None, set_code: Optional[str] = None, rarity: Optional[str] = None, image_id: Optional[int] = None) -> float:
+    """Helper to get the daily cardmarket price for UI display, falling back to set_price, and then general cardmarket_price"""
     price = 0.0
+    matched_variant_id = variant_id
+    default_image_id = card.card_images[0].id if card.card_images else None
+    effective_image_id = image_id if image_id is not None else default_image_id
+
+    # Find the matching ApiCardSet to use for variant_id resolution and set_price fallback
+    matched_set = None
+    if card.card_sets:
+        for s in card.card_sets:
+            # Match by variant_id if provided
+            if matched_variant_id and s.variant_id == matched_variant_id:
+                matched_set = s
+                break
+
+            # Match by characteristics if provided
+            if set_code and rarity:
+                s_img = s.image_id if s.image_id is not None else default_image_id
+                if s.set_code == set_code and s.set_rarity == rarity and s_img == effective_image_id:
+                    matched_set = s
+                    matched_variant_id = s.variant_id
+                    break
+
+    # If we couldn't find a variant ID but have attributes, generate one deterministically
+    if not matched_variant_id and set_code and rarity:
+        matched_variant_id = generate_variant_id(card.id, set_code, rarity, effective_image_id)
 
     # 1. Try daily pricing
-    if variant_id:
+    if matched_variant_id:
         try:
             c_id_str = str(card.id)
-            v_id_str = str(variant_id)
+            v_id_str = str(matched_variant_id)
             if c_id_str in pricing_service.daily_pricing and v_id_str in pricing_service.daily_pricing[c_id_str]:
                 cm_data = pricing_service.daily_pricing[c_id_str][v_id_str].get('cardmarket', {})
                 if cm_data:
@@ -93,7 +117,14 @@ def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = Non
         except Exception:
             pass
 
-    # 2. Fallback to general cardmarket_price on card
+    # 2. Fallback to set_price from matching set
+    if matched_set and matched_set.set_price:
+        try:
+            return float(matched_set.set_price)
+        except Exception:
+            pass
+
+    # 3. Fallback to general cardmarket_price on card
     if card.card_prices and card.card_prices[0].cardmarket_price:
         try:
             return float(card.card_prices[0].cardmarket_price)
@@ -167,7 +198,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                             break
 
                     set_name = best_api_set.set_name
-                    price = get_display_price_for_variant(card, cv.variant_id)
+                    price = get_display_price_for_variant(card, cv.variant_id, cv.set_code, rarity, cv.image_id)
 
                     for (lang, cond, first), qty in groups.items():
                         group_entries = [e for e in cv.entries if e.language == lang and e.condition == cond and e.first_edition == first]
@@ -218,7 +249,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
 
                 set_name = representative.set_name
                 set_code = representative.set_code
-                price = get_display_price_for_variant(card, representative.variant_id)
+                price = get_display_price_for_variant(card, representative.variant_id, set_code, rarity, representative.image_id)
 
                 row_img_url = img_url
                 if representative.image_id:
@@ -278,7 +309,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                         set_code=cv.set_code,
                         set_name="Custom / Unmatched",
                         rarity=cv.rarity,
-                        price=get_display_price_for_variant(card, cv.variant_id),
+                        price=get_display_price_for_variant(card, cv.variant_id, cv.set_code, cv.rarity, cv.image_id),
                         image_url=row_img_url,
                         owned_count=qty,
                         is_owned=True,
@@ -858,7 +889,7 @@ class CollectionPage:
 
                                 if var_qty > 0:
                                     unique_variant_ids.add(v.variant_id)
-                                    price = get_display_price_for_variant(vm.api_card, v.variant_id)
+                                    price = get_display_price_for_variant(vm.api_card, v.variant_id, v.set_code, v.rarity, v.image_id)
                                     self.metrics['total_value'] += price * var_qty
         else:
             # Collectors view
@@ -1009,7 +1040,7 @@ class CollectionPage:
         else:
             if new_qty > 0:
                 set_name = "Unknown Set"
-                price = get_display_price_for_variant(api_card, variant_id)
+                price = get_display_price_for_variant(api_card, variant_id, set_code, rarity, image_id)
                 if api_card.card_sets:
                     for s in api_card.card_sets:
                         if s.set_code == set_code:
@@ -1063,7 +1094,7 @@ class CollectionPage:
 
                  if is_standard:
                      set_name = "Unknown Set"
-                     price = get_display_price_for_variant(api_card, None)
+                     price = get_display_price_for_variant(api_card, None, set_code, rarity, image_id)
                      if api_card.card_sets:
                         for s in api_card.card_sets:
                             if s.set_code == set_code:
