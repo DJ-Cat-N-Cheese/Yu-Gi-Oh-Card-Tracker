@@ -1,40 +1,41 @@
 import sys
 from unittest.mock import MagicMock, AsyncMock, patch
 import unittest
+from tests.mock_imports import import_with_module_mocks
 
 # Setup mocks for dependencies FIRST
 persistence_mock = MagicMock()
 persistence_mock.load_ui_state.return_value = {}
 persistence_mock.list_collections.return_value = []
-sys.modules['src.core.persistence'] = MagicMock()
-sys.modules['src.core.persistence'].persistence = persistence_mock
+persistence_module_mock = MagicMock()
+persistence_module_mock.persistence = persistence_mock
 
 changelog_manager_mock = MagicMock()
-sys.modules['src.core.changelog_manager'] = MagicMock()
-sys.modules['src.core.changelog_manager'].changelog_manager = changelog_manager_mock
+changelog_module_mock = MagicMock()
+changelog_module_mock.changelog_manager = changelog_manager_mock
 
 config_manager_mock = MagicMock()
 config_manager_mock.get_language.return_value = 'EN'
 config_manager_mock.get_bulk_add_page_size.return_value = 50
-sys.modules['src.core.config'] = MagicMock()
-sys.modules['src.core.config'].config_manager = config_manager_mock
+config_module_mock = MagicMock()
+config_module_mock.config_manager = config_manager_mock
 
 ygo_service_mock = MagicMock()
 # Important: ensure_card_variant must be AsyncMock
 ygo_service_mock.ensure_card_variant = AsyncMock(return_value=True)
 ygo_service_mock.ensure_card_variants = AsyncMock(return_value=1)
-sys.modules['src.services.ygo_api'] = MagicMock()
-sys.modules['src.services.ygo_api'].ygo_service = ygo_service_mock
-sys.modules['src.services.ygo_api'].ApiCard = MagicMock
+ygo_api_module_mock = MagicMock()
+ygo_api_module_mock.ygo_service = ygo_service_mock
+ygo_api_module_mock.ApiCard = MagicMock
 
 image_manager_mock = MagicMock()
-sys.modules['src.services.image_manager'] = MagicMock()
-sys.modules['src.services.image_manager'].image_manager = image_manager_mock
+image_manager_module_mock = MagicMock()
+image_manager_module_mock.image_manager = image_manager_mock
 
 collection_editor_mock = MagicMock()
 collection_editor_mock.CollectionEditor.apply_change.return_value = True
-sys.modules['src.services.collection_editor'] = MagicMock()
-sys.modules['src.services.collection_editor'].CollectionEditor = collection_editor_mock.CollectionEditor
+collection_editor_module_mock = MagicMock()
+collection_editor_module_mock.CollectionEditor = collection_editor_mock.CollectionEditor
 
 # Now mock nicegui
 run_mock = MagicMock()
@@ -49,18 +50,28 @@ nicegui_mock = MagicMock()
 nicegui_mock.run = run_mock
 nicegui_mock.ui = ui_mock
 
-sys.modules['nicegui'] = nicegui_mock
-sys.modules['nicegui.ui'] = ui_mock
-sys.modules['nicegui.run'] = run_mock
-
 # Import the class under test
-from src.ui.bulk_add import BulkAddPage
+bulk_add_module = import_with_module_mocks(
+    'src.ui.bulk_add',
+    {
+        'src.core.persistence': persistence_module_mock,
+        'src.core.changelog_manager': changelog_module_mock,
+        'src.core.config': config_module_mock,
+        'src.services.ygo_api': ygo_api_module_mock,
+        'src.services.image_manager': image_manager_module_mock,
+        'src.services.collection_editor': collection_editor_module_mock,
+        'nicegui': nicegui_mock,
+        'nicegui.ui': ui_mock,
+        'nicegui.run': run_mock,
+    },
+)
+BulkAddPage = bulk_add_module.BulkAddPage
 
 class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        with patch('src.ui.bulk_add.SingleCardView'), \
-             patch('src.ui.bulk_add.StructureDeckDialog'), \
-             patch('src.ui.bulk_add.FilterPane'):
+        with patch.object(bulk_add_module, 'SingleCardView'), \
+             patch.object(bulk_add_module, 'StructureDeckDialog'), \
+             patch.object(bulk_add_module, 'FilterPane'):
             self.page = BulkAddPage()
             self.page.current_collection_obj = MagicMock()
             self.page.state['selected_collection'] = "TestCol.json"
@@ -106,7 +117,7 @@ class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
         self.page.state['default_language'] = 'DE'
 
         # We need to mock transform_set_code since it's imported in bulk_add
-        with patch('src.ui.bulk_add.transform_set_code', return_value="LOB-DE001"):
+        with patch.object(bulk_add_module, 'transform_set_code', return_value="LOB-DE001"):
             await self.page.process_batch_add([entry])
 
         ygo_service_mock.ensure_card_variants.assert_awaited_once()

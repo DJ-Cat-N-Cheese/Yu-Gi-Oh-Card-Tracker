@@ -2,29 +2,35 @@ import unittest
 from unittest.mock import MagicMock, patch
 import sys
 import os
+from tests.mock_imports import import_with_module_mocks
 
 # Mock nicegui
 mock_ui = MagicMock()
-sys.modules['nicegui'] = mock_ui
-sys.modules['nicegui.ui'] = mock_ui
 
 # Ensure src is in path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.ui.deck_builder import DeckBuilderPage
+deck_builder_module = import_with_module_mocks(
+    'src.ui.deck_builder',
+    {
+        'nicegui': mock_ui,
+        'nicegui.ui': mock_ui,
+    },
+)
+DeckBuilderPage = deck_builder_module.DeckBuilderPage
 from src.core.models import ApiCard
 
 class TestDeckBuilderWarnings(unittest.TestCase):
     def setUp(self):
-        self.persistence_patcher = patch('src.ui.deck_builder.persistence')
+        self.persistence_patcher = patch.object(deck_builder_module, 'persistence')
         self.persistence_mock = self.persistence_patcher.start()
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.config_patcher = patch('src.ui.deck_builder.config_manager')
+        self.config_patcher = patch.object(deck_builder_module, 'config_manager')
         self.config_mock = self.config_patcher.start()
 
         # Patch image manager
-        self.img_mgr_patcher = patch('src.ui.deck_builder.image_manager')
+        self.img_mgr_patcher = patch.object(deck_builder_module, 'image_manager')
         self.img_mgr = self.img_mgr_patcher.start()
         self.img_mgr.image_exists.return_value = False
 
