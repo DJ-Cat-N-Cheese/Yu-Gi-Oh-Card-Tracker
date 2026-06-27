@@ -9,7 +9,7 @@ class MockApiCard(ApiCard):
             name=name,
             type="Monster",
             frameType="normal",
-            desc="Test Card",
+            , desc="Test Card", frameType="normal", frameType="normal",
             card_images=[ApiCardImage(id=id, image_url="url", image_url_small="small_url")]
         )
 

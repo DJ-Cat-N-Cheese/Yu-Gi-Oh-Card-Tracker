@@ -44,7 +44,7 @@ class TestImportFromYugipedia(unittest.IsolatedAsyncioTestCase):
             name="Existing Card",
             type="Normal Monster",
             frameType="normal",
-            desc="", # Empty desc
+            , desc="", frameType="normal", frameType="normal", # Empty desc
             race="Warrior",
             card_sets=[]
         )

@@ -57,8 +57,8 @@ class TestStorageSort(unittest.IsolatedAsyncioTestCase):
         self.dialog_patcher.stop()
 
     async def test_sort_atk(self):
-        c1 = ApiCard(id=1, name="Weak", type="Monster", frameType="normal", desc="..", atk=100)
-        c2 = ApiCard(id=2, name="Strong", type="Monster", frameType="normal", desc="..", atk=2000)
+        c1 = ApiCard(id=1, name="Weak", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", atk=100)
+        c2 = ApiCard(id=2, name="Strong", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", atk=2000)
 
         row1 = StorageRow(c1, "A", "Set", "C", "url", 1, "en", "NM", False)
         row2 = StorageRow(c2, "B", "Set", "C", "url", 1, "en", "NM", False)
@@ -77,9 +77,9 @@ class TestStorageSort(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res[0].api_card.id, 2) # 2000 > 100
 
     async def test_sort_def(self):
-        c1 = ApiCard(id=1, name="Weak Def", type="Monster", frameType="normal", desc="..")
+        c1 = ApiCard(id=1, name="Weak Def", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal")
         c1.def_ = 0
-        c2 = ApiCard(id=2, name="Strong Def", type="Monster", frameType="normal", desc="..")
+        c2 = ApiCard(id=2, name="Strong Def", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal")
         c2.def_ = 3000
 
         row1 = StorageRow(c1, "A", "Set", "C", "url", 1, "en", "NM", False)
@@ -99,8 +99,8 @@ class TestStorageSort(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res[0].api_card.id, 2)
 
     async def test_sort_level(self):
-        c1 = ApiCard(id=1, name="Low Level", type="Monster", frameType="normal", desc="..", level=1)
-        c2 = ApiCard(id=2, name="High Level", type="Monster", frameType="normal", desc="..", level=12)
+        c1 = ApiCard(id=1, name="Low Level", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", level=1)
+        c2 = ApiCard(id=2, name="High Level", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", level=12)
 
         row1 = StorageRow(c1, "A", "Set", "C", "url", 1, "en", "NM", False)
         row2 = StorageRow(c2, "B", "Set", "C", "url", 1, "en", "NM", False)
@@ -120,10 +120,10 @@ class TestStorageSort(unittest.IsolatedAsyncioTestCase):
 
     async def test_sort_price(self):
         p1 = ApiCardPrice(tcgplayer_price="1.50")
-        c1 = ApiCard(id=1, name="Cheap", type="Monster", frameType="normal", desc="..", card_prices=[p1])
+        c1 = ApiCard(id=1, name="Cheap", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", card_prices=[p1])
 
         p2 = ApiCardPrice(tcgplayer_price="100.00")
-        c2 = ApiCard(id=2, name="Expensive", type="Monster", frameType="normal", desc="..", card_prices=[p2])
+        c2 = ApiCard(id=2, name="Expensive", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal", card_prices=[p2])
 
         row1 = StorageRow(c1, "A", "Set", "C", "url", 1, "en", "NM", False)
         row2 = StorageRow(c2, "B", "Set", "C", "url", 1, "en", "NM", False)
@@ -142,8 +142,8 @@ class TestStorageSort(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(res[0].api_card.id, 2) # 100.00 > 1.50
 
     async def test_sort_quantity(self):
-        c1 = ApiCard(id=1, name="Few", type="Monster", frameType="normal", desc="..")
-        c2 = ApiCard(id=2, name="Many", type="Monster", frameType="normal", desc="..")
+        c1 = ApiCard(id=1, name="Few", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal")
+        c2 = ApiCard(id=2, name="Many", type="Monster", , desc="..", frameType="normal", frameType="normal", frameType="normal")
 
         row1 = StorageRow(c1, "A", "Set", "C", "url", 1, "en", "NM", False)
         row2 = StorageRow(c2, "B", "Set", "C", "url", 10, "en", "NM", False)

@@ -7,7 +7,7 @@ from src.services.ygo_api import YugiohService, ApiCard, ApiCardSet
 def ygo_service():
     service = YugiohService()
     # Mock load_card_database to return a fake card
-    card = ApiCard(id=123, name="Test Card", type="Monster", frameType="normal", desc="Desc")
+    card = ApiCard(id=123, name="Test Card", type="Monster", , desc="Desc", frameType="normal", frameType="normal", frameType="normal")
     card.card_sets = [
         ApiCardSet(set_code="LOB-EN001", set_name="Legend of Blue Eyes", set_rarity="Ultra Rare", set_rarity_code="(UR)", set_price="1.00", variant_id="v1", image_id=123)
     ]

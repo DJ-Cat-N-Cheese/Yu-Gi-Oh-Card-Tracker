@@ -17,7 +17,7 @@ async def test_add_card_variant_success_auto_code(mock_ygo_service):
     # Setup
     card_id = 123
     card = ApiCard(
-        id=card_id, name="Test Card", type="Monster", frameType="normal", desc="desc",
+        id=card_id, name="Test Card", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
         card_sets=[]
     )
     mock_ygo_service.load_card_database.return_value = [card]
@@ -48,7 +48,7 @@ async def test_add_card_variant_duplicate(mock_ygo_service):
         set_rarity_code="(UR)", variant_id="existing_id"
     )
     card = ApiCard(
-        id=card_id, name="Test Card", type="Monster", frameType="normal", desc="desc",
+        id=card_id, name="Test Card", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
         card_sets=[existing_set]
     )
     mock_ygo_service.load_card_database.return_value = [card]
@@ -72,7 +72,7 @@ async def test_add_card_variant_explicit_code(mock_ygo_service):
     # Setup
     card_id = 123
     card = ApiCard(
-        id=card_id, name="Test Card", type="Monster", frameType="normal", desc="desc",
+        id=card_id, name="Test Card", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
         card_sets=[]
     )
     mock_ygo_service.load_card_database.return_value = [card]
@@ -96,7 +96,7 @@ async def test_update_card_variant_creates_new_with_code(mock_ygo_service):
     # Setup
     card_id = 123
     card = ApiCard(
-        id=card_id, name="Test Card", type="Monster", frameType="normal", desc="desc",
+        id=card_id, name="Test Card", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal",
         card_sets=[]
     )
     mock_ygo_service.load_card_database.return_value = [card]

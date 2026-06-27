@@ -55,7 +55,7 @@ async def test_add_card_triggers_refresh(mock_persistence, mock_changelog, mock_
     # Mock load_collection_data
     page.load_collection_data = AsyncMock()
 
-    api_card = ApiCard(id=1, name="Test Card", type="Monster", desc="Desc", frameType="normal")
+    api_card = ApiCard(id=1, name="Test Card", type="Monster", , desc="Desc", frameType="normal", frameType="normal", frameType="normal")
     entry = LibraryEntry(
         id="1_SET_Common",
         api_card=api_card,
@@ -86,7 +86,7 @@ async def test_handle_drop_triggers_refresh(mock_persistence, mock_changelog, mo
     page.load_collection_data = AsyncMock()
 
     # Setup library filtered state so it finds the entry
-    api_card = ApiCard(id=1, name="Test Card", type="Monster", desc="Desc", frameType="normal")
+    api_card = ApiCard(id=1, name="Test Card", type="Monster", , desc="Desc", frameType="normal", frameType="normal", frameType="normal")
     entry = LibraryEntry(
         id="card_1",
         api_card=api_card,

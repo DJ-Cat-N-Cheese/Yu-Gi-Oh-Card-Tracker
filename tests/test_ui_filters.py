@@ -40,10 +40,10 @@ class TestFilters(unittest.TestCase):
 
     def test_filter_card_type_multi(self):
         # Setup data
-        c1 = ApiCard(id=1, name="M1", type="Normal Monster", frameType="normal", desc="desc")
-        c2 = ApiCard(id=2, name="S1", type="Spell Card", frameType="spell", desc="desc")
-        c3 = ApiCard(id=3, name="T1", type="Trap Card", frameType="trap", desc="desc")
-        c4 = ApiCard(id=4, name="SK1", type="Skill Card", frameType="skill", desc="desc")
+        c1 = ApiCard(id=1, name="M1", type="Normal Monster", , desc="desc", frameType="normal", frameType="normal")
+        c2 = ApiCard(id=2, name="S1", type="Spell Card", frameType="spell", , desc="desc", frameType="normal", frameType="normal")
+        c3 = ApiCard(id=3, name="T1", type="Trap Card", frameType="trap", , desc="desc", frameType="normal", frameType="normal")
+        c4 = ApiCard(id=4, name="SK1", type="Skill Card", frameType="skill", , desc="desc", frameType="normal", frameType="normal")
 
         vm1 = CardViewModel(c1, 0, False)
         vm2 = CardViewModel(c2, 0, False)
@@ -75,16 +75,16 @@ class TestFilters(unittest.TestCase):
 
     def test_filter_condition(self):
         # Setup data for Consolidated View (uses owned_conditions)
-        c1 = ApiCard(id=1, name="Owned Mint", type="Monster", frameType="normal", desc="..")
+        c1 = ApiCard(id=1, name="Owned Mint", type="Monster", , desc="..", frameType="normal", frameType="normal")
         vm1 = CardViewModel(c1, 1, True, owned_conditions={'Mint'})
 
-        c2 = ApiCard(id=2, name="Owned Played", type="Monster", frameType="normal", desc="..")
+        c2 = ApiCard(id=2, name="Owned Played", type="Monster", , desc="..", frameType="normal", frameType="normal")
         vm2 = CardViewModel(c2, 1, True, owned_conditions={'Played'})
 
-        c3 = ApiCard(id=3, name="Owned Both", type="Monster", frameType="normal", desc="..")
+        c3 = ApiCard(id=3, name="Owned Both", type="Monster", , desc="..", frameType="normal", frameType="normal")
         vm3 = CardViewModel(c3, 2, True, owned_conditions={'Mint', 'Played'})
 
-        c4 = ApiCard(id=4, name="Unowned", type="Monster", frameType="normal", desc="..")
+        c4 = ApiCard(id=4, name="Unowned", type="Monster", , desc="..", frameType="normal", frameType="normal")
         vm4 = CardViewModel(c4, 0, False, owned_conditions=set())
 
         self.page.state['cards_consolidated'] = [vm1, vm2, vm3, vm4]
@@ -118,8 +118,8 @@ class TestFilters(unittest.TestCase):
         self.assertEqual(ids, [1, 2, 3])
 
     def test_sort_direction(self):
-        c1 = ApiCard(id=1, name="A Card", type="Monster", frameType="normal", desc="..", atk=1000)
-        c2 = ApiCard(id=2, name="B Card", type="Monster", frameType="normal", desc="..", atk=2000)
+        c1 = ApiCard(id=1, name="A Card", type="Monster", , desc="..", frameType="normal", frameType="normal", atk=1000)
+        c2 = ApiCard(id=2, name="B Card", type="Monster", , desc="..", frameType="normal", frameType="normal", atk=2000)
 
         vm1 = CardViewModel(c1, 0, False)
         vm2 = CardViewModel(c2, 0, False)
@@ -155,10 +155,10 @@ class TestFilters(unittest.TestCase):
     def test_sort_set_code(self):
         from src.core.models import ApiCardSet
 
-        c1 = ApiCard(id=1, name="A", type="Monster", frameType="normal", desc="..")
+        c1 = ApiCard(id=1, name="A", type="Monster", , desc="..", frameType="normal", frameType="normal")
         c1.card_sets = [ApiCardSet(set_name="Set A", set_code="LOB-002", set_rarity="Common")]
 
-        c2 = ApiCard(id=2, name="B", type="Monster", frameType="normal", desc="..")
+        c2 = ApiCard(id=2, name="B", type="Monster", , desc="..", frameType="normal", frameType="normal")
         c2.card_sets = [ApiCardSet(set_name="Set B", set_code="LOB-001", set_rarity="Common")]
 
         vm1 = CardViewModel(c1, 0, False)

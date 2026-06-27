@@ -44,7 +44,7 @@ class TestBulkAddFiltering(unittest.TestCase):
 
     def test_filter_set_by_name(self):
         # Setup data
-        c1 = ApiCard(id=1, name="Blue-Eyes", type="Monster", frameType="normal", desc="desc")
+        c1 = ApiCard(id=1, name="Blue-Eyes", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal")
 
         entry1 = BulkCollectionEntry(
             id="1", api_card=c1, quantity=1, set_code="LOB-EN001", set_name="Legend of Blue Eyes White Dragon",
@@ -66,7 +66,7 @@ class TestBulkAddFiltering(unittest.TestCase):
 
     def test_load_collection_data_populates_set_name(self):
         # Mock API Card
-        c1 = ApiCard(id=1, name="Blue-Eyes", type="Monster", frameType="normal", desc="desc")
+        c1 = ApiCard(id=1, name="Blue-Eyes", type="Monster", , desc="desc", frameType="normal", frameType="normal", frameType="normal")
         c1.card_sets = [
             ApiCardSet(set_name="Legend of Blue Eyes White Dragon", set_code="LOB-EN001", set_rarity="Ultra Rare"),
             ApiCardSet(set_name="Structure Deck: Kaiba", set_code="SDK-001", set_rarity="Ultra Rare")

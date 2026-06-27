@@ -8,7 +8,7 @@ class TestApiCardExtraDeck:
             name="Test Card",
             type=type_str,
             frameType="normal",
-            desc="desc"
+            , desc="desc", frameType="normal", frameType="normal"
         )
 
     def test_main_deck_cards(self):

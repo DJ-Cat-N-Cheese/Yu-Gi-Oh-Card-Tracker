@@ -22,7 +22,7 @@ class TestImportSetFromYugipedia(unittest.IsolatedAsyncioTestCase):
             name="Test Card",
             type="Normal Monster",
             frameType="normal",
-            desc="Desc",
+            , desc="Desc", frameType="normal", frameType="normal",
             race="Warrior",
             card_sets=[],
             card_images=[ApiCardImage(id=1, image_url="url", image_url_small="url")]
@@ -70,7 +70,7 @@ class TestImportSetFromYugipedia(unittest.IsolatedAsyncioTestCase):
             name="Test Card",
             type="Normal Monster",
             frameType="normal",
-            desc="Desc",
+            , desc="Desc", frameType="normal", frameType="normal",
             race="Warrior",
             card_sets=[
                 ApiCardSet(variant_id="v1", set_name="New Set", set_code="NEW-EN001", set_rarity="Common", set_price="0")

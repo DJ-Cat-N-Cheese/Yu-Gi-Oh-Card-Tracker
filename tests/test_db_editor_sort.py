@@ -97,9 +97,9 @@ class TestDbEditorSort(unittest.TestCase):
 
     def test_sort_by_set_code(self):
         # Create test data
-        c1 = MockApiCard(id=1, name="Card A")
-        c2 = MockApiCard(id=2, name="Card B")
-        c3 = MockApiCard(id=3, name="Card C")
+        c1 = MockApiCard(id=1, name="Card A", frameType="normal")
+        c2 = MockApiCard(id=2, name="Card B", frameType="normal")
+        c3 = MockApiCard(id=3, name="Card C", frameType="normal")
 
         row1 = DbEditorRow(
             api_card=c1,

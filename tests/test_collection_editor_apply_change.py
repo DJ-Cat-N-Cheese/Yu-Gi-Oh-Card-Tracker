@@ -5,7 +5,7 @@ from src.services.collection_editor import CollectionEditor
 def test_apply_change_negative_quantity():
     # Setup
     col = Collection(name="test", cards=[])
-    card = ApiCard(id=1, name="Test Card", type="Monster", desc="Desc", race="Dragon", attribute="DARK", frameType="normal")
+    card = ApiCard(id=1, name="Test Card", type="Monster", , desc="Desc", frameType="normal", frameType="normal", race="Dragon", attribute="DARK", frameType="normal")
 
     # Add initial 3 copies
     CollectionEditor.apply_change(

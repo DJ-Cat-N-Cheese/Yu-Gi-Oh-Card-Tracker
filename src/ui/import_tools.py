@@ -1426,6 +1426,48 @@ def import_tools_page():
             # without re-rendering. But we can just handle the file type in validation.
             # Or we can re-render the upload component. Let's rely on backend validation/parsing mostly,
             # but setting a generous accept filter.
+
+            # New block for Cardmarket Export Pricing Import
+            with ui.card().classes('w-full bg-gray-900 border border-gray-700 shadow-xl q-pa-md mb-4'):
+                ui.label('Cardmarket Export Pricing Sync').classes('text-lg font-bold text-white mb-2')
+                ui.label('Fetch and process daily pricing from Cardmarket Dumps.').classes('text-sm text-gray-400 mb-4')
+
+                cm_state = {
+                    'singles_url': 'https://downloads.s3.cardmarket.com/productCatalog/productList/products_singles_3.json',
+                    'nonsingles_url': 'https://downloads.s3.cardmarket.com/productCatalog/productList/products_nonsingles_3.json',
+                    'priceguide_url': 'https://downloads.s3.cardmarket.com/productCatalog/priceGuide/price_guide_3.json',
+                    'progress': 0.0,
+                    'status': 'Ready'
+                }
+
+                async def sync_cm():
+                    cm_state['status'] = 'Fetching...'
+                    ui.notify('Fetching Cardmarket JSONs...')
+                    from src.services.pricing_service import pricing_service
+                    singles, nonsingles, priceguide = await pricing_service.fetch_cardmarket_export(
+                        cm_state['singles_url'], cm_state['nonsingles_url'], cm_state['priceguide_url']
+                    )
+
+                    def on_prog(p):
+                        cm_state['progress'] = p
+                        if int(p * 100) % 5 == 0:
+                            prog_label.set_text(f"Processing... {int(p * 100)}%")
+
+                    cm_state['status'] = 'Processing...'
+                    prog_label.set_text("Processing... 0%")
+                    await pricing_service.process_cardmarket_exports(singles, nonsingles, priceguide, ygo_service, on_prog)
+                    cm_state['status'] = 'Done'
+                    prog_label.set_text("Done.")
+                    ui.notify('Successfully Synced Cardmarket Exports!', type='positive')
+
+                ui.input('Singles URL').bind_value(cm_state, 'singles_url').classes('w-full mb-2').props('dark')
+                ui.input('Non-Singles URL').bind_value(cm_state, 'nonsingles_url').classes('w-full mb-2').props('dark')
+                ui.input('Price Guide URL').bind_value(cm_state, 'priceguide_url').classes('w-full mb-4').props('dark')
+
+                with ui.row().classes('items-center gap-4'):
+                    ui.button('Sync Now', on_click=sync_cm).classes('bg-blue-600 text-white').props('unelevated')
+                    prog_label = ui.label('Ready').bind_text(cm_state, 'status').classes('text-grey')
+
             ui.upload(
                 label='Drop File Here (JSON, PDF, TXT)',
                 auto_upload=True,

@@ -6,7 +6,7 @@ from src.services.collection_editor import CollectionEditor
 class TestUndoService(unittest.TestCase):
     def setUp(self):
         self.collection = Collection(name="Test Collection")
-        self.api_card = ApiCard(id=123, name="Blue-Eyes", type="Monster", frameType="normal", desc="Dragon")
+        self.api_card = ApiCard(id=123, name="Blue-Eyes", type="Monster", , desc="Dragon", frameType="normal", frameType="normal", frameType="normal")
 
     def test_undo_add(self):
         # Setup: Add a card
