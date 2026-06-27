@@ -93,20 +93,47 @@ class PersistenceManager:
         if os.path.exists(self.decks_dir):
             for item in os.listdir(self.decks_dir):
                 item_path = os.path.join(self.decks_dir, item)
-                if os.path.isdir(item_path):
+                if item != 'main' and os.path.isdir(item_path):
                     groups.append(item)
         return sorted(groups)
 
+    def normalize_deck_group(self, group: str) -> str:
+        """Returns a filesystem-safe deck group name."""
+        if not group or str(group).lower() == 'main':
+            return 'main'
+
+        clean_group = "".join(c for c in str(group) if c.isalnum() or c in " -_").strip()
+        if not clean_group:
+            raise ValueError("Invalid deck group name")
+        return clean_group
+
+    def _sanitize_deck_filename(self, filename: str) -> str:
+        """Returns a safe .ydk filename without path components."""
+        raw_filename = str(filename or '').strip()
+        clean_filename = os.path.basename(raw_filename)
+        if not clean_filename or clean_filename in {'.', '..'}:
+            raise ValueError("Invalid deck filename")
+        if clean_filename != raw_filename:
+            raise ValueError("Deck filename cannot include path separators")
+        if not clean_filename.lower().endswith('.ydk'):
+            raise ValueError("Deck filename must end with .ydk")
+        return clean_filename
+
     def _get_group_dir(self, group: str) -> str:
         """Helper to get the directory for a deck group."""
-        if group == 'main' or not group:
+        clean_group = self.normalize_deck_group(group)
+        if clean_group == 'main':
             return self.decks_dir
 
-        # Prevent path traversal
-        clean_group = os.path.basename(group)
         group_dir = os.path.join(self.decks_dir, clean_group)
         os.makedirs(group_dir, exist_ok=True)
         return group_dir
+
+    def create_deck_group(self, group: str) -> str:
+        """Creates a deck group folder and returns the sanitized group name."""
+        clean_group = self.normalize_deck_group(group)
+        self._get_group_dir(clean_group)
+        return clean_group
 
     def list_decks(self, group: str = 'main') -> List[str]:
         """Returns a list of available deck filenames in a specific group."""
@@ -119,6 +146,7 @@ class PersistenceManager:
     def load_deck(self, filename: str, group: str = 'main') -> Deck:
         """Loads a deck from a .ydk file in a specific group."""
         group_dir = self._get_group_dir(group)
+        filename = self._sanitize_deck_filename(filename)
         logger.info(f"Loading deck: {filename} from group {group}")
         filepath = os.path.join(group_dir, filename)
         if not os.path.exists(filepath):
@@ -165,6 +193,7 @@ class PersistenceManager:
     def save_deck(self, deck: Deck, filename: str, group: str = 'main'):
         """Saves a deck to a .ydk file in a specific group."""
         group_dir = self._get_group_dir(group)
+        filename = self._sanitize_deck_filename(filename)
         logger.info(f"Saving deck: {filename} to group {group}")
         filepath = os.path.join(group_dir, filename)
 
@@ -187,9 +216,24 @@ class PersistenceManager:
             logger.error(f"Error saving deck {filename}: {e}")
             raise
 
+    def save_deck_content(self, content: str, filename: str, group: str = 'main'):
+        """Saves raw .ydk content to a deck file in a specific group."""
+        group_dir = self._get_group_dir(group)
+        filename = self._sanitize_deck_filename(filename)
+        logger.info(f"Saving imported deck content: {filename} to group {group}")
+        filepath = os.path.join(group_dir, filename)
+
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            logger.error(f"Error saving deck content {filename}: {e}")
+            raise
+
     def delete_deck(self, filename: str, group: str = 'main'):
         """Deletes a deck file in a specific group."""
         group_dir = self._get_group_dir(group)
+        filename = self._sanitize_deck_filename(filename)
         logger.info(f"Deleting deck: {filename} from group {group}")
         filepath = os.path.join(group_dir, filename)
         if os.path.exists(filepath):
