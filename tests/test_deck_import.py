@@ -36,15 +36,15 @@ class TestDeckImport(unittest.IsolatedAsyncioTestCase):
         # Mock Context Manager for session.get()
         # It needs __aenter__ and __aexit__
         get_ctx = MagicMock()
-        get_ctx.__aenter__.return_value = mock_response
-        get_ctx.__aexit__.return_value = None
+        get_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+        get_ctx.__aexit__ = AsyncMock(return_value=None)
 
         # Mock Session Instance
         # It needs __aenter__ and __aexit__ to support 'async with aiohttp.ClientSession()'
         mock_session = MagicMock()
         mock_session.get.return_value = get_ctx
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         # Correctly patch aiohttp.ClientSession
         # ClientSession() returns the instance, so we mock the class to return our mock_session
@@ -68,13 +68,13 @@ class TestDeckImport(unittest.IsolatedAsyncioTestCase):
         mock_response.status = 404
 
         get_ctx = MagicMock()
-        get_ctx.__aenter__.return_value = mock_response
-        get_ctx.__aexit__.return_value = None
+        get_ctx.__aenter__ = AsyncMock(return_value=mock_response)
+        get_ctx.__aexit__ = AsyncMock(return_value=None)
 
         mock_session = MagicMock()
         mock_session.get.return_value = get_ctx
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
+        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_session.__aexit__ = AsyncMock(return_value=None)
 
         with patch('aiohttp.ClientSession', return_value=mock_session):
             with self.assertRaises(Exception) as cm:

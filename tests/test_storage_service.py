@@ -1,27 +1,7 @@
 import unittest
-from unittest.mock import MagicMock, patch
-import sys
+from unittest.mock import patch
 import os
 
-# Mock dependencies that are missing in the environment
-mock_nicegui = MagicMock()
-sys.modules['nicegui'] = mock_nicegui
-sys.modules['nicegui.run'] = MagicMock()
-
-mock_pydantic = MagicMock()
-class MockBaseModel:
-    def __init__(self, **data):
-        for k, v in data.items():
-            setattr(self, k, v)
-    def model_dump(self):
-        # Basic implementation to satisfy StorageService.get_storage and get_all_storage
-        return {k: v for k, v in self.__dict__.items() if not k.startswith('_')}
-
-mock_pydantic.BaseModel = MockBaseModel
-mock_pydantic.Field = MagicMock(return_value=None)
-sys.modules['pydantic'] = mock_pydantic
-
-# Now import the service and models
 from src.services.storage import StorageService
 from src.core.models import Collection, StorageDefinition
 
