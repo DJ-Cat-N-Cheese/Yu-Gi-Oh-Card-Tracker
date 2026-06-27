@@ -20,6 +20,19 @@ sys.modules['orjson'] = MagicMock()
 from src.ui.deck_builder import DeckBuilderPage
 from src.core.models import Collection, CollectionCard, CollectionVariant
 
+for module_name in (
+    'nicegui',
+    'yaml',
+    'requests',
+    'aiohttp',
+    'PIL',
+    'cv2',
+    'ultralytics',
+    'numpy',
+    'orjson',
+):
+    sys.modules.pop(module_name, None)
+
 class TestDeckBuilderBreakdown(unittest.IsolatedAsyncioTestCase):
     async def test_open_deck_builder_wrapper_breakdown(self):
         # Mock dependencies used in __init__

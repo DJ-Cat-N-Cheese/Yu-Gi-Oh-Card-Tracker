@@ -21,13 +21,19 @@ from src.ui.bulk_add import BulkAddPage, BulkCollectionEntry
 class TestBulkAddRemove(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         # Setup mock returns
-        self.persistence_mock = sys.modules['src.core.persistence'].persistence
+        self.persistence_patcher = patch('src.ui.bulk_add.persistence')
+        self.persistence_mock = self.persistence_patcher.start()
+        self.addCleanup(self.persistence_patcher.stop)
         self.persistence_mock.list_collections.return_value = ['TestCol']
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.collection_editor_mock = sys.modules['src.services.collection_editor'].CollectionEditor
-        self.collection_editor_mock.reset_mock()
-        self.changelog_manager_mock = sys.modules['src.core.changelog_manager'].changelog_manager
+        self.collection_editor_patcher = patch('src.ui.bulk_add.CollectionEditor')
+        self.collection_editor_mock = self.collection_editor_patcher.start()
+        self.addCleanup(self.collection_editor_patcher.stop)
+
+        self.changelog_patcher = patch('src.ui.bulk_add.changelog_manager')
+        self.changelog_manager_mock = self.changelog_patcher.start()
+        self.addCleanup(self.changelog_patcher.stop)
 
         # Mock run.io_bound to execute immediately
         self.run_patcher = patch('src.ui.bulk_add.run')
@@ -35,7 +41,9 @@ class TestBulkAddRemove(unittest.IsolatedAsyncioTestCase):
         self.run_mock.io_bound = AsyncMock()
         self.addCleanup(self.run_patcher.stop)
 
-        self.config_mock = sys.modules['src.core.config'].config_manager
+        self.config_patcher = patch('src.ui.bulk_add.config_manager')
+        self.config_mock = self.config_patcher.start()
+        self.addCleanup(self.config_patcher.stop)
         self.config_mock.get_language.return_value = 'EN'
         self.config_mock.get_bulk_add_page_size.return_value = 50
 
@@ -45,6 +53,8 @@ class TestBulkAddRemove(unittest.IsolatedAsyncioTestCase):
             self.page = BulkAddPage()
             self.page.current_collection_obj = MagicMock()
             self.page.state['selected_collection'] = 'TestCol'
+            self.page.state['library_page_size'] = 50
+            self.page.col_state['collection_page_size'] = 50
 
     async def test_remove_with_storage_location(self):
         # Input Entry

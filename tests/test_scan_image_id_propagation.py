@@ -3,6 +3,7 @@ import os
 import asyncio
 import queue
 from unittest.mock import MagicMock, patch
+import pytest
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -14,6 +15,10 @@ sys.modules['src.services.scanner.pipeline'] = MagicMock()
 from src.services.scanner.manager import ScannerManager
 from src.services.scanner.models import OCRResult
 
+sys.modules.pop('src.services.scanner.pipeline', None)
+sys.modules.pop('cv2', None)
+
+@pytest.mark.asyncio
 async def test_image_id_propagation():
     print("Initializing ScannerManager...")
     manager = ScannerManager()

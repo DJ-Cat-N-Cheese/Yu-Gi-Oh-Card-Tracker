@@ -21,13 +21,28 @@ from src.ui.bulk_add import BulkAddPage, BulkCollectionEntry
 class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         # Setup mock returns
-        self.persistence_mock = sys.modules['src.core.persistence'].persistence
+        self.persistence_patcher = patch('src.ui.bulk_add.persistence')
+        self.persistence_mock = self.persistence_patcher.start()
+        self.addCleanup(self.persistence_patcher.stop)
         self.persistence_mock.list_collections.return_value = ['TestCol']
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.collection_editor_mock = sys.modules['src.services.collection_editor'].CollectionEditor
-        self.collection_editor_mock.reset_mock()
-        self.changelog_manager_mock = sys.modules['src.core.changelog_manager'].changelog_manager
+        self.collection_editor_patcher = patch('src.ui.bulk_add.CollectionEditor')
+        self.collection_editor_mock = self.collection_editor_patcher.start()
+        self.addCleanup(self.collection_editor_patcher.stop)
+
+        self.changelog_patcher = patch('src.ui.bulk_add.changelog_manager')
+        self.changelog_manager_mock = self.changelog_patcher.start()
+        self.addCleanup(self.changelog_patcher.stop)
+
+        self.ygo_service_patcher = patch('src.ui.bulk_add.ygo_service')
+        self.ygo_service_mock = self.ygo_service_patcher.start()
+        self.ygo_service_mock.ensure_card_variants = AsyncMock()
+        self.addCleanup(self.ygo_service_patcher.stop)
+
+        self.transform_set_code_patcher = patch('src.ui.bulk_add.transform_set_code', side_effect=lambda set_code, _lang: set_code)
+        self.transform_set_code_patcher.start()
+        self.addCleanup(self.transform_set_code_patcher.stop)
 
         # Mock run.io_bound to execute immediately
         # Patch the 'run' imported in bulk_add
@@ -36,7 +51,9 @@ class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
         self.run_mock.io_bound = AsyncMock()
         self.addCleanup(self.run_patcher.stop)
 
-        self.config_mock = sys.modules['src.core.config'].config_manager
+        self.config_patcher = patch('src.ui.bulk_add.config_manager')
+        self.config_mock = self.config_patcher.start()
+        self.addCleanup(self.config_patcher.stop)
         self.config_mock.get_language.return_value = 'EN'
         self.config_mock.get_bulk_add_page_size.return_value = 50
 
@@ -46,6 +63,16 @@ class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
             self.page = BulkAddPage()
             self.page.current_collection_obj = MagicMock()
             self.page.state['selected_collection'] = 'TestCol'
+            self.page.state['library_page_size'] = 50
+            self.page.col_state['collection_page_size'] = 50
+            self.page.state['default_language'] = 'EN'
+            self.page.state['default_condition'] = 'Near Mint'
+            self.page.state['default_first_ed'] = False
+            self.page.state['default_storage'] = None
+            self.page.state['update_apply_lang'] = False
+            self.page.state['update_apply_cond'] = False
+            self.page.state['update_apply_first'] = False
+            self.page.state['update_apply_storage'] = False
 
     async def test_update_condition(self):
         # Setup

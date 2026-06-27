@@ -23,11 +23,15 @@ from src.core.models import ApiCard, ApiCardSet, Collection, CollectionCard, Col
 class TestBulkAddFiltering(unittest.TestCase):
     def setUp(self):
         # Setup mocks
-        self.persistence_mock = sys.modules['src.core.persistence'].persistence
+        self.persistence_patcher = patch('src.ui.bulk_add.persistence')
+        self.persistence_mock = self.persistence_patcher.start()
+        self.addCleanup(self.persistence_patcher.stop)
         self.persistence_mock.list_collections.return_value = []
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.config_mock = sys.modules['src.core.config'].config_manager
+        self.config_patcher = patch('src.ui.bulk_add.config_manager')
+        self.config_mock = self.config_patcher.start()
+        self.addCleanup(self.config_patcher.stop)
         self.config_mock.get_language.return_value = 'en'
         self.config_mock.get_bulk_add_page_size.return_value = 50
 
@@ -41,6 +45,8 @@ class TestBulkAddFiltering(unittest.TestCase):
         self.page.render_collection_content = MagicMock()
         self.page.render_collection_content.refresh = MagicMock()
         self.page.collection_filter_pane = MagicMock()
+        self.page.state['library_page_size'] = 50
+        self.page.col_state['collection_page_size'] = 50
 
     def test_filter_set_by_name(self):
         # Setup data
@@ -86,8 +92,14 @@ class TestBulkAddFiltering(unittest.TestCase):
 
         # Setup run.io_bound to return the collection
         # We patch the 'io_bound' method on the 'run' object in src.ui.bulk_add
-        with patch('src.ui.bulk_add.run.io_bound', new_callable=AsyncMock) as mock_io:
-            mock_io.return_value = col
+        collections = [col]
+
+        async def fake_io_bound(func, *args):
+            if getattr(func, '__name__', '') == '_build_collection_entries':
+                return func(*args)
+            return collections.pop(0)
+
+        with patch('src.ui.bulk_add.run.io_bound', new=AsyncMock(side_effect=fake_io_bound)):
 
             self.page.state['selected_collection'] = "Test Col"
 
@@ -109,12 +121,35 @@ class TestBulkAddFiltering(unittest.TestCase):
                     ])
                 ])
             ])
-            mock_io.return_value = col2
+            collections.append(col2)
             asyncio.run(self.page.load_collection_data())
 
             entries = self.page.col_state['collection_cards']
             entry = entries[0]
             self.assertEqual(entry.set_name, "Unknown Set")
+
+    def test_collection_storage_filter_counts_as_active(self):
+        self.assertFalse(self.page.is_collection_filtered())
+
+        self.page.col_state['filter_storage'] = ['Binder 1']
+
+        self.assertTrue(self.page.is_collection_filtered())
+
+    def test_library_storage_filter_does_not_count_as_active(self):
+        self.assertFalse(self.page.is_library_filtered())
+
+        self.page.state['filter_storage'] = ['Binder 1']
+
+        self.assertFalse(self.page.is_library_filtered())
+
+    def test_reset_collection_filters_clears_storage_filter(self):
+        self.page.col_state['filter_storage'] = ['Binder 1']
+        self.page.col_state['collection_cards'] = []
+
+        asyncio.run(self.page.reset_collection_filters())
+
+        self.assertEqual(self.page.col_state['filter_storage'], [])
+        self.assertFalse(self.page.is_collection_filtered())
 
 if __name__ == '__main__':
     unittest.main()

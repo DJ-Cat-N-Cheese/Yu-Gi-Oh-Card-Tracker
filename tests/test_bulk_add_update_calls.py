@@ -56,14 +56,45 @@ sys.modules['nicegui.run'] = run_mock
 # Import the class under test
 from src.ui.bulk_add import BulkAddPage
 
+for module_name in (
+    'src.core.persistence',
+    'src.core.changelog_manager',
+    'src.core.config',
+    'src.services.ygo_api',
+    'src.services.image_manager',
+    'src.services.collection_editor',
+    'nicegui',
+    'nicegui.ui',
+    'nicegui.run',
+):
+    sys.modules.pop(module_name, None)
+
 class TestBulkAddUpdate(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.ygo_service_patcher = patch('src.ui.bulk_add.ygo_service', ygo_service_mock)
+        self.ygo_service_patcher.start()
+        self.addCleanup(self.ygo_service_patcher.stop)
+
+        self.collection_editor_patcher = patch('src.ui.bulk_add.CollectionEditor', collection_editor_mock.CollectionEditor)
+        self.collection_editor_patcher.start()
+        self.addCleanup(self.collection_editor_patcher.stop)
+
+        self.run_patcher = patch('src.ui.bulk_add.run', run_mock)
+        self.run_patcher.start()
+        self.addCleanup(self.run_patcher.stop)
+
+        self.config_manager_patcher = patch('src.ui.bulk_add.config_manager', config_manager_mock)
+        self.config_manager_patcher.start()
+        self.addCleanup(self.config_manager_patcher.stop)
+
         with patch('src.ui.bulk_add.SingleCardView'), \
              patch('src.ui.bulk_add.StructureDeckDialog'), \
              patch('src.ui.bulk_add.FilterPane'):
             self.page = BulkAddPage()
             self.page.current_collection_obj = MagicMock()
             self.page.state['selected_collection'] = "TestCol.json"
+            self.page.state['library_page_size'] = 50
+            self.page.col_state['collection_page_size'] = 50
             # Reset mock calls
             ygo_service_mock.ensure_card_variant.reset_mock()
             ygo_service_mock.ensure_card_variants.reset_mock()

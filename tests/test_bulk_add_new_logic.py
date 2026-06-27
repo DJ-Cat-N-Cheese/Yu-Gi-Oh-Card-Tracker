@@ -20,11 +20,15 @@ from src.ui.bulk_add import BulkAddPage
 class TestBulkAddFilterLogic(unittest.TestCase):
     def setUp(self):
         # Setup mock returns
-        self.persistence_mock = sys.modules['src.core.persistence'].persistence
+        self.persistence_patcher = patch('src.ui.bulk_add.persistence')
+        self.persistence_mock = self.persistence_patcher.start()
+        self.addCleanup(self.persistence_patcher.stop)
         self.persistence_mock.list_collections.return_value = []
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.config_mock = sys.modules['src.core.config'].config_manager
+        self.config_patcher = patch('src.ui.bulk_add.config_manager')
+        self.config_mock = self.config_patcher.start()
+        self.addCleanup(self.config_patcher.stop)
         self.config_mock.get_language.return_value = 'EN'
         self.config_mock.get_bulk_add_page_size.return_value = 50
 

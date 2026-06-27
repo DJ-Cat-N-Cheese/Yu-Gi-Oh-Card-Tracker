@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, patch
 import os
 import json
 import asyncio
@@ -34,12 +34,7 @@ class TestYugiohServiceIO(unittest.TestCase):
 
     def test_fetch_all_sets_io_bound(self):
         # Mock run.io_bound to verify it's called
-        with patch('src.services.ygo_api.run.io_bound', new_callable=MagicMock) as mock_io_bound:
-            # We need to mock the coroutine return
-            f = asyncio.Future()
-            f.set_result(self.data)
-            mock_io_bound.return_value = f
-
+        with patch('src.services.ygo_api.run.io_bound', new=AsyncMock(return_value=self.data)) as mock_io_bound:
             # Setup a fake sets file so it tries to read from disk
             # Ensure the directory exists because _save_json_file might rely on it or the main code does
             # but _save_json_file just opens. The main code ensures dir exists.

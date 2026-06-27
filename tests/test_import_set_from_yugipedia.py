@@ -7,6 +7,7 @@ class TestImportSetFromYugipedia(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.service = YugiohService()
         self.service.save_card_database = AsyncMock()
+        self.service.fetch_all_sets = AsyncMock()
         # Mock image manager
         self.patcher = patch('src.services.ygo_api.image_manager')
         self.mock_image_manager = self.patcher.start()
@@ -81,6 +82,7 @@ class TestImportSetFromYugipedia(unittest.IsolatedAsyncioTestCase):
 
         set_data = {
             "name": "New Set",
+            "code": "NEW",
             "cards": [
                 {
                     "set_code": "NEW-EN001",

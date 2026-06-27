@@ -63,6 +63,20 @@ except ImportError as e:
     print(f"Import Error: {e}")
     raise e
 
+for module_name in (
+    'nicegui',
+    'nicegui.ui',
+    'nicegui.run',
+    'src.core.persistence',
+    'src.services.ygo_api',
+    'src.services.image_manager',
+    'src.core.config',
+    'src.core.models',
+    'src.ui.components.filter_pane',
+    'src.ui.components.single_card_view',
+):
+    sys.modules.pop(module_name, None)
+
 # Helpers
 class AsyncMock(MagicMock):
     async def __call__(self, *args, **kwargs):

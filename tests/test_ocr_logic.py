@@ -23,6 +23,23 @@ sys.modules['mmocr.apis'] = MagicMock()
 # Now import the class to test
 from src.services.scanner.pipeline import CardScanner
 
+for module_name in (
+    'src.services.scanner.pipeline',
+    'cv2',
+    'numpy',
+    'torch',
+    'ultralytics',
+    'langdetect',
+    'easyocr',
+    'keras_ocr',
+    'doctr',
+    'doctr.io',
+    'doctr.models',
+    'mmocr',
+    'mmocr.apis',
+):
+    sys.modules.pop(module_name, None)
+
 # Mock Helper Classes for DocTR
 class MockWord:
     def __init__(self, value):

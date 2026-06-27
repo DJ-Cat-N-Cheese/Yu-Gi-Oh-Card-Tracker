@@ -16,6 +16,9 @@ from src.core.models import ApiCard
 
 class TestDeckBuilderWarnings(unittest.TestCase):
     def setUp(self):
+        self.ui_patcher = patch('src.ui.deck_builder.ui', mock_ui.ui)
+        self.ui_patcher.start()
+
         self.persistence_patcher = patch('src.ui.deck_builder.persistence')
         self.persistence_mock = self.persistence_patcher.start()
         self.persistence_mock.load_ui_state.return_value = {}
@@ -40,6 +43,7 @@ class TestDeckBuilderWarnings(unittest.TestCase):
         self.page.state['reference_collection'] = None
 
     def tearDown(self):
+        self.ui_patcher.stop()
         self.persistence_patcher.stop()
         self.config_patcher.stop()
         self.img_mgr_patcher.stop()

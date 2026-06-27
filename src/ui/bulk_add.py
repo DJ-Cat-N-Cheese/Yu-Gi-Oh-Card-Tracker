@@ -349,6 +349,7 @@ class BulkAddPage:
         s['filter_ownership_max'] = 100
         s['filter_condition'] = []
         s['filter_owned_lang'] = ''
+        s['filter_storage'] = []
 
         # Reset UI
         if self.collection_filter_pane:
@@ -1224,25 +1225,6 @@ class BulkAddPage:
         if s['filter_owned_lang']: return True
 
         return False
-        if s['filter_set']: return True
-        if s['filter_rarity']: return True
-        if s['filter_attr']: return True
-        if s['filter_monster_race']: return True
-        if s['filter_st_race']: return True
-        if s['filter_archetype']: return True
-        if s['filter_monster_category']: return True
-        if s['filter_level'] is not None: return True
-
-        if s['filter_atk_min'] > 0 or s['filter_atk_max'] < 5000: return True
-        if s['filter_def_min'] > 0 or s['filter_def_max'] < 5000: return True
-        if s['filter_price_min'] > 0.0 or s['filter_price_max'] < 1000.0: return True
-        if s['filter_ownership_min'] > 0 or s['filter_ownership_max'] < 100: return True
-
-        if set(s['filter_card_type']) != {'Monster', 'Spell', 'Trap'}: return True
-        if s['filter_condition']: return True
-        if s['filter_owned_lang']: return True
-
-        return False
 
     def is_collection_filtered(self):
         s = self.col_state
@@ -1264,7 +1246,7 @@ class BulkAddPage:
         if set(s['filter_card_type']) != {'Monster', 'Spell', 'Trap'}: return True
         if s['filter_condition']: return True
         if s['filter_owned_lang']: return True
-        if s['filter_storage']: return True
+        if s.get('filter_storage'): return True
 
         return False
 

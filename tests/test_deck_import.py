@@ -48,7 +48,7 @@ class TestDeckImport(unittest.IsolatedAsyncioTestCase):
 
         # Correctly patch aiohttp.ClientSession
         # ClientSession() returns the instance, so we mock the class to return our mock_session
-        with patch('aiohttp.ClientSession', return_value=mock_session):
+        with patch('src.services.deck_import_service.aiohttp.ClientSession', return_value=mock_session):
             deck = await fetch_ygoprodeck_deck(url)
 
             self.assertIsNotNone(deck)
@@ -76,7 +76,7 @@ class TestDeckImport(unittest.IsolatedAsyncioTestCase):
         mock_session.__aenter__.return_value = mock_session
         mock_session.__aexit__.return_value = None
 
-        with patch('aiohttp.ClientSession', return_value=mock_session):
+        with patch('src.services.deck_import_service.aiohttp.ClientSession', return_value=mock_session):
             with self.assertRaises(Exception) as cm:
                 await fetch_ygoprodeck_deck(url)
             self.assertIn("Failed to fetch URL", str(cm.exception))

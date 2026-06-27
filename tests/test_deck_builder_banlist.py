@@ -108,18 +108,22 @@ class TestDeckBuilderBanlist(unittest.TestCase):
 
         # Case 1: No violations
         deck.main = [2] # 1x Limited (OK)
+        deck.extra = []
         deck.side = [3, 3] # 2x Semi-Limited (OK)
         violations = self.page.check_violations()
         self.assertFalse(violations['global'])
 
         # Case 2: Banned card present
         deck.main = [1] # 1x Banned (Violation)
+        deck.extra = []
+        deck.side = []
         violations = self.page.check_violations()
         self.assertTrue(violations['global'])
         self.assertTrue(violations['main'])
 
         # Case 3: Limit exceeded across zones
         deck.main = [2] # 1x Limited
+        deck.extra = []
         deck.side = [2] # 1x Limited -> Total 2 (Violation)
         violations = self.page.check_violations()
         self.assertTrue(violations['global'])
@@ -129,6 +133,7 @@ class TestDeckBuilderBanlist(unittest.TestCase):
         # Case 4: Semi-limit exceeded
         deck.main = [3, 3]
         deck.extra = [3] # Total 3 (Violation)
+        deck.side = []
         violations = self.page.check_violations()
         self.assertTrue(violations['global'])
         self.assertTrue(violations['main'])

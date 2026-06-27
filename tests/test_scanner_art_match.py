@@ -31,10 +31,13 @@ from src.services.scanner.models import ScanDebugReport
 
 class TestScannerArtMatch(unittest.TestCase):
     def setUp(self):
-        self.yolo_patcher = patch('src.services.scanner.pipeline.YOLO')
+        self.yolo_patcher = patch('src.services.scanner.pipeline.YOLO', create=True)
         self.MockYOLO = self.yolo_patcher.start()
+        self.np_patcher = patch('src.services.scanner.pipeline.np', np)
+        self.np_patcher.start()
 
     def tearDown(self):
+        self.np_patcher.stop()
         self.yolo_patcher.stop()
 
     def test_calculate_similarity(self):
@@ -70,9 +73,11 @@ class TestScannerArtMatch(unittest.TestCase):
         manager.scanner.extract_yolo_features.return_value = np.array([0.1, 0.2])
 
         # Mock filesystem
+        cv2_mock = MagicMock()
+        cv2_mock.imread.return_value = np.zeros((10,10,3))
         with patch('os.listdir', return_value=['img1.jpg', 'img2.png', 'other.txt']), \
              patch('os.path.exists', return_value=True), \
-             patch('cv2.imread', return_value=np.zeros((10,10,3))), \
+             patch('src.services.scanner.manager.cv2', cv2_mock), \
              patch('builtins.open', mock_open()) as mocked_file, \
              patch('pickle.load', side_effect=Exception("No cache")), \
              patch('pickle.dump') as mock_dump:
