@@ -19,6 +19,9 @@ from src.ui.bulk_add import bulk_add_page
 from src.ui.scan import scan_page
 from src.ui.db_editor import db_editor_page
 from src.ui.storage import storage_page
+from src.api.routes import router as api_router
+
+app.include_router(api_router)
 
 @ui.page('/')
 def home():
