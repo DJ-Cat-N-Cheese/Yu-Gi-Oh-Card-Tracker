@@ -185,6 +185,7 @@ class BulkAddPage:
             'filter_price_min': 0.0, 'filter_price_max': 1000.0,
             'filter_ownership_min': 0, 'filter_ownership_max': 100,
             'filter_condition': [], 'filter_owned_lang': '',
+            'filter_storage': [],
 
             # Linking metadata to state for FilterPane
             **self.metadata

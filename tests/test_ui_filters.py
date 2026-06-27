@@ -3,25 +3,32 @@ import unittest
 from unittest.mock import MagicMock, patch
 import sys
 import os
+from tests.mock_imports import import_with_module_mocks
 
 # Mock nicegui
 mock_ui = MagicMock()
-sys.modules['nicegui'] = mock_ui
-sys.modules['nicegui.ui'] = mock_ui
 
-from src.ui.collection import CollectionPage, CardViewModel
+collection_module = import_with_module_mocks(
+    'src.ui.collection',
+    {
+        'nicegui': mock_ui,
+        'nicegui.ui': mock_ui,
+    },
+)
+CollectionPage = collection_module.CollectionPage
+CardViewModel = collection_module.CardViewModel
 from src.core.models import ApiCard
 from src.ui.components.filter_pane import FilterPane
 
 class TestFilters(unittest.TestCase):
     def setUp(self):
         # Patch persistence and config
-        self.persistence_patcher = patch('src.ui.collection.persistence')
+        self.persistence_patcher = patch.object(collection_module, 'persistence')
         self.persistence_mock = self.persistence_patcher.start()
         self.persistence_mock.list_collections.return_value = []
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.config_patcher = patch('src.ui.collection.config_manager')
+        self.config_patcher = patch.object(collection_module, 'config_manager')
         self.config_mock = self.config_patcher.start()
         self.config_mock.get_language.return_value = 'en'
 
@@ -29,6 +36,8 @@ class TestFilters(unittest.TestCase):
 
         # Mock content_area refresh
         self.page.content_area = MagicMock()
+        self.page.render_card_display = MagicMock()
+        self.page.render_card_display.refresh = MagicMock()
         self.page.prepare_current_page_images = MagicMock()
         # Make prepare_current_page_images async no-op
         async def async_noop(): pass

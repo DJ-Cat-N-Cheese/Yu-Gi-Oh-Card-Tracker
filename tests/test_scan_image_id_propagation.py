@@ -3,18 +3,30 @@ import os
 import asyncio
 import queue
 from unittest.mock import MagicMock, patch
+from tests.mock_imports import import_with_module_mocks
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
 # Mock modules that might be missing or heavy
-sys.modules['cv2'] = MagicMock()
-sys.modules['src.services.scanner.pipeline'] = MagicMock()
+cv2_mock = MagicMock()
+pipeline_mock = MagicMock()
 
-from src.services.scanner.manager import ScannerManager
+scanner_manager_module = import_with_module_mocks(
+    'src.services.scanner.manager',
+    {
+        'cv2': cv2_mock,
+        'src.services.scanner.pipeline': pipeline_mock,
+    },
+)
+ScannerManager = scanner_manager_module.ScannerManager
 from src.services.scanner.models import OCRResult
 
-async def test_image_id_propagation():
+def test_image_id_propagation():
+    asyncio.run(_test_image_id_propagation())
+
+
+async def _test_image_id_propagation():
     print("Initializing ScannerManager...")
     manager = ScannerManager()
 
@@ -37,7 +49,7 @@ async def test_image_id_propagation():
     manager.find_best_match = mock_find_best_match
 
     # Mock ygo_service to avoid DB calls
-    with patch('src.services.scanner.manager.ygo_service') as mock_ygo:
+    with patch.object(scanner_manager_module, 'ygo_service') as mock_ygo:
         # Mock get_card to return None so we skip image path resolution logic
         mock_ygo.get_card.return_value = None
 
@@ -73,4 +85,4 @@ async def test_image_id_propagation():
             print("FAILURE: No result in queue.")
 
 if __name__ == "__main__":
-    asyncio.run(test_image_id_propagation())
+    test_image_id_propagation()
