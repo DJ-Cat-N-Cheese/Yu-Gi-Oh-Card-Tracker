@@ -1223,7 +1223,6 @@ class BulkAddPage:
         if set(s['filter_card_type']) != {'Monster', 'Spell', 'Trap'}: return True
         if s['filter_condition']: return True
         if s['filter_owned_lang']: return True
-        if s['filter_storage']: return True
 
         return False
         if s['filter_set']: return True
@@ -1266,6 +1265,7 @@ class BulkAddPage:
         if set(s['filter_card_type']) != {'Monster', 'Spell', 'Trap'}: return True
         if s['filter_condition']: return True
         if s['filter_owned_lang']: return True
+        if s['filter_storage']: return True
 
         return False
 
