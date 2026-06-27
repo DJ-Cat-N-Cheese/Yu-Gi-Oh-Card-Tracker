@@ -80,6 +80,8 @@ def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = Non
     """Helper to get the daily cardmarket price for UI display, falling back to set_price, and then general cardmarket_price"""
     price = 0.0
     matched_variant_id = variant_id
+    default_image_id = card.card_images[0].id if card.card_images else None
+    effective_image_id = image_id if image_id is not None else default_image_id
 
     # Find the matching ApiCardSet to use for variant_id resolution and set_price fallback
     matched_set = None
@@ -92,15 +94,15 @@ def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = Non
 
             # Match by characteristics if provided
             if set_code and rarity:
-                s_img = s.image_id if s.image_id is not None else (card.card_images[0].id if card.card_images else None)
-                if s.set_code == set_code and s.set_rarity == rarity and s_img == image_id:
+                s_img = s.image_id if s.image_id is not None else default_image_id
+                if s.set_code == set_code and s.set_rarity == rarity and s_img == effective_image_id:
                     matched_set = s
                     matched_variant_id = s.variant_id
                     break
 
     # If we couldn't find a variant ID but have attributes, generate one deterministically
     if not matched_variant_id and set_code and rarity:
-        matched_variant_id = generate_variant_id(card.id, set_code, rarity, image_id)
+        matched_variant_id = generate_variant_id(card.id, set_code, rarity, effective_image_id)
 
     # 1. Try daily pricing
     if matched_variant_id:
