@@ -74,6 +74,11 @@ class UnifiedImportController:
         if last_col and last_col in self.collections:
             self.selected_collection = last_col
 
+    def clear_pricing_import_state(self):
+        self.pricing_preview = []
+        self.pricing_data_to_import = None
+        self.pricing_import_type = None
+
     def on_collection_change(self, e):
         self.selected_collection = e.value
         persistence.save_ui_state({'import_last_collection': e.value})
@@ -154,6 +159,8 @@ class UnifiedImportController:
         self.ambiguous_rows = []
         self.failed_rows = []
         self.import_failures = []
+        if self.import_type == 'PRICING':
+            self.clear_pricing_import_state()
         self.refresh_status_ui()
 
         # Ensure DB is loaded
@@ -281,6 +288,7 @@ class UnifiedImportController:
 
 
     async def process_pricing(self, content: bytes):
+        self.clear_pricing_import_state()
         try:
             json_str = content.decode('utf-8')
             data = json.loads(json_str)
@@ -288,8 +296,13 @@ class UnifiedImportController:
             ui.notify(f"Invalid JSON: {ex}", type='negative')
             return
 
+        try:
+            self.validate_pricing_data(data)
+        except ValueError as ex:
+            ui.notify(f"Invalid pricing format: {ex}", type='negative')
+            return
+
         from src.services.pricing_service import pricing_service
-        self.pricing_preview = []
         self.pricing_data_to_import = data
 
         # Determine if it's daily or offers by looking at the first leaf node
@@ -350,6 +363,34 @@ class UnifiedImportController:
 
         if not self.pricing_preview:
             ui.notify("No new or changing data found to import.", type='info')
+
+    def validate_pricing_data(self, data: Any):
+        if not isinstance(data, dict):
+            raise ValueError("expected a JSON object keyed by card ID.")
+
+        for card_id, variants in data.items():
+            try:
+                int(card_id)
+            except (TypeError, ValueError):
+                raise ValueError(f"card ID '{card_id}' must be numeric.")
+
+            if not isinstance(variants, dict):
+                raise ValueError(f"card '{card_id}' must contain a variants object.")
+
+            for variant_id, platforms in variants.items():
+                if not isinstance(platforms, dict):
+                    raise ValueError(f"variant '{variant_id}' must contain a pricing source object.")
+
+                for source, dated_prices in platforms.items():
+                    if not isinstance(dated_prices, dict):
+                        raise ValueError(f"source '{source}' for variant '{variant_id}' must contain dated prices.")
+
+                    for date_key, price_data in dated_prices.items():
+                        if isinstance(price_data, (int, float)):
+                            continue
+                        if isinstance(price_data, dict) and 'offers' in price_data:
+                            continue
+                        raise ValueError(f"date '{date_key}' for variant '{variant_id}' has unsupported pricing data.")
 
     async def process_json(self, content: bytes):
         try:
@@ -898,8 +939,7 @@ class UnifiedImportController:
             if changes > 0:
                 pricing_service._save_json(file_path, local_data)
                 ui.notify(f"Imported/Updated {changes} pricing entries successfully.", type='positive')
-                self.pricing_preview = []
-                self.pricing_data_to_import = None
+                self.clear_pricing_import_state()
                 self.refresh_status_ui()
             else:
                 ui.notify("No changes applied.", type='warning')
@@ -1455,14 +1495,6 @@ class MergeController:
         self.new_name: str = ""
         self.refresh_collections()
 
-    def update_pricing_visibility(self):
-        if hasattr(self, 'pricing_options_row'):
-            self.pricing_options_row.set_visibility(self.import_type == 'PRICING')
-        if hasattr(self, 'collection_select_row'):
-            self.collection_select_row.set_visibility(self.import_type != 'PRICING')
-        if hasattr(self, 'mode_toggle_column'):
-            self.mode_toggle_column.set_visibility(self.import_type != 'PRICING')
-
     def refresh_collections(self):
         self.collections = persistence.list_collections()
 
@@ -1583,7 +1615,18 @@ def import_tools_page():
 
             controller.pricing_options_row = ui.row().classes('items-center gap-4 w-full q-mb-md')
             with controller.pricing_options_row:
-                ui.checkbox('Overwrite existing local data', value=controller.pricing_overwrite).bind_value(controller, 'pricing_overwrite').classes('text-warning')
+                async def on_pricing_overwrite_change(e):
+                    controller.pricing_overwrite = e.value
+                    if controller.import_type == 'PRICING' and controller.last_uploaded_content:
+                        await controller.process_current_file()
+                    else:
+                        controller.refresh_status_ui()
+
+                ui.checkbox(
+                    'Overwrite existing local data',
+                    value=controller.pricing_overwrite,
+                    on_change=on_pricing_overwrite_change
+                ).classes('text-warning')
             controller.pricing_options_row.set_visibility(False)
 
             # Row 4: Upload Area

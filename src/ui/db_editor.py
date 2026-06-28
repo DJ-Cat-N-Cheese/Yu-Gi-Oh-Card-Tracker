@@ -844,7 +844,8 @@ class DbEditorPage:
     def export_daily_prices(self):
         import os
         from nicegui import ui
-        path = "data/prices/daily_card_pricing.json"
+        from src.services.pricing_service import pricing_service
+        path = pricing_service.daily_pricing_file
         if os.path.exists(path):
             ui.download(path, "daily_card_pricing.json")
         else:
@@ -853,7 +854,8 @@ class DbEditorPage:
     def export_offers_prices(self):
         import os
         from nicegui import ui
-        path = "data/prices/cardmarket_offers_pricing.json"
+        from src.services.pricing_service import pricing_service
+        path = pricing_service.offers_pricing_file
         if os.path.exists(path):
             ui.download(path, "cardmarket_offers_pricing.json")
         else:

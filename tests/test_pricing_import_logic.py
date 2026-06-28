@@ -49,6 +49,60 @@ async def test_process_pricing_daily(mock_dependencies):
     assert controller.pricing_preview[0]['updated'] == 0
 
 @pytest.mark.asyncio
+async def test_invalid_pricing_format_clears_stale_state(mock_dependencies):
+    mock_persistence, mock_ygo, mock_ui, mock_pricing = mock_dependencies
+
+    controller = UnifiedImportController()
+    controller.pricing_import_type = 'daily'
+    controller.pricing_preview = [{'added': 1, 'updated': 0}]
+    controller.pricing_data_to_import = {'stale': {}}
+
+    content = json.dumps({"123": []}).encode('utf-8')
+
+    await controller.process_pricing(content)
+
+    assert controller.pricing_import_type is None
+    assert controller.pricing_preview == []
+    assert controller.pricing_data_to_import is None
+    mock_ui.notify.assert_called_with(
+        "Invalid pricing format: card '123' must contain a variants object.",
+        type='negative'
+    )
+
+@pytest.mark.asyncio
+async def test_process_pricing_overwrite_counts_updates(mock_dependencies):
+    mock_persistence, mock_ygo, mock_ui, mock_pricing = mock_dependencies
+
+    controller = UnifiedImportController()
+    controller.pricing_overwrite = True
+    mock_pricing.daily_pricing = {
+        "123": {
+            "variant-1": {
+                "cardmarket": {
+                    "2023-10-10": 1.0
+                }
+            }
+        }
+    }
+
+    data = {
+        "123": {
+            "variant-1": {
+                "cardmarket": {
+                    "2023-10-10": 1.5
+                }
+            }
+        }
+    }
+    content = json.dumps(data).encode('utf-8')
+
+    await controller.process_pricing(content)
+
+    assert len(controller.pricing_preview) == 1
+    assert controller.pricing_preview[0]['added'] == 0
+    assert controller.pricing_preview[0]['updated'] == 1
+
+@pytest.mark.asyncio
 async def test_apply_pricing_import(mock_dependencies):
     mock_persistence, mock_ygo, mock_ui, mock_pricing = mock_dependencies
 
