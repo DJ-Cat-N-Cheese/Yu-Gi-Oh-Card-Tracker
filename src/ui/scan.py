@@ -354,6 +354,22 @@ document.addEventListener('keydown', (e) => {
 </script>
 """
 
+JS_IDLE_REDIRECT_CODE = """
+<script>
+let idleTime = 0;
+const idleInterval = setInterval(() => {
+    idleTime++;
+    if (idleTime >= 60) {
+        window.location.href = '/';
+    }
+}, 60000);
+const resetTimer = () => { idleTime = 0; };
+['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, resetTimer);
+});
+</script>
+"""
+
 class ScanPage:
     def __init__(self):
         # ScanPage manages the scanning session
@@ -403,6 +419,7 @@ class ScanPage:
         self.debug_loading = False
         self.latest_capture_src = None
         self.watchdog_counter = 0
+        self.consumer_timer = None
 
         # UI State Persistence
         self.expansion_states = {}
@@ -1425,6 +1442,13 @@ class ScanPage:
 
                 self.refresh_debug_ui() # Ensure final result is shown
 
+            if scanner_service.scanner_manager.is_idle() and self.event_queue.empty():
+                if self.consumer_timer:
+                    self.consumer_timer.cancel()
+                    if self.consumer_timer in self._timers:
+                        self._timers.remove(self.consumer_timer)
+                    self.consumer_timer = None
+
         except Exception as e:
             logger.error(f"Error in event_consumer: {e}")
 
@@ -1701,6 +1725,9 @@ class ScanPage:
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Live Scan", filename=fname)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify("Captured to Queue", type='positive')
         except Exception as e:
             ui.notify(f"Capture failed: {e}", type='negative')
@@ -1740,6 +1767,9 @@ class ScanPage:
             }
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify(f"Queued: {filename}", type='positive')
         except Exception as err:
             ui.notify(f"Upload failed: {err}", type='negative')
@@ -1799,6 +1829,9 @@ class ScanPage:
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Camera Capture", filename=fname)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify("Capture queued", type='positive')
 
         except Exception as err:
@@ -2141,6 +2174,7 @@ def scan_page():
     # Initialize event queue for this page instance
     page.event_queue = queue.Queue()
     page._timers = []
+    page.consumer_timer = None
 
     def cleanup():
         # Unregister listener
@@ -2148,6 +2182,7 @@ def scan_page():
         page.is_active = False
         for t in page._timers:
             t.cancel()
+        scanner_service.scanner_manager.stop()
 
     ui.on_disconnect(cleanup)
 
@@ -2164,6 +2199,7 @@ def scan_page():
         return
 
     ui.add_head_html(JS_CAMERA_CODE)
+    ui.add_head_html(JS_IDLE_REDIRECT_CODE)
 
     def handle_tab_change(e):
         if e.value == 'Live Scan':
@@ -2230,9 +2266,6 @@ def scan_page():
 
     page._timers.append(ui.timer(1.0, page.init_cameras, once=True))
     page._timers.append(ui.timer(0.1, page.init_data, once=True))
-
-    # Use fast consumer loop instead of slow polling
-    page._timers.append(ui.timer(1.0, page.event_consumer))
 
     # Initialize from current state immediately
     page.debug_report = scanner_service.scanner_manager.get_debug_snapshot()

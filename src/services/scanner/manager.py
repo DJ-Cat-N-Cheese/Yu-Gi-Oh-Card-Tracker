@@ -190,6 +190,15 @@ class ScannerManager:
     def is_paused(self) -> bool:
         return self.paused
 
+    def is_idle(self) -> bool:
+        """Check if the scanner has no pending work."""
+        with self.queue_lock:
+            scan_empty = len(self.scan_queue) == 0
+        return (scan_empty and 
+                self.lookup_queue.empty() and 
+                self.result_queue.empty() and
+                not self.is_processing)
+
     def get_queue_snapshot(self) -> List[Dict[str, Any]]:
         with self.queue_lock:
             if SCANNER_AVAILABLE:
