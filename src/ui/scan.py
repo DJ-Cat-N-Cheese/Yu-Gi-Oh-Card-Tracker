@@ -2182,7 +2182,7 @@ def scan_page():
         page.is_active = False
         for t in page._timers:
             t.cancel()
-        scanner_service.scanner_manager.stop()
+        page.consumer_timer = None
 
     ui.on_disconnect(cleanup)
 
@@ -2193,6 +2193,12 @@ def scan_page():
     # Use dynamic import access
     scanner_service.scanner_manager.start()
     page.is_active = True
+
+    # A newly opened page must consume events from scans that were already
+    # submitted by another page before this connection was established.
+    if not scanner_service.scanner_manager.is_idle():
+        page.consumer_timer = ui.timer(0.1, page.event_consumer)
+        page._timers.append(page.consumer_timer)
 
     if not SCANNER_AVAILABLE:
         ui.label("Scanner dependencies not found.").classes('text-red-500 text-xl font-bold')
