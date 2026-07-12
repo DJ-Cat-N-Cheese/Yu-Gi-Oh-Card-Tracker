@@ -498,6 +498,28 @@ class YugiohService:
         logger.info(f"Deleted variant {variant_id} from card {card_id}")
         return True
 
+    async def get_database_counts(self, language: str = "en") -> Tuple[int, int]:
+        if language in self._cards_cache:
+            cards = self._cards_cache[language]
+            return len(cards), sum(len(c.card_sets) for c in cards)
+
+        db_file = self._get_db_file(language)
+
+        if not os.path.exists(db_file):
+            logger.info(f"Database file not found: {db_file}. Fetching from API.")
+            await self.fetch_card_database(language)
+
+        if os.path.exists(db_file):
+            try:
+                data = await run.io_bound(self._read_db_file, language)
+            except RuntimeError:
+                data = await asyncio.to_thread(self._read_db_file, language)
+            if isinstance(data, list):
+                unique = len(data)
+                variants = sum(len(c.get('card_sets', [])) for c in data if isinstance(c, dict))
+                return unique, variants
+        return 0, 0
+
     async def load_card_database(self, language: str = "en") -> List[ApiCard]:
         """Loads the database from disk. If missing, fetches it."""
         if language in self._cards_cache:

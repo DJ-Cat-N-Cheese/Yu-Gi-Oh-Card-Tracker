@@ -2149,7 +2149,7 @@ def scan_page():
         for t in page._timers:
             t.cancel()
 
-    app.on_disconnect(cleanup)
+    ui.on_disconnect(cleanup)
 
     # Register listener
     scanner_service.scanner_manager.register_listener(page.on_scanner_event)
@@ -2232,7 +2232,7 @@ def scan_page():
     page._timers.append(ui.timer(0.1, page.init_data, once=True))
 
     # Use fast consumer loop instead of slow polling
-    page._timers.append(ui.timer(0.1, page.event_consumer))
+    page._timers.append(ui.timer(1.0, page.event_consumer))
 
     # Initialize from current state immediately
     page.debug_report = scanner_service.scanner_manager.get_debug_snapshot()
