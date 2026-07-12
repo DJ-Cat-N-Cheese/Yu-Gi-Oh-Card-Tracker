@@ -117,7 +117,9 @@ class ScannerManager:
             logger.error("Scanner dependencies missing. Cannot start.")
             return
 
-        if self.running and self.thread and self.thread.is_alive():
+        if self.thread and self.thread.is_alive():
+            if not self.running:
+                logger.warning("Scanner worker is still shutting down; refusing to start a duplicate thread")
             return
 
         self.running = True
@@ -127,13 +129,16 @@ class ScannerManager:
         self._emit("status_update", {"status": "Started"})
 
     def stop(self):
-        if not self.running:
+        if not self.running and not (self.thread and self.thread.is_alive()):
             return
 
         self.running = False
         if self.thread:
             self.thread.join(timeout=2.0)
-            self.thread = None
+            if self.thread.is_alive():
+                logger.warning("Scanner worker did not stop within 2 seconds; retaining thread reference")
+            else:
+                self.thread = None
         logger.info("Scanner stopped")
         self._emit("status_update", {"status": "Stopped"})
 
@@ -189,6 +194,15 @@ class ScannerManager:
 
     def is_paused(self) -> bool:
         return self.paused
+
+    def is_idle(self) -> bool:
+        """Check if the scanner has no pending work."""
+        with self.queue_lock:
+            scan_empty = len(self.scan_queue) == 0
+        return (scan_empty and 
+                self.lookup_queue.empty() and 
+                self.result_queue.empty() and
+                not self.is_processing)
 
     def get_queue_snapshot(self) -> List[Dict[str, Any]]:
         with self.queue_lock:
@@ -516,11 +530,13 @@ class ScannerManager:
                 self._emit("error", {"message": str(e)})
                 time.sleep(1.0) # Prevent tight loop on crash
             finally:
-                self.is_processing = False
                 if self.debug_state: self.debug_state.current_step = "Idle"
-                if not self.paused:
-                     self.status_message = "Idle"
-                     # Final idle emit will happen at top of loop
+                if self.is_processing and not self.paused:
+                    # Queue the final state before is_idle() can report completion,
+                    # allowing page consumers to render it before cancelling timers.
+                    self.status_message = "Idle"
+                    self._emit("status_update", {"status": "Idle"})
+                self.is_processing = False
 
     def _process_scan(self, frame, options, status_cb=None) -> Dict[str, Any]:
         """Runs the configured tracks on the frame."""
