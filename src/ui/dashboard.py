@@ -19,11 +19,7 @@ async def load_dashboard_data(filename=None):
     try:
         # 1. Load Database Size
         lang = config_manager.get_language()
-        db_cards = await ygo_service.load_card_database(lang)
-        total_db_unique = len(db_cards) if db_cards else 0
-        total_db_variants = 0
-        if db_cards:
-            total_db_variants = sum(len(c.card_sets) for c in db_cards)
+        total_db_unique, total_db_variants = await ygo_service.get_database_counts(lang)
 
         # 2. Determine Collection to load
         files = persistence.list_collections()
