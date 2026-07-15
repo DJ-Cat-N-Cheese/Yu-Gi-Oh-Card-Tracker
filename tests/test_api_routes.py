@@ -1,9 +1,9 @@
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import main
 from src.api import routes
 from src.core.models import ApiCard, ApiCardImage, ApiCardSet, Collection
 from src.core.persistence import PersistenceManager
@@ -55,7 +55,11 @@ def api_client(tmp_path, monkeypatch):
         return [card]
 
     monkeypatch.setattr(routes.ygo_service, "load_card_database", load_card_database)
-    return TestClient(main.app)
+    # Route behavior is tested on an isolated app; main.app's authentication
+    # boundary is covered separately in test_auth.py.
+    test_app = FastAPI()
+    test_app.include_router(routes.router)
+    return TestClient(test_app)
 
 
 def test_list_collections(api_client):

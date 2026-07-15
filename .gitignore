@@ -6,6 +6,8 @@ __pycache__/
 env/
 venv/
 .env
+config.json
+.nicegui/
 *.log
 .DS_Store
 data/*

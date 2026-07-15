@@ -19,9 +19,18 @@ from src.ui.bulk_add import bulk_add_page
 from src.ui.scan import scan_page
 from src.ui.db_editor import db_editor_page
 from src.ui.storage import storage_page
+from src.ui.auth import login_page
+from src.ui.settings import settings_page
 from src.api.routes import router as api_router
+from src.services.auth_middleware import AuthenticationMiddleware
+from src.services.auth_service import get_storage_secret
 
 app.include_router(api_router)
+app.add_middleware(AuthenticationMiddleware)
+
+@ui.page('/login')
+def login():
+    login_page()
 
 @ui.page('/')
 def home():
@@ -59,6 +68,10 @@ def scan():
 def db_editor():
     create_layout(db_editor_page)
 
+@ui.page('/settings')
+def settings():
+    create_layout(settings_page)
+
 # Serve images
 os.makedirs('data/images', exist_ok=True)
 os.makedirs('data/img', exist_ok=True)
@@ -78,4 +91,13 @@ def chrome_devtools_probe():
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Disable reload to prevent restart loops when writing to data/ directory (images, db)
-    ui.run(title='OpenYuGi', favicon='🃏', reload=False)
+    ui.run(
+        title='OpenYuGi',
+        favicon='🃏',
+        reload=False,
+        storage_secret=get_storage_secret(),
+        session_middleware_kwargs={
+            'same_site': 'lax',
+            'https_only': os.environ.get('OPENYUGI_SECURE_COOKIES', '').lower() in {'1', 'true', 'yes'},
+        },
+    )
