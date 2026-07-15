@@ -110,55 +110,105 @@ def settings_page() -> None:
             notification = ui.notification(message, type='info', spinner=True, timeout=None)
             try:
                 result = await action()
-                notification.dismiss()
                 ui.notify(success_message(result), type='positive')
             except Exception as error:  # external service errors are surfaced to the user
-                notification.dismiss()
                 ui.notify(f'Operation failed: {error}', type='negative')
+            finally:
+                notification.dismiss()
+
+        async def run_progress_action(title, description, action, success_message):
+            progress_dialog = ui.dialog().props('persistent')
+            with progress_dialog, ui.card().classes('w-96'):
+                ui.label(title).classes('text-h6')
+                ui.label(description).classes('text-sm text-grey')
+                progress_bar = ui.linear_progress(0).classes('w-full q-my-md')
+                status_label = ui.label('0%')
+
+            def update_progress(value):
+                progress = max(0.0, min(1.0, float(value)))
+                progress_bar.set_value(progress)
+                status_label.set_text(f'{int(progress * 100)}%')
+
+            progress_dialog.open()
+            try:
+                result = await action(update_progress)
+                update_progress(1.0)
+                ui.notify(success_message(result), type='positive')
+            except Exception as error:  # external service errors are surfaced to the user
+                ui.notify(f'Operation failed: {error}', type='negative')
+            finally:
+                progress_dialog.close()
 
         async def update_db():
-            await run_action(
-                'Updating card database...',
-                lambda: ygo_service.fetch_card_database(config_manager.get_language()),
+            async def update(progress_callback):
+                progress_callback(0.0)
+                count = await ygo_service.fetch_card_database(config_manager.get_language())
+                progress_callback(1.0)
+                return count
+
+            await run_progress_action(
+                'Updating Card Database',
+                'Fetching the latest card metadata...',
+                update,
                 lambda count: f'Database updated. {count} cards loaded.',
             )
 
         async def update_all_dbs():
-            async def update():
+            async def update(progress_callback):
                 total = 0
-                for language_code in ['en', 'de', 'fr', 'it', 'pt']:
+                languages = ['en', 'de', 'fr', 'it', 'pt']
+                progress_callback(0.0)
+                for index, language_code in enumerate(languages, start=1):
                     total += await ygo_service.fetch_card_database(language_code)
+                    progress_callback(index / len(languages))
                 return total
 
-            await run_action(
-                'Updating all language databases...', update, lambda count: f'All databases updated ({count} cards).'
+            await run_progress_action(
+                'Updating All Language Databases',
+                'Fetching card metadata for every supported language...',
+                update,
+                lambda count: f'All databases updated ({count} cards).',
             )
 
         async def download_set_info():
-            await run_action(
-                'Downloading set information and images...',
-                ygo_service.download_set_statistics_and_images,
+            await run_progress_action(
+                'Downloading Set Info & Images',
+                'Updating global set statistics and downloading pack art...',
+                lambda progress_callback: ygo_service.download_set_statistics_and_images(
+                    progress_callback=progress_callback
+                ),
                 lambda _: 'Set information and images downloaded.',
             )
 
         async def download_yugipedia_images():
-            await run_action(
-                'Downloading set images from Yugipedia...',
-                ygo_service.download_set_images_from_yugipedia,
+            await run_progress_action(
+                'Downloading Set Images (Yugipedia)',
+                'Searching for and downloading high-quality set images...',
+                lambda progress_callback: ygo_service.download_set_images_from_yugipedia(
+                    progress_callback=progress_callback
+                ),
                 lambda _: 'Yugipedia set images downloaded.',
             )
 
         async def download_low_resolution_images():
-            await run_action(
-                'Downloading all low resolution images...',
-                lambda: ygo_service.download_all_images(language=config_manager.get_language()),
+            await run_progress_action(
+                'Downloading All Low-Resolution Images',
+                'This may take a while...',
+                lambda progress_callback: ygo_service.download_all_images(
+                    progress_callback=progress_callback,
+                    language=config_manager.get_language(),
+                ),
                 lambda _: 'All low resolution images downloaded.',
             )
 
         async def download_high_resolution_images():
-            await run_action(
-                'Downloading all high resolution images...',
-                lambda: ygo_service.download_all_images_high_res(language=config_manager.get_language()),
+            await run_progress_action(
+                'Downloading All High-Resolution Images',
+                'This may take a while and use significant disk space...',
+                lambda progress_callback: ygo_service.download_all_images_high_res(
+                    progress_callback=progress_callback,
+                    language=config_manager.get_language(),
+                ),
                 lambda _: 'All high resolution images downloaded.',
             )
 

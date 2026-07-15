@@ -13,11 +13,19 @@ def session_is_authenticated() -> bool:
     )
 
 
-def login_page() -> None:
+def _safe_next_path(next_path: str | None) -> str:
+    """Return a local navigation target, falling back to the dashboard."""
+    if isinstance(next_path, str) and next_path.startswith('/') and not next_path.startswith('//'):
+        return next_path
+    return '/'
+
+
+def login_page(next_path: str | None = None) -> None:
     """Render the only page available without an authenticated session."""
     apply_theme()
+    destination = _safe_next_path(next_path)
     if session_is_authenticated():
-        ui.navigate.to('/')
+        ui.navigate.to(destination)
         return
 
     async def login() -> None:
@@ -25,9 +33,10 @@ def login_page() -> None:
         try:
             authenticated = await run.io_bound(auth_service.authenticate, username.value, password.value)
             if authenticated:
+                app.storage.user.clear()
                 app.storage.user[AUTH_SESSION_KEY] = True
                 app.storage.user[AUTH_REVISION_KEY] = auth_service.revision()
-                ui.navigate.to('/')
+                ui.navigate.to(destination)
                 return
 
             # A fixed delay makes online guessing slower without blocking NiceGUI's event loop.

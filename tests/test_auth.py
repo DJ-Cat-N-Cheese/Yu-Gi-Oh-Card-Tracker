@@ -1,6 +1,8 @@
 import json
+import os
 import stat
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +13,7 @@ import main
 from src.core.config import ConfigManager
 from src.services.auth_middleware import is_public_path
 from src.services.auth_service import AuthService, get_storage_secret
+from src.ui.auth import _safe_next_path
 
 
 @pytest.fixture
@@ -70,8 +73,8 @@ def test_password_validation_and_confirmation(auth):
     _, service = auth
     with pytest.raises(ValueError, match='do not match'):
         service.update_credentials('admin', 'admin', 'four', 'five')
-    with pytest.raises(ValueError, match='at least 4'):
-        service.update_credentials('admin', 'admin', 'abc', 'abc')
+    with pytest.raises(ValueError, match='at least 8'):
+        service.update_credentials('admin', 'admin', '1234567', '1234567')
     with pytest.raises(ValueError, match='128 characters or fewer'):
         service.update_credentials('admin', 'admin', 'x' * 129, 'x' * 129)
 
@@ -95,9 +98,27 @@ def test_session_secret_is_stable_private_and_supports_environment_override(tmp_
         get_storage_secret(path, {'OPENYUGI_STORAGE_SECRET': 'too-short'})
 
 
-def test_only_login_and_nicegui_assets_are_public():
+def test_session_secret_creation_failure_has_actionable_error(tmp_path):
+    path = tmp_path / 'data' / '.storage_secret'
+    with patch('src.services.auth_service.os.open', side_effect=PermissionError('read-only')):
+        with pytest.raises(RuntimeError, match='OPENYUGI_STORAGE_SECRET.*parent directory writable'):
+            get_storage_secret(path, {})
+
+
+def test_existing_config_permissions_are_tightened_on_startup(tmp_path):
+    path = tmp_path / 'config.json'
+    path.write_text(json.dumps({'auth_username': 'admin'}), encoding='utf-8')
+    os.chmod(path, 0o644)
+
+    ConfigManager(str(path))
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_login_nicegui_assets_and_well_known_uris_are_public():
     assert is_public_path('/login')
     assert is_public_path('/_nicegui/3.13.0/static/nicegui.js')
+    assert is_public_path('/.well-known/appspecific/com.chrome.devtools.json')
     assert not is_public_path('/')
     assert not is_public_path('/settings')
     assert not is_public_path('/api/v1/collections')
@@ -105,14 +126,36 @@ def test_only_login_and_nicegui_assets_are_public():
     assert not is_public_path('/debug/scan.jpg')
 
 
+@pytest.mark.parametrize(
+    ('next_path', 'expected'),
+    [
+        ('/settings', '/settings'),
+        ('/collection?page=2', '/collection?page=2'),
+        ('https://example.com', '/'),
+        ('//example.com', '/'),
+        (None, '/'),
+    ],
+)
+def test_login_next_path_is_restricted_to_local_paths(next_path, expected):
+    assert _safe_next_path(next_path) == expected
+
+
 def test_main_app_redirects_unauthenticated_routes_to_login():
     set_storage_secret('test-storage-secret-that-is-at-least-32-characters')
     client = TestClient(main.app, follow_redirects=False)
     try:
-        for path in ('/', '/settings', '/api/v1/collections', '/images/123.jpg', '/debug/scan.jpg'):
+        for path in ('/', '/settings', '/images/123.jpg', '/debug/scan.jpg'):
             response = client.get(path)
             assert response.status_code == 303
             assert response.headers['location'].startswith('/login?next=')
+
+        response = client.get('/api/v1/collections')
+        assert response.status_code == 401
+        assert response.json() == {'detail': 'Not authenticated'}
+
+        response = client.get('/.well-known/appspecific/com.chrome.devtools.json')
+        assert response.status_code == 200
+        assert response.json() == {}
 
     finally:
         client.close()

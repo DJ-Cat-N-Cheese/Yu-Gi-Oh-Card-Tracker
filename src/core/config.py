@@ -69,6 +69,8 @@ class ConfigManager:
             changed = True
         if changed:
             self.save_config()
+        if os.path.exists(self.config_file):
+            os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def get_auth_username(self) -> str:
         return self.config["auth_username"]
