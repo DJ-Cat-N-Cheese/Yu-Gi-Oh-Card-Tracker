@@ -866,7 +866,12 @@ class UnifiedImportController:
 
         if changes > 0 or (changes == 0 and self.import_mode == 'ADD'):
             # Note: 0 changes might happen if subtract removes non-existent cards, but we still save/notify
-            persistence.save_collection(collection, self.selected_collection)
+            try:
+                persistence.save_collection(collection, self.selected_collection)
+            except ValueError as e:
+                logger.error(f"Import save rejected for {self.selected_collection!r}: {e}")
+                ui.notify(f"Could not save collection: {e}", type='negative')
+                return
 
             # Log Batch to Changelog
             from src.core.changelog_manager import changelog_manager
