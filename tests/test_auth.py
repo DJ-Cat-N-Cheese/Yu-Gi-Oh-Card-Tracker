@@ -93,6 +93,29 @@ def test_username_can_change_without_changing_password(auth):
     assert service.authenticate('new-admin', 'admin')
 
 
+def test_credential_environment_variables_override_config(auth, monkeypatch):
+    from werkzeug.security import generate_password_hash
+
+    manager, service = auth
+    env_hash = generate_password_hash('env-secret-pass', method='scrypt')
+    monkeypatch.setenv('OPENYUGI_ADMIN_USERNAME', 'env-admin')
+    monkeypatch.setenv('OPENYUGI_ADMIN_PASSWORD_HASH', env_hash)
+
+    assert manager.get_auth_username() == 'env-admin'
+    assert manager.get_auth_password_hash() == env_hash
+    assert service.authenticate('env-admin', 'env-secret-pass')
+    assert not service.authenticate('admin', 'admin')
+
+
+def test_credentials_fall_back_to_config_without_environment_variables(auth, monkeypatch):
+    manager, service = auth
+    monkeypatch.delenv('OPENYUGI_ADMIN_USERNAME', raising=False)
+    monkeypatch.delenv('OPENYUGI_ADMIN_PASSWORD_HASH', raising=False)
+
+    assert manager.get_auth_username() == 'admin'
+    assert service.authenticate('admin', 'admin')
+
+
 def test_session_secret_is_stable_private_and_supports_environment_override(tmp_path):
     path = tmp_path / 'data' / '.storage_secret'
     first = get_storage_secret(path, {})

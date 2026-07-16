@@ -3,7 +3,9 @@ import yaml
 import os
 import time
 import logging
+import unicodedata
 import uuid
+from urllib.parse import unquote
 from typing import List, Optional
 from src.core.models import Collection, Deck
 
@@ -16,17 +18,29 @@ logger = logging.getLogger(__name__)
 def sanitize_collection_filename(filename: str) -> str:
     """Validate and return a collection filename without path components."""
     raw_filename = str(filename or '').strip()
-    without_traversal = raw_filename.replace('../', '').replace('..\\', '')
 
-    if without_traversal != raw_filename or any(
-        token in raw_filename for token in ('/', '\\', '..')
-    ):
-        raise ValueError("Collection name cannot include path separators or '..'")
+    # Check the raw name plus URL-decoded and Unicode-normalized forms so
+    # encoded traversal sequences (%2e%2e%2f, %252e...) and lookalike
+    # characters (fullwidth dots/slashes) cannot smuggle path components
+    # past the literal checks below.
+    candidates = {raw_filename}
+    decoded = raw_filename
+    for _ in range(3):
+        decoded = unquote(decoded)
+        candidates.add(decoded)
+    for candidate in list(candidates):
+        candidates.add(unicodedata.normalize('NFKC', candidate))
 
-    clean_filename = os.path.basename(without_traversal)
+    for candidate in candidates:
+        if '\0' in candidate:
+            raise ValueError('Collection name cannot contain null bytes')
+        if any(token in candidate for token in ('/', '\\', '..')):
+            raise ValueError("Collection name cannot include path separators or '..'")
+
+    clean_filename = os.path.basename(raw_filename)
     if not clean_filename or clean_filename in {'.', '..'}:
         raise ValueError('Invalid collection name')
-    if clean_filename != without_traversal:
+    if clean_filename != raw_filename:
         raise ValueError('Collection name cannot include path components')
 
     return clean_filename

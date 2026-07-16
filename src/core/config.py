@@ -73,9 +73,15 @@ class ConfigManager:
             os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
 
     def get_auth_username(self) -> str:
+        env_username = os.environ.get("OPENYUGI_ADMIN_USERNAME")
+        if env_username:
+            return env_username
         return self.config["auth_username"]
 
     def get_auth_password_hash(self) -> str:
+        env_password_hash = os.environ.get("OPENYUGI_ADMIN_PASSWORD_HASH")
+        if env_password_hash:
+            return env_password_hash
         return self.config["auth_password_hash"]
 
     def set_auth_credentials(self, username: str, password_hash: str) -> None:
