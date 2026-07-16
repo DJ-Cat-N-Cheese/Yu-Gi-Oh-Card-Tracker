@@ -2,7 +2,7 @@ import json
 import os
 import stat
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,7 +13,13 @@ import main
 from src.core.config import ConfigManager
 from src.services.auth_middleware import is_public_path
 from src.services.auth_service import AuthService, get_storage_secret
-from src.ui.auth import _safe_next_path
+from src.ui.auth import (
+    AUTH_REVISION_KEY,
+    AUTH_SESSION_KEY,
+    TEMP_AUTH_TOKEN_KEY,
+    _safe_next_path,
+    complete_login_callback,
+)
 
 
 @pytest.fixture
@@ -117,6 +123,8 @@ def test_existing_config_permissions_are_tightened_on_startup(tmp_path):
 
 def test_login_nicegui_assets_and_well_known_uris_are_public():
     assert is_public_path('/login')
+    assert is_public_path('/login/callback')
+    assert is_public_path('/_nicegui_ws')
     assert is_public_path('/_nicegui/3.13.0/static/nicegui.js')
     assert is_public_path('/.well-known/appspecific/com.chrome.devtools.json')
     assert not is_public_path('/.well-known-attacker/anything')
@@ -136,11 +144,59 @@ def test_login_nicegui_assets_and_well_known_uris_are_public():
         ('//example.com', '/'),
         ('/\\example.com', '/'),
         ('/settings/\\example.com', '/'),
+        ('/\t\\example.com', '/'),
+        ('/\n\\example.com', '/'),
+        ('/\r\\example.com', '/'),
+        ('/settings\t', '/settings'),
         (None, '/'),
     ],
 )
 def test_login_next_path_is_restricted_to_local_paths(next_path, expected):
     assert _safe_next_path(next_path) == expected
+
+
+@pytest.mark.asyncio
+async def test_login_callback_rotates_session_and_redirects_to_safe_destination(monkeypatch):
+    old_session = {TEMP_AUTH_TOKEN_KEY: 'temporary-token'}
+    new_session = {}
+
+    class Storage:
+        browser = {}
+
+        def __init__(self):
+            self._created = AsyncMock()
+
+        @property
+        def user(self):
+            return new_session if self.browser.get('id') else old_session
+
+        async def _create_user_storage(self, session_id):
+            await self._created(session_id)
+
+    storage = Storage()
+    monkeypatch.setattr('src.ui.auth.app.storage', storage)
+    monkeypatch.setattr('src.ui.auth.uuid.uuid4', lambda: 'rotated-session-id')
+
+    destination = await complete_login_callback('temporary-token', '/settings')
+
+    assert destination == '/settings'
+    assert storage.browser['id'] == 'rotated-session-id'
+    storage._created.assert_awaited_once_with('rotated-session-id')
+    assert new_session[AUTH_SESSION_KEY] is True
+    assert new_session[AUTH_REVISION_KEY]
+    assert TEMP_AUTH_TOKEN_KEY not in old_session
+
+
+@pytest.mark.asyncio
+async def test_login_callback_rejects_invalid_token(monkeypatch):
+    session = {TEMP_AUTH_TOKEN_KEY: 'temporary-token'}
+
+    class Storage:
+        user = session
+
+    monkeypatch.setattr('src.ui.auth.app.storage', Storage())
+
+    assert await complete_login_callback('wrong-token', '/settings') is None
 
 
 def test_main_app_redirects_unauthenticated_routes_to_login():
