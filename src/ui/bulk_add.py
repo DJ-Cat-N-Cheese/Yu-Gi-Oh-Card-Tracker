@@ -1,5 +1,5 @@
 from nicegui import ui, run
-from src.core.persistence import persistence
+from src.core.persistence import persistence, sanitize_collection_filename
 from src.core.changelog_manager import changelog_manager
 from src.core.config import config_manager
 from src.services.ygo_api import ygo_service, ApiCard
@@ -1760,6 +1760,12 @@ class BulkAddPage:
                 # Ensure extension
                 if not name.endswith(('.json', '.yaml', '.yml')):
                     name += '.json'
+
+                try:
+                    name = sanitize_collection_filename(name)
+                except ValueError as e:
+                    ui.notify(str(e), type='negative')
+                    return
 
                 # Check if exists
                 existing = persistence.list_collections()

@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 import re
-from src.core.persistence import persistence
+from src.core.persistence import persistence, sanitize_collection_filename
 from src.core.models import Collection, ApiCard, ApiCardSet
 from src.core.utils import LANGUAGE_TO_LEGACY_REGION_MAP, normalize_set_code, is_set_code_compatible, get_legacy_code
 from src.core.constants import RARITY_ABBREVIATIONS
@@ -79,16 +79,22 @@ class UnifiedImportController:
             self.collection_select.update()
 
     async def create_new_collection(self, name: str):
-        if not name:
+        clean_name = name.strip()
+        if not clean_name:
             ui.notify("Collection name cannot be empty", type='warning')
             return
 
-        filename = f"{name}.json"
+        try:
+            filename = sanitize_collection_filename(f"{clean_name}.json")
+        except ValueError as e:
+            ui.notify(str(e), type='negative')
+            return
+
         if filename in self.collections:
              ui.notify("Collection already exists", type='negative')
              return
 
-        new_collection = Collection(name=name)
+        new_collection = Collection(name=clean_name)
         persistence.save_collection(new_collection, filename)
 
         self.refresh_collections()
@@ -97,7 +103,7 @@ class UnifiedImportController:
             self.collection_select.value = filename
             self.collection_select.update()
 
-        ui.notify(f"Created collection: {name}", type='positive')
+        ui.notify(f"Created collection: {clean_name}", type='positive')
 
     async def handle_upload(self, e: events.UploadEventArguments):
         ui.notify("Processing file...", type='info')
@@ -1326,7 +1332,13 @@ class MergeController:
             ui.notify("Enter a new collection name.", type='warning')
             return
 
-        new_filename = f"{self.new_name.strip()}.json"
+        clean_name = self.new_name.strip()
+        try:
+            new_filename = sanitize_collection_filename(f"{clean_name}.json")
+        except ValueError as e:
+            ui.notify(str(e), type='negative')
+            return
+
         if new_filename in self.collections:
             ui.notify("Collection exists.", type='negative')
             return
@@ -1335,7 +1347,7 @@ class MergeController:
         try:
             coll_a_obj = persistence.load_collection(self.coll_a)
             coll_b_obj = persistence.load_collection(self.coll_b)
-            new_collection = Collection(name=self.new_name.strip())
+            new_collection = Collection(name=clean_name)
 
             await ygo_service.load_card_database()
 

@@ -1,4 +1,4 @@
-nicegui
+nicegui==3.13.0
 pydantic
 pyyaml
 requests
