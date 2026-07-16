@@ -1,6 +1,7 @@
 import sys
 import os
 from nicegui import ui, app
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 # Ensure src is in the python path
@@ -29,8 +30,8 @@ app.include_router(api_router)
 app.add_middleware(AuthenticationMiddleware)
 
 @ui.page('/login')
-def login():
-    login_page()
+def login(request: Request):
+    login_page(request.query_params.get('next'))
 
 @ui.page('/')
 def home():

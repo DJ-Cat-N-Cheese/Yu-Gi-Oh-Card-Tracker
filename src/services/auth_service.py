@@ -16,7 +16,7 @@ from src.core.config import ConfigManager, config_manager
 
 AUTH_SESSION_KEY = "authenticated"
 AUTH_REVISION_KEY = "auth_revision"
-MIN_PASSWORD_LENGTH = 4
+MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 128
 MAX_USERNAME_LENGTH = 64
 STORAGE_SECRET_PATH = Path("data/.storage_secret")
@@ -99,8 +99,8 @@ def get_storage_secret(
             raise ValueError("OPENYUGI_STORAGE_SECRET must be at least 32 characters.")
         return configured_secret
 
-    secret_path.parent.mkdir(parents=True, exist_ok=True)
     try:
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
         descriptor = os.open(secret_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         secret = secret_path.read_text(encoding="utf-8").strip()
@@ -111,6 +111,11 @@ def get_storage_secret(
         except OSError:
             pass
         return secret
+    except OSError as error:
+        raise RuntimeError(
+            f"Unable to create session secret at {secret_path}. "
+            "Set OPENYUGI_STORAGE_SECRET or make its parent directory writable."
+        ) from error
 
     secret = secrets.token_urlsafe(48)
     with os.fdopen(descriptor, "w", encoding="utf-8") as file:

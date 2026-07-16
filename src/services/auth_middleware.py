@@ -3,17 +3,17 @@ from urllib.parse import quote
 from nicegui import app
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
-from starlette.responses import RedirectResponse, Response
+from starlette.responses import JSONResponse, RedirectResponse, Response
 
 from src.services.auth_service import AUTH_REVISION_KEY, AUTH_SESSION_KEY, auth_service
 
 
 PUBLIC_PATHS = {'/login'}
-PUBLIC_PREFIXES = ('/_nicegui/',)
+PUBLIC_PREFIXES = ('/_nicegui/', '/.well-known')
 
 
 def is_public_path(path: str) -> bool:
-    """Allow only the login page and framework assets before authentication."""
+    """Allow login, framework assets, and well-known URIs before authentication."""
     return path in PUBLIC_PATHS or any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
 
 
@@ -31,6 +31,9 @@ class AuthenticationMiddleware(BaseHTTPMiddleware):
         )
         if authenticated:
             return await call_next(request)
+
+        if request.url.path.startswith('/api/'):
+            return JSONResponse({'detail': 'Not authenticated'}, status_code=401)
 
         next_path = request.url.path
         if request.url.query:

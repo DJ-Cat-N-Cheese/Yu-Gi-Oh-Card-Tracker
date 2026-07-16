@@ -2184,7 +2184,7 @@ def scan_page():
             t.cancel()
         page.consumer_timer = None
 
-    ui.on_disconnect(cleanup)
+    ui.context.client.on_disconnect(cleanup)
 
     # Register listener
     scanner_service.scanner_manager.register_listener(page.on_scanner_event)
