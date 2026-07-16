@@ -91,7 +91,8 @@ app.add_static_files('/data/img', 'data/img') # Serve data/img for Art Match if 
 app.add_static_files('/sets', 'data/sets')
 app.add_static_files('/storage', 'data/collections/storage')
 app.add_static_files('/flags', 'data/flags')
-app.add_static_files('/debug', 'debug')
+if os.environ.get('OPENYUGI_ENABLE_DEBUG_STATIC', '').lower() in {'1', 'true', 'yes'}:
+    app.add_static_files('/debug', 'debug')
 
 # Handle Chrome DevTools probe to prevent 404 warnings
 @app.get('/.well-known/appspecific/com.chrome.devtools.json')

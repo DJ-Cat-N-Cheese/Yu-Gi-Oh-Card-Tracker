@@ -12,6 +12,26 @@ COLLECTIONS_DIR = os.path.join(DATA_DIR, "collections")
 DECKS_DIR = os.path.join(DATA_DIR, "decks")
 logger = logging.getLogger(__name__)
 
+
+def sanitize_collection_filename(filename: str) -> str:
+    """Validate and return a collection filename without path components."""
+    raw_filename = str(filename or '').strip()
+    without_traversal = raw_filename.replace('../', '').replace('..\\', '')
+
+    if without_traversal != raw_filename or any(
+        token in raw_filename for token in ('/', '\\', '..')
+    ):
+        raise ValueError("Collection name cannot include path separators or '..'")
+
+    clean_filename = os.path.basename(without_traversal)
+    if not clean_filename or clean_filename in {'.', '..'}:
+        raise ValueError('Invalid collection name')
+    if clean_filename != without_traversal:
+        raise ValueError('Collection name cannot include path components')
+
+    return clean_filename
+
+
 class PersistenceManager:
     def __init__(self, data_dir: str = COLLECTIONS_DIR, decks_dir: str = DECKS_DIR):
         self.data_dir = data_dir
@@ -48,6 +68,7 @@ class PersistenceManager:
 
     def save_collection(self, collection: Collection, filename: str):
         """Saves a collection to a file."""
+        filename = sanitize_collection_filename(filename)
         logger.info(f"Saving collection: {filename}")
         filepath = os.path.join(self.data_dir, filename)
         data = collection.model_dump(mode='json')
