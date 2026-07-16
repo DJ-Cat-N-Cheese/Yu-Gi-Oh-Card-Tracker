@@ -1,5 +1,7 @@
 import asyncio
 import hmac
+import logging
+import time
 import uuid
 from urllib.parse import urlencode
 
@@ -9,6 +11,10 @@ from src.services.auth_service import AUTH_REVISION_KEY, AUTH_SESSION_KEY, auth_
 from src.ui.theme import apply_theme
 
 TEMP_AUTH_TOKEN_KEY = 'temp_auth_token'
+TEMP_AUTH_TOKEN_EXPIRY_KEY = 'temp_auth_token_expiry'
+TEMP_AUTH_TOKEN_TTL_SECONDS = 60
+
+logger = logging.getLogger(__name__)
 
 
 def session_is_authenticated() -> bool:
@@ -42,21 +48,41 @@ async def complete_login_callback(token: str | None, next_path: str | None) -> s
     This runs from the callback page's HTTP request, where NiceGUI can still
     write the browser cookie. It must not be called from a WebSocket handler.
     """
-    old_user_storage = app.storage.user
+    storage = app.storage
+    old_user_storage = storage.user
     expected_token = old_user_storage.get(TEMP_AUTH_TOKEN_KEY)
+    expires_at = old_user_storage.get(TEMP_AUTH_TOKEN_EXPIRY_KEY)
     if not (
         isinstance(token, str)
         and isinstance(expected_token, str)
         and hmac.compare_digest(token, expected_token)
+        and isinstance(expires_at, (int, float))
+        and time.time() <= expires_at
     ):
+        if isinstance(token, str) and expected_token is None:
+            logger.warning('Rejected replayed or consumed login callback token.')
+        elif isinstance(expires_at, (int, float)) and time.time() > expires_at:
+            logger.warning('Rejected expired login callback token.')
+            old_user_storage.pop(TEMP_AUTH_TOKEN_KEY, None)
+            old_user_storage.pop(TEMP_AUTH_TOKEN_EXPIRY_KEY, None)
         return None
 
-    session_id = str(uuid.uuid4())
-    app.storage.browser['id'] = session_id
-    await app.storage._create_user_storage(session_id)  # pylint: disable=protected-access
-    app.storage.user[AUTH_SESSION_KEY] = True
-    app.storage.user[AUTH_REVISION_KEY] = auth_service.revision()
+    # Consume the token before the first await so a callback URL is single-use.
     old_user_storage.pop(TEMP_AUTH_TOKEN_KEY, None)
+    old_user_storage.pop(TEMP_AUTH_TOKEN_EXPIRY_KEY, None)
+    old_session_id = storage.browser.get('id')
+    session_id = str(uuid.uuid4())
+    storage.browser['id'] = session_id
+    await storage._create_user_storage(session_id)  # pylint: disable=protected-access
+    storage.user[AUTH_SESSION_KEY] = True
+    storage.user[AUTH_REVISION_KEY] = auth_service.revision()
+
+    # NiceGUI retains per-user storage by session ID. Clear its persistent data
+    # and remove the old in-memory entry once the replacement session is ready.
+    old_user_storage.clear()
+    users = getattr(storage, '_users', None)
+    if isinstance(users, dict) and old_session_id is not None:
+        users.pop(old_session_id, None)
     return _safe_next_path(next_path)
 
 
@@ -75,6 +101,7 @@ def login_page(next_path: str | None = None) -> None:
             if authenticated:
                 token = str(uuid.uuid4())
                 app.storage.user[TEMP_AUTH_TOKEN_KEY] = token
+                app.storage.user[TEMP_AUTH_TOKEN_EXPIRY_KEY] = time.time() + TEMP_AUTH_TOKEN_TTL_SECONDS
                 callback_query = urlencode({'token': token, 'next': destination})
                 ui.navigate.to(f'/login/callback?{callback_query}')
                 return

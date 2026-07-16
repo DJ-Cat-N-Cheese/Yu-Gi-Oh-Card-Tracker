@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import stat
 from pathlib import Path
@@ -17,6 +18,7 @@ from src.ui.auth import (
     AUTH_REVISION_KEY,
     AUTH_SESSION_KEY,
     TEMP_AUTH_TOKEN_KEY,
+    TEMP_AUTH_TOKEN_EXPIRY_KEY,
     _safe_next_path,
     complete_login_callback,
 )
@@ -157,18 +159,22 @@ def test_login_next_path_is_restricted_to_local_paths(next_path, expected):
 
 @pytest.mark.asyncio
 async def test_login_callback_rotates_session_and_redirects_to_safe_destination(monkeypatch):
-    old_session = {TEMP_AUTH_TOKEN_KEY: 'temporary-token'}
+    old_session = {
+        TEMP_AUTH_TOKEN_KEY: 'temporary-token',
+        TEMP_AUTH_TOKEN_EXPIRY_KEY: 1001,
+    }
     new_session = {}
 
     class Storage:
-        browser = {}
+        browser = {'id': 'old-session-id'}
 
         def __init__(self):
             self._created = AsyncMock()
+            self._users = {'old-session-id': old_session, 'rotated-session-id': new_session}
 
         @property
         def user(self):
-            return new_session if self.browser.get('id') else old_session
+            return new_session if self.browser.get('id') == 'rotated-session-id' else old_session
 
         async def _create_user_storage(self, session_id):
             await self._created(session_id)
@@ -176,6 +182,7 @@ async def test_login_callback_rotates_session_and_redirects_to_safe_destination(
     storage = Storage()
     monkeypatch.setattr('src.ui.auth.app.storage', storage)
     monkeypatch.setattr('src.ui.auth.uuid.uuid4', lambda: 'rotated-session-id')
+    monkeypatch.setattr('src.ui.auth.time.time', lambda: 1000)
 
     destination = await complete_login_callback('temporary-token', '/settings')
 
@@ -184,19 +191,62 @@ async def test_login_callback_rotates_session_and_redirects_to_safe_destination(
     storage._created.assert_awaited_once_with('rotated-session-id')
     assert new_session[AUTH_SESSION_KEY] is True
     assert new_session[AUTH_REVISION_KEY]
-    assert TEMP_AUTH_TOKEN_KEY not in old_session
+    assert old_session == {}
+    assert 'old-session-id' not in storage._users
 
 
 @pytest.mark.asyncio
 async def test_login_callback_rejects_invalid_token(monkeypatch):
-    session = {TEMP_AUTH_TOKEN_KEY: 'temporary-token'}
+    session = {
+        TEMP_AUTH_TOKEN_KEY: 'temporary-token',
+        TEMP_AUTH_TOKEN_EXPIRY_KEY: 1001,
+    }
 
     class Storage:
         user = session
 
     monkeypatch.setattr('src.ui.auth.app.storage', Storage())
+    monkeypatch.setattr('src.ui.auth.time.time', lambda: 1000)
 
     assert await complete_login_callback('wrong-token', '/settings') is None
+
+
+@pytest.mark.asyncio
+async def test_login_callback_rejects_and_consumes_expired_token(monkeypatch, caplog):
+    session = {
+        TEMP_AUTH_TOKEN_KEY: 'temporary-token',
+        TEMP_AUTH_TOKEN_EXPIRY_KEY: 999,
+    }
+
+    class Storage:
+        user = session
+        browser = {}
+
+    monkeypatch.setattr('src.ui.auth.app.storage', Storage())
+    monkeypatch.setattr('src.ui.auth.time.time', lambda: 1000)
+
+    with caplog.at_level(logging.WARNING, logger='src.ui.auth'):
+        assert await complete_login_callback('temporary-token', '/settings') is None
+
+    assert TEMP_AUTH_TOKEN_KEY not in session
+    assert TEMP_AUTH_TOKEN_EXPIRY_KEY not in session
+    assert 'expired login callback token' in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_login_callback_replay_is_rejected_and_logged(monkeypatch, caplog):
+    session = {}
+
+    class Storage:
+        user = session
+        browser = {}
+
+    monkeypatch.setattr('src.ui.auth.app.storage', Storage())
+
+    with caplog.at_level(logging.WARNING, logger='src.ui.auth'):
+        assert await complete_login_callback('already-consumed-token', '/settings') is None
+
+    assert 'replayed or consumed login callback token' in caplog.text
 
 
 def test_main_app_redirects_unauthenticated_routes_to_login():
