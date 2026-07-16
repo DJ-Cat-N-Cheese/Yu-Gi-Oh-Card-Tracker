@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 
 from nicegui import app, run, ui
 
@@ -15,7 +16,12 @@ def session_is_authenticated() -> bool:
 
 def _safe_next_path(next_path: str | None) -> str:
     """Return a local navigation target, falling back to the dashboard."""
-    if isinstance(next_path, str) and next_path.startswith('/') and not next_path.startswith('//'):
+    if (
+        isinstance(next_path, str)
+        and next_path.startswith('/')
+        and not next_path.startswith('//')
+        and '/\\' not in next_path
+    ):
         return next_path
     return '/'
 
@@ -34,6 +40,9 @@ def login_page(next_path: str | None = None) -> None:
             authenticated = await run.io_bound(auth_service.authenticate, username.value, password.value)
             if authenticated:
                 app.storage.user.clear()
+                session_id = str(uuid.uuid4())
+                app.storage.browser['id'] = session_id
+                await app.storage._create_user_storage(session_id)  # pylint: disable=protected-access
                 app.storage.user[AUTH_SESSION_KEY] = True
                 app.storage.user[AUTH_REVISION_KEY] = auth_service.revision()
                 ui.navigate.to(destination)

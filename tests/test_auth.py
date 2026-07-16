@@ -119,6 +119,7 @@ def test_login_nicegui_assets_and_well_known_uris_are_public():
     assert is_public_path('/login')
     assert is_public_path('/_nicegui/3.13.0/static/nicegui.js')
     assert is_public_path('/.well-known/appspecific/com.chrome.devtools.json')
+    assert not is_public_path('/.well-known-attacker/anything')
     assert not is_public_path('/')
     assert not is_public_path('/settings')
     assert not is_public_path('/api/v1/collections')
@@ -133,6 +134,8 @@ def test_login_nicegui_assets_and_well_known_uris_are_public():
         ('/collection?page=2', '/collection?page=2'),
         ('https://example.com', '/'),
         ('//example.com', '/'),
+        ('/\\example.com', '/'),
+        ('/settings/\\example.com', '/'),
         (None, '/'),
     ],
 )
