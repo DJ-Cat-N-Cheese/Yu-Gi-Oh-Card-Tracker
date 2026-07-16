@@ -20,7 +20,7 @@ from src.ui.bulk_add import bulk_add_page
 from src.ui.scan import scan_page
 from src.ui.db_editor import db_editor_page
 from src.ui.storage import storage_page
-from src.ui.auth import login_page
+from src.ui.auth import complete_login_callback, login_page
 from src.ui.settings import settings_page
 from src.api.routes import router as api_router
 from src.services.auth_middleware import AuthenticationMiddleware
@@ -32,6 +32,14 @@ app.add_middleware(AuthenticationMiddleware)
 @ui.page('/login')
 def login(request: Request):
     login_page(request.query_params.get('next'))
+
+
+@ui.page('/login/callback')
+async def login_callback(request: Request):
+    destination = await complete_login_callback(
+        request.query_params.get('token'), request.query_params.get('next')
+    )
+    ui.navigate.to(destination or '/login')
 
 @ui.page('/')
 def home():
