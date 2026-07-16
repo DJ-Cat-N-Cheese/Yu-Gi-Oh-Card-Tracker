@@ -60,6 +60,7 @@ class PersistenceManager:
 
     def load_collection(self, filename: str) -> Collection:
         """Loads a collection from a JSON or YAML file."""
+        filename = sanitize_collection_filename(filename)
         logger.info(f"Loading collection: {filename}")
         filepath = os.path.join(self.data_dir, filename)
         if not os.path.exists(filepath):

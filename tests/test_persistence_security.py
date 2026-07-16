@@ -77,3 +77,16 @@ def test_save_collection_rejects_path_traversal(tmp_path):
         manager.save_collection(Collection(name='Escaped'), '../escaped.json')
 
     assert not (tmp_path / 'escaped.json').exists()
+
+
+def test_load_collection_rejects_path_traversal(tmp_path):
+    collections_dir = tmp_path / 'collections'
+    manager = PersistenceManager(
+        data_dir=str(collections_dir),
+        decks_dir=str(tmp_path / 'decks'),
+    )
+    manager.save_collection(Collection(name='Outside'), 'outside.json')
+    (collections_dir / 'outside.json').replace(tmp_path / 'outside.json')
+
+    with pytest.raises(ValueError, match='path separators'):
+        manager.load_collection('../outside.json')
