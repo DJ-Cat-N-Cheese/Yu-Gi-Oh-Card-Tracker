@@ -281,6 +281,31 @@ class PersistenceManager:
         else:
             logger.warning(f"Deck file {filename} not found for deletion.")
 
+    def move_deck(self, filename: str, source_group: str, destination_group: str):
+        """Atomically move a deck between groups without overwriting another deck."""
+        filename = self._sanitize_deck_filename(filename)
+        source_group = self.normalize_deck_group(source_group)
+        destination_group = self.normalize_deck_group(destination_group)
+
+        if source_group == destination_group:
+            raise ValueError("Source and destination deck groups must be different")
+
+        source_path = os.path.join(self._get_group_dir(source_group), filename)
+        destination_path = os.path.join(self._get_group_dir(destination_group), filename)
+
+        if not os.path.exists(source_path):
+            raise FileNotFoundError(f"Deck file {filename} not found in group {source_group}")
+        if os.path.exists(destination_path):
+            raise FileExistsError(f"Deck file {filename} already exists in group {destination_group}")
+
+        logger.info(
+            "Moving deck %s from group %s to group %s",
+            filename,
+            source_group,
+            destination_group,
+        )
+        os.replace(source_path, destination_path)
+
     # --- UI State Persistence ---
 
     def load_ui_state(self) -> dict:

@@ -38,6 +38,24 @@ class TestDeckGroupPersistence(unittest.TestCase):
 
         self.assertFalse(os.path.exists(os.path.join(self.test_dir, "escaped.ydk")))
 
+    def test_move_deck_transfers_it_between_groups(self):
+        self.pm.save_deck(Deck(name="To Move", main=[42]), "To Move.ydk", "Source")
+
+        self.pm.move_deck("To Move.ydk", "Source", "Destination")
+
+        self.assertEqual(self.pm.list_decks("Source"), [])
+        self.assertEqual(self.pm.load_deck("To Move.ydk", "Destination").main, [42])
+
+    def test_move_deck_does_not_overwrite_destination(self):
+        self.pm.save_deck(Deck(name="Source", main=[1]), "Shared.ydk", "Source")
+        self.pm.save_deck(Deck(name="Destination", main=[2]), "Shared.ydk", "Destination")
+
+        with self.assertRaises(FileExistsError):
+            self.pm.move_deck("Shared.ydk", "Source", "Destination")
+
+        self.assertEqual(self.pm.load_deck("Shared.ydk", "Source").main, [1])
+        self.assertEqual(self.pm.load_deck("Shared.ydk", "Destination").main, [2])
+
 
 if __name__ == "__main__":
     unittest.main()

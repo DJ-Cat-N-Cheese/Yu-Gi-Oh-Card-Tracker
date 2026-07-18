@@ -621,6 +621,71 @@ class DeckBuilderPage:
         existing_lower = {f.lower() for f in self.state['available_decks']}
         return filename.lower() in existing_lower
 
+    def open_move_deck_dialog(self):
+        """Open a picker for transferring the selected deck to another deck group."""
+        if not self.state['current_deck'] or not self.state['current_deck_name']:
+            ui.notify("No deck selected.", type='warning')
+            return
+
+        source_group = self.state['current_deck_group']
+        destination_groups = [
+            group for group in self.state['available_deck_groups']
+            if group != source_group
+        ]
+        if not destination_groups:
+            ui.notify("Create another deck group before moving this deck.", type='warning')
+            return
+
+        with ui.dialog() as d, ui.card().classes('w-[420px] max-w-full'):
+            ui.label(f"Move '{self.state['current_deck_name']}'").classes('text-h6')
+            ui.label(f"From deck group: {source_group}").classes('text-sm text-grey')
+            destination_input = ui.select(
+                {group: group for group in destination_groups},
+                value=destination_groups[0],
+                label='Destination Deck Group',
+            ).classes('w-full')
+
+            async def move():
+                destination_group = destination_input.value
+                if not destination_group:
+                    ui.notify("Choose a destination deck group.", type='warning')
+                    return
+
+                filename = f"{self.state['current_deck_name']}.ydk"
+                try:
+                    await run.io_bound(
+                        persistence.move_deck,
+                        filename,
+                        source_group,
+                        destination_group,
+                    )
+                    self.state['current_deck_group'] = destination_group
+                    self.state['available_deck_groups'] = await run.io_bound(persistence.list_deck_groups)
+                    self.state['available_decks'] = await run.io_bound(
+                        persistence.list_decks,
+                        destination_group,
+                    )
+                    persistence.save_ui_state({
+                        'deck_builder_last_deck_group': destination_group,
+                        'deck_builder_last_deck': self.state['current_deck_name'],
+                    })
+                    await self.load_deck(filename)
+                    d.close()
+                    ui.notify(f"Moved deck to {destination_group}.", type='positive')
+                except FileExistsError:
+                    ui.notify(
+                        f"A deck named '{self.state['current_deck_name']}' already exists in {destination_group}.",
+                        type='negative',
+                    )
+                except Exception as e:
+                    logger.error("Error moving deck: %s", e, exc_info=True)
+                    ui.notify(f"Error moving deck: {e}", type='negative')
+
+            with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                ui.button('Cancel', on_click=d.close).props('flat')
+                ui.button('Move', on_click=move).props('color=primary')
+        d.open()
+
     async def create_new_deck(self, name):
         if not name: return
         if self._is_duplicate_deck(name):
@@ -1061,24 +1126,44 @@ class DeckBuilderPage:
                 with ui.dialog() as d, ui.card():
                     ui.label('Save Deck As').classes('text-h6')
                     name_input = ui.input('New Name', value=self.state['current_deck_name'])
+                    group_input = ui.select(
+                        {group: group for group in self.state['available_deck_groups']},
+                        value=self.state['current_deck_group'],
+                        label='Deck Group',
+                    ).classes('w-full')
                     async def save():
                         name = name_input.value
                         if not name: return
 
-                        if self._is_duplicate_deck(name):
+                        group = group_input.value
+                        if not group:
+                            ui.notify("Choose a deck group.", type='warning')
+                            return
+
+                        if group == self.state['current_deck_group']:
+                            duplicate = self._is_duplicate_deck(name)
+                        else:
+                            destination_decks = await run.io_bound(persistence.list_decks, group)
+                            duplicate = f"{name}.ydk".lower() in {
+                                deck.lower() for deck in destination_decks
+                            }
+                        if duplicate:
                              ui.notify(f"Deck '{name}' already exists!", type='negative')
                              return
 
                         try:
                             filename = f"{name}.ydk"
-                            group = self.state['current_deck_group']
                             # Save current deck content to new file
                             await run.io_bound(persistence.save_deck, self.state['current_deck'], filename, group)
 
                             # Switch to new deck
+                            self.state['current_deck_group'] = group
                             self.state['current_deck_name'] = name
-                            self.state['available_decks'] = persistence.list_decks(group)
-                            persistence.save_ui_state({'deck_builder_last_deck': name})
+                            self.state['available_decks'] = await run.io_bound(persistence.list_decks, group)
+                            persistence.save_ui_state({
+                                'deck_builder_last_deck_group': group,
+                                'deck_builder_last_deck': name,
+                            })
 
                             self.render_header.refresh()
                             d.close()
@@ -1091,6 +1176,8 @@ class DeckBuilderPage:
                 d.open()
 
             ui.button(icon='save_as', on_click=save_deck_as).props('flat round color=white').tooltip('Save Deck As')
+
+            ui.button(icon='drive_file_move', on_click=self.open_move_deck_dialog).props('flat round color=white').tooltip('Move Deck to Another Group')
 
             ui.button(icon='delete', on_click=self.delete_current_deck).props('flat round color=red-400').tooltip('Delete Deck')
 
