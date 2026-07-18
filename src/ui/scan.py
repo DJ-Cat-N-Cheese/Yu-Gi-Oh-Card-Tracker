@@ -527,7 +527,7 @@ class ScanPage:
 
         try:
             # We need to load the collection to get storage definitions
-            col = persistence.load_collection(self.target_collection_file)
+            col = await run.io_bound(persistence.load_collection, self.target_collection_file)
             opts = {None: 'None'}
             for s in col.storage_definitions:
                 opts[s.name] = s.name
@@ -1077,11 +1077,11 @@ class ScanPage:
         last_change = changelog_manager.undo_last_change(self.target_collection_file)
 
         try:
-            target_collection = persistence.load_collection(self.target_collection_file)
+            target_collection = await run.io_bound(persistence.load_collection, self.target_collection_file)
 
             # Revert on Target (Remove cards)
             UndoService.apply_inverse(target_collection, last_change)
-            persistence.save_collection(target_collection, self.target_collection_file)
+            await run.io_bound(persistence.save_collection, target_collection, self.target_collection_file)
 
             # Add cards back to Recent Scans
             changes = last_change.get('changes', [])
@@ -1605,7 +1605,7 @@ class ScanPage:
             return
 
         try:
-            target_collection = persistence.load_collection(self.target_collection_file)
+            target_collection = await run.io_bound(persistence.load_collection, self.target_collection_file)
 
             # Prepare batch changes for logging
             batch_changes = []
@@ -1664,7 +1664,7 @@ class ScanPage:
                 batch_changes
             )
 
-            persistence.save_collection(target_collection, self.target_collection_file)
+            await run.io_bound(persistence.save_collection, target_collection, self.target_collection_file)
 
             ui.notify(f"Added {count} cards to {target_collection.name}", type='positive')
 
