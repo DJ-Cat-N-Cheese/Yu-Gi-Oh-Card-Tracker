@@ -46,20 +46,9 @@ class ChangelogManager:
 
     def _write_entry(self, collection_name: str, entry_data: Dict[str, Any]):
         filepath = self._get_filepath(collection_name)
-        timestamp = time.time()
-
-        # Calculate ID based on existing lines
-        current_id = 0
-        if os.path.exists(filepath):
-            try:
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    current_id = sum(1 for _ in f)
-            except Exception:
-                pass
-
-        new_id = current_id + 1
-        entry_data['id'] = new_id
-        entry_data['timestamp'] = timestamp
+        timestamp_ns = time.time_ns()
+        entry_data['id'] = timestamp_ns
+        entry_data['timestamp'] = timestamp_ns / 1_000_000_000
 
         try:
             with open(filepath, 'a', encoding='utf-8') as f:
