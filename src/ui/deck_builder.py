@@ -505,30 +505,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
-            # Setup Filters Metadata
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            for i, c in enumerate(api_cards):
-                if i % 1000 == 0:
-                    await asyncio.sleep(0) # Yield control back to the event loop occasionally
-                if c.card_sets:
-                    for s in c.card_sets:
-                        parts = s.set_code.split('-')
-                        prefix = parts[0] if len(parts) > 0 else s.set_code
-                        sets.add(f"{s.set_name} | {prefix}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.state['available_sets'] = sorted([s for s in sets if s])
-            self.state['available_monster_races'] = sorted([r for r in m_races if r])
-            self.state['available_st_races'] = sorted([r for r in st_races if r])
-            self.state['available_archetypes'] = sorted([a for a in archetypes if a])
-            self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
+            self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Load Decks List
             self.state['available_deck_groups'] = persistence.list_deck_groups()
@@ -765,148 +742,146 @@ class DeckBuilderPage:
 
     async def apply_filters(self):
         source = self.state['all_api_cards']
-        res = list(source)
-
-        # Helpers for sorting/filtering
         ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            owned_map = {c.card_id: c for c in ref_col.cards}
+        owned_map = {card.card_id: card for card in ref_col.cards} if ref_col else {}
+        state = self.state
+        text = state['search_text'].lower()
+        card_types = state['filter_card_type']
+        if isinstance(card_types, str):
+            card_types = [card_types]
+        set_target = state['filter_set'].split('|')[0].strip().lower()
+        rarity_target = state['filter_rarity'].lower()
+        categories = state['filter_monster_category']
+        level = int(state['filter_level']) if state['filter_level'] is not None else None
+        atk_min, atk_max = state['filter_atk_min'], state['filter_atk_max']
+        def_min, def_max = state['filter_def_min'], state['filter_def_max']
+        own_min, own_max = state['filter_ownership_min'], state['filter_ownership_max']
+        price_min, price_max = state['filter_price_min'], state['filter_price_max']
+        conditions = set(state['filter_condition']) if ref_col else set()
+        owned_language = state['filter_owned_lang'] if ref_col else ''
+        atk_active = atk_min > 0 or atk_max < 5000
+        def_active = def_min > 0 or def_max < 5000
+        ownership_active = own_min > 0 or own_max < 100
+        price_active = price_min > 0 or price_max < 1000
+        result = []
 
-        def get_qty(c):
-             if not ref_col: return 0
-             found = owned_map.get(c.id)
-             return found.total_quantity if found else 0
+        for card in source:
+            # Search first because it normally eliminates nearly all cards.
+            if text and not (
+                text in card.name.lower()
+                or text in card.type.lower()
+                or text in card.desc.lower()
+                or any(text in card_set.set_code.lower() for card_set in card.card_sets)
+            ):
+                continue
+            if card_types and not any(card_type in card.type for card_type in card_types):
+                continue
+            if state['filter_attr'] and card.attribute != state['filter_attr']:
+                continue
+            if state['filter_monster_race'] and (
+                "Monster" not in card.type or card.race != state['filter_monster_race']
+            ):
+                continue
+            if state['filter_st_race'] and (
+                ("Spell" not in card.type and "Trap" not in card.type)
+                or card.race != state['filter_st_race']
+            ):
+                continue
+            if state['filter_archetype'] and card.archetype != state['filter_archetype']:
+                continue
+            if set_target and not any(
+                set_target in (card_set.set_name or '').lower()
+                or set_target in (card_set.set_code or '').lower()
+                for card_set in card.card_sets
+            ):
+                continue
+            if rarity_target and not any(
+                rarity_target == (card_set.set_rarity or '').lower()
+                for card_set in card.card_sets
+            ):
+                continue
+            if categories and not any(card.matches_category(category) for category in categories):
+                continue
+            if level is not None and card.level != level:
+                continue
+            if atk_active and (card.atk is None or not atk_min <= int(card.atk) <= atk_max):
+                continue
+            if def_active and (card.def_ is None or not def_min <= int(card.def_) <= def_max):
+                continue
 
-        def get_price(c):
-             if not c.card_prices: return 0.0
-             try:
-                 return float(c.card_prices[0].tcgplayer_price or 0)
-             except: return 0.0
+            owned_card = owned_map.get(card.id)
+            owned_quantity = owned_card.total_quantity if owned_card else 0
+            if state['only_owned'] and ref_col and not owned_card:
+                continue
+            if ownership_active and not own_min <= owned_quantity <= own_max:
+                continue
 
-        await asyncio.sleep(0) # Yield before heavy list comprehensions
+            if conditions or owned_language:
+                condition_match = not conditions
+                language_match = not owned_language
+                if owned_card:
+                    for variant in owned_card.variants:
+                        for entry in variant.entries:
+                            if entry.quantity <= 0:
+                                continue
+                            if conditions and entry.condition in conditions:
+                                condition_match = True
+                            if owned_language and entry.language == owned_language:
+                                language_match = True
+                            if condition_match and language_match:
+                                break
+                        if condition_match and language_match:
+                            break
+                if not condition_match or not language_match:
+                    continue
 
-        txt = self.state['search_text'].lower()
-        if txt:
-             def matches(c):
-                 if txt in c.name.lower() or txt in c.type.lower() or txt in c.desc.lower():
-                     return True
-                 if c.card_sets:
-                     for s in c.card_sets:
-                         if txt in s.set_code.lower():
-                             return True
-                 return False
-             res = [c for c in res if matches(c)]
+            if price_active:
+                try:
+                    price = float(card.card_prices[0].tcgplayer_price or 0) if card.card_prices else 0.0
+                except (TypeError, ValueError):
+                    price = 0.0
+                if not price_min <= price <= price_max:
+                    continue
 
-        if self.state['filter_card_type']:
-             ctypes = self.state['filter_card_type']
-             if isinstance(ctypes, str): ctypes = [ctypes]
-             res = [c for c in res if any(t in c.type for t in ctypes)]
+            result.append(card)
 
-        if self.state['filter_attr']:
-             res = [c for c in res if c.attribute == self.state['filter_attr']]
+        def get_quantity(card):
+            owned_card = owned_map.get(card.id)
+            return owned_card.total_quantity if owned_card else 0
 
-        if self.state['filter_monster_race']:
-             res = [c for c in res if "Monster" in c.type and c.race == self.state['filter_monster_race']]
-        if self.state['filter_st_race']:
-             res = [c for c in res if ("Spell" in c.type or "Trap" in c.type) and c.race == self.state['filter_st_race']]
-        if self.state['filter_archetype']:
-             res = [c for c in res if c.archetype == self.state['filter_archetype']]
+        def get_price(card):
+            if not card.card_prices:
+                return 0.0
+            try:
+                return float(card.card_prices[0].tcgplayer_price or 0)
+            except (TypeError, ValueError):
+                return 0.0
 
-        if self.state['filter_set']:
-             # Format: "Set Name | Code"
-             target = self.state['filter_set'].split('|')[0].strip().lower()
-             res = [c for c in res if any(target in (s.set_name or '').lower() or target in (s.set_code or '').lower() for s in c.card_sets)]
-
-        if self.state['filter_rarity']:
-             target = self.state['filter_rarity'].lower()
-             res = [c for c in res if any(target == (s.set_rarity or '').lower() for s in c.card_sets)]
-
-        if self.state['filter_monster_category']:
-             # Check if card matches ANY of the selected categories
-             cats = self.state['filter_monster_category']
-             res = [c for c in res if any(c.matches_category(cat) for cat in cats)]
-
-        if self.state['filter_level'] is not None:
-             res = [c for c in res if c.level == int(self.state['filter_level'])]
-
-        atk_min, atk_max = self.state['filter_atk_min'], self.state['filter_atk_max']
-        if atk_min > 0 or atk_max < 5000:
-             res = [c for c in res if c.atk is not None and atk_min <= int(c.atk) <= atk_max]
-
-        def_min, def_max = self.state['filter_def_min'], self.state['filter_def_max']
-        if def_min > 0 or def_max < 5000:
-             res = [c for c in res if c.def_ is not None and def_min <= int(c.def_) <= def_max]
-
-        # Ownership Filters - (Helper map already created at top)
-
-        # Quantity Range
-        own_min, own_max = self.state['filter_ownership_min'], self.state['filter_ownership_max']
-        if own_min > 0 or own_max < 100:
-             res = [c for c in res if own_min <= get_qty(c) <= own_max]
-
-        # Condition
-        if self.state['filter_condition'] and ref_col:
-             conds = set(self.state['filter_condition'])
-             def has_condition(c):
-                 found = owned_map.get(c.id)
-                 if not found: return False
-                 for v in found.variants:
-                     for e in v.entries:
-                         if e.condition in conds and e.quantity > 0:
-                             return True
-                 return False
-             res = [c for c in res if has_condition(c)]
-
-        # Owned Language
-        if self.state['filter_owned_lang'] and ref_col:
-             lang = self.state['filter_owned_lang']
-             def has_lang(c):
-                 found = owned_map.get(c.id)
-                 if not found: return False
-                 for v in found.variants:
-                     for e in v.entries:
-                         if e.language == lang and e.quantity > 0:
-                             return True
-                 return False
-             res = [c for c in res if has_lang(c)]
-
-        # Price Range
-        p_min, p_max = self.state['filter_price_min'], self.state['filter_price_max']
-        if p_min > 0 or p_max < 1000:
-             res = [c for c in res if p_min <= get_price(c) <= p_max]
-
-        await asyncio.sleep(0) # Yield before final sorting
-
-        key = self.state['sort_by']
-        reverse = self.state['sort_descending']
+        key = state['sort_by']
+        reverse = state['sort_descending']
 
         if key == 'Name':
-            res.sort(key=lambda x: x.name, reverse=reverse)
+            result.sort(key=lambda card: card.name, reverse=reverse)
         elif key == 'ATK':
-            res.sort(key=lambda x: (x.atk or -1), reverse=reverse)
+            result.sort(key=lambda card: card.atk or -1, reverse=reverse)
         elif key == 'DEF':
-            res.sort(key=lambda x: (getattr(x, 'def_', None) or -1), reverse=reverse)
+            result.sort(key=lambda card: card.def_ or -1, reverse=reverse)
         elif key == 'Level':
-            res.sort(key=lambda x: (x.level or -1), reverse=reverse)
+            result.sort(key=lambda card: card.level or -1, reverse=reverse)
         elif key == 'Newest':
-            res.sort(key=lambda x: x.id, reverse=reverse)
+            result.sort(key=lambda card: card.id, reverse=reverse)
         elif key == 'Price':
-             res.sort(key=lambda x: get_price(x), reverse=reverse)
+            result.sort(key=get_price, reverse=reverse)
         elif key == 'Quantity':
-             res.sort(key=lambda x: get_qty(x), reverse=reverse)
+            result.sort(key=get_quantity, reverse=reverse)
         elif key == 'Set Code':
-             def get_set_code(x):
-                 if x.card_sets: return x.card_sets[0].set_code
-                 return ""
-             res.sort(key=get_set_code, reverse=reverse)
+            result.sort(
+                key=lambda card: card.card_sets[0].set_code if card.card_sets else "",
+                reverse=reverse,
+            )
 
-        if self.state['only_owned'] and self.state['reference_collection']:
-             owned_ids = set(c.card_id for c in self.state['reference_collection'].cards)
-             res = [c for c in res if c.id in owned_ids]
-
-        self.state['filtered_items'] = res
-        self.state['page'] = 1
+        state['filtered_items'] = result
+        state['page'] = 1
         self.update_pagination()
         await self.prepare_current_page_images()
         self.refresh_search_results()

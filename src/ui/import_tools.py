@@ -1,4 +1,4 @@
-from nicegui import ui, events
+from nicegui import ui, events, run
 import json
 import logging
 import asyncio
@@ -95,7 +95,7 @@ class UnifiedImportController:
              return
 
         new_collection = Collection(name=clean_name)
-        persistence.save_collection(new_collection, filename)
+        await run.io_bound(persistence.save_collection, new_collection, filename)
 
         self.refresh_collections()
         self.selected_collection = filename
@@ -176,7 +176,7 @@ class UnifiedImportController:
             ui.notify(f"Invalid JSON: {ex}", type='negative')
             return
 
-        target_collection = persistence.load_collection(self.selected_collection)
+        target_collection = await run.io_bound(persistence.load_collection, self.selected_collection)
         target_storages = {s.name for s in target_collection.storage_definitions}
 
         import_storages = set()
@@ -790,7 +790,7 @@ class UnifiedImportController:
             return
 
         try:
-            collection = persistence.load_collection(self.selected_collection)
+            collection = await run.io_bound(persistence.load_collection, self.selected_collection)
         except Exception as e:
             ui.notify(f"Error loading collection: {e}", type='negative')
             return
@@ -867,7 +867,7 @@ class UnifiedImportController:
         if changes > 0 or (changes == 0 and self.import_mode == 'ADD'):
             # Note: 0 changes might happen if subtract removes non-existent cards, but we still save/notify
             try:
-                persistence.save_collection(collection, self.selected_collection)
+                await run.io_bound(persistence.save_collection, collection, self.selected_collection)
             except ValueError as e:
                 logger.error(f"Import save rejected for {self.selected_collection!r}: {e}")
                 ui.notify(f"Could not save collection: {e}", type='negative')
@@ -911,7 +911,7 @@ class UnifiedImportController:
         else:
             ui.notify("No changes were necessary (e.g. subtracting from empty).", type='info')
 
-    def undo_last(self):
+    async def undo_last(self):
         if not self.undo_stack: return
 
         state = self.undo_stack.pop()
@@ -920,7 +920,7 @@ class UnifiedImportController:
 
         try:
             collection = Collection(**data)
-            persistence.save_collection(collection, filename)
+            await run.io_bound(persistence.save_collection, collection, filename)
             ui.notify(f"Undid last import for {filename}", type='positive')
 
             if not self.undo_stack and self.undo_btn:
@@ -1350,8 +1350,10 @@ class MergeController:
 
         ui.notify("Merging...", type='info')
         try:
-            coll_a_obj = persistence.load_collection(self.coll_a)
-            coll_b_obj = persistence.load_collection(self.coll_b)
+            coll_a_obj, coll_b_obj = await asyncio.gather(
+                run.io_bound(persistence.load_collection, self.coll_a),
+                run.io_bound(persistence.load_collection, self.coll_b),
+            )
             new_collection = Collection(name=clean_name)
 
             await ygo_service.load_card_database()
@@ -1378,7 +1380,7 @@ class MergeController:
             await merge_into(coll_a_obj)
             await merge_into(coll_b_obj)
 
-            persistence.save_collection(new_collection, new_filename)
+            await run.io_bound(persistence.save_collection, new_collection, new_filename)
             ui.notify(f"Created '{self.new_name}'", type='positive')
             self.refresh_collections()
             self.new_name = ""

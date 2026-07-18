@@ -447,30 +447,7 @@ class CollectionPage:
             ui.notify(f"Error loading database: {e}", type='negative')
             return
 
-        sets = set()
-        m_races = set()
-        st_races = set()
-        archetypes = set()
-
-        for c in api_cards:
-            if c.card_sets:
-                for s in c.card_sets:
-                    parts = s.set_code.split('-')
-                    prefix = parts[0] if len(parts) > 0 else s.set_code
-                    sets.add(f"{s.set_name} | {prefix}")
-
-            if c.archetype:
-                archetypes.add(c.archetype)
-
-            if "Monster" in c.type:
-                m_races.add(c.race)
-            elif "Spell" in c.type or "Trap" in c.type:
-                if c.race: st_races.add(c.race)
-
-        self.state['available_sets'] = sorted([s for s in sets if s])
-        self.state['available_monster_races'] = sorted([r for r in m_races if r])
-        self.state['available_st_races'] = sorted([r for r in st_races if r])
-        self.state['available_archetypes'] = sorted([a for a in archetypes if a])
+        self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
         collection = None
         if self.state['selected_file']:

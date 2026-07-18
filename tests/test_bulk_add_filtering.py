@@ -33,6 +33,7 @@ bulk_add_module = import_with_module_mocks(
 )
 BulkAddPage = bulk_add_module.BulkAddPage
 BulkCollectionEntry = bulk_add_module.BulkCollectionEntry
+LibraryEntry = bulk_add_module.LibraryEntry
 
 class TestBulkAddFiltering(unittest.TestCase):
     def setUp(self):
@@ -54,6 +55,8 @@ class TestBulkAddFiltering(unittest.TestCase):
         # Mock render methods
         self.page.render_collection_content = MagicMock()
         self.page.render_collection_content.refresh = MagicMock()
+        self.page.render_library_content = MagicMock()
+        self.page.render_library_content.refresh = MagicMock()
         self.page.collection_filter_pane = MagicMock()
 
     def test_filter_set_by_name(self):
@@ -132,6 +135,39 @@ class TestBulkAddFiltering(unittest.TestCase):
             entries = self.page.col_state['collection_cards']
             entry = entries[0]
             self.assertEqual(entry.set_name, "Unknown Set")
+
+    def test_library_entries_are_created_only_for_current_page(self):
+        cards = []
+        for card_id in range(120):
+            card = ApiCard(
+                id=card_id,
+                name=f"Card {card_id:03d}",
+                type="Monster",
+                frameType="normal",
+                desc="desc",
+                card_sets=[
+                    ApiCardSet(
+                        set_name="Test Set",
+                        set_code=f"TST-EN{card_id:03d}",
+                        set_rarity="Common",
+                    )
+                ],
+            )
+            cards.append(card)
+
+        self.page.state['library_cards'] = cards
+        self.page.state['library_page_size'] = 10
+
+        asyncio.run(self.page.apply_library_filters())
+
+        self.assertEqual(self.page.state['library_filtered_count'], 120)
+        self.assertEqual(len(self.page.state['library_filtered']), 10)
+        self.assertTrue(all(isinstance(entry, LibraryEntry) for entry in self.page.state['library_filtered']))
+        self.assertTrue(all(isinstance(card, ApiCard) for card in self.page.state['library_cards']))
+
+        self.page.state['library_page'] = 2
+        self.page._refresh_library_page_entries()
+        self.assertEqual(self.page.state['library_filtered'][0].api_card.name, "Card 010")
 
 if __name__ == '__main__':
     unittest.main()

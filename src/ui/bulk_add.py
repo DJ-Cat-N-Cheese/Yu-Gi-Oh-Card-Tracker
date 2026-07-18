@@ -10,11 +10,10 @@ from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.ui.components.structure_deck_dialog import StructureDeckDialog
-from src.core.models import Collection
-from dataclasses import dataclass, field
-from typing import List, Optional, Any, Dict
+from src.core.models import ApiCardSet, Collection
+from dataclasses import dataclass
+from typing import Iterable, Iterator, List, Optional, Any, Dict, Tuple
 import logging
-import uuid
 import asyncio
 import re
 
@@ -161,8 +160,9 @@ class BulkAddPage:
             'available_collections': [],
 
             # Library State
-            'library_cards': [], # List[LibraryEntry]
+            'library_cards': [], # List[ApiCard]
             'library_filtered': [],
+            'library_filtered_count': 0,
             'library_page': 1,
             'library_page_size': page_size,
             'library_total_pages': 1,
@@ -229,7 +229,9 @@ class BulkAddPage:
         self.collection_filter_pane = None
         self.current_collection_obj = None
         self.api_card_map = {} # id -> ApiCard
-        self.set_code_map = {} # set_code (normalized or exact) -> ApiCard
+        self._library_filtered_cards: List[ApiCard] = []
+        self._library_variant_sort_refs: Optional[List[Tuple[ApiCard, Optional[ApiCardSet]]]] = None
+        self._library_filter_values: Dict[str, Any] = {}
 
         # Load available collections
         self.state['available_collections'] = persistence.list_collections()
@@ -637,13 +639,22 @@ class BulkAddPage:
 
         collection = self.current_collection_obj
 
+        requested_codes = {card_info['set_code'] for card_info in cards}
+        set_code_map = {}
+        for api_card in self.state['library_cards']:
+            for card_set in api_card.card_sets:
+                if card_set.set_code in requested_codes:
+                    set_code_map[card_set.set_code] = api_card
+            if len(set_code_map) == len(requested_codes):
+                break
+
         for card_info in cards:
             set_code = card_info['set_code']
             qty = card_info['quantity']
             rarity = card_info['rarity']
 
             # Find ApiCard
-            api_card = self.set_code_map.get(set_code)
+            api_card = set_code_map.get(set_code)
 
             # If not found by exact match, try normalized
             if not api_card:
@@ -1063,7 +1074,7 @@ class BulkAddPage:
         d.open()
 
     # Copying previous methods for completeness...
-    async def process_batch_add(self, entries: List[LibraryEntry]):
+    async def process_batch_add(self, entries: Iterable[LibraryEntry]):
         if not self.current_collection_obj or not self.state['selected_collection']:
             ui.notify("No collection selected", type='negative')
             return
@@ -1077,7 +1088,6 @@ class BulkAddPage:
         added_count = 0
         collection = self.current_collection_obj
 
-        # Pre-process to ensure variants exist
         variants_to_ensure = []
         for entry in entries:
             final_set_code = transform_set_code(entry.set_code, lang)
@@ -1085,26 +1095,30 @@ class BulkAddPage:
                 'card_id': entry.api_card.id,
                 'set_code': final_set_code,
                 'set_rarity': entry.rarity,
-                'image_id': entry.image_id
+                'image_id': entry.image_id,
+                '_api_card': entry.api_card,
             })
 
         if variants_to_ensure:
             await ygo_service.ensure_card_variants(variants_to_ensure, language=config_manager.get_language().lower())
 
-        for entry in entries:
-            final_set_code = transform_set_code(entry.set_code, lang)
-            variant_id = generate_variant_id(entry.api_card.id, final_set_code, entry.rarity, entry.image_id)
+        for item in variants_to_ensure:
+            api_card = item['_api_card']
+            final_set_code = item['set_code']
+            rarity = item['set_rarity']
+            image_id = item['image_id']
+            variant_id = generate_variant_id(api_card.id, final_set_code, rarity, image_id)
 
             CollectionEditor.apply_change(
                 collection=collection,
-                api_card=entry.api_card,
+                api_card=api_card,
                 set_code=final_set_code,
-                rarity=entry.rarity,
+                rarity=rarity,
                 language=lang,
                 quantity=1,
                 condition=cond,
                 first_edition=first,
-                image_id=entry.image_id,
+                image_id=image_id,
                 variant_id=variant_id,
                 mode='ADD',
                 storage_location=storage
@@ -1114,11 +1128,11 @@ class BulkAddPage:
                 'action': 'ADD',
                 'quantity': 1,
                 'card_data': {
-                    'card_id': entry.api_card.id,
-                    'name': entry.api_card.name,
+                    'card_id': api_card.id,
+                    'name': api_card.name,
                     'set_code': final_set_code,
-                    'rarity': entry.rarity,
-                    'image_id': entry.image_id,
+                    'rarity': rarity,
+                    'image_id': image_id,
                     'language': lang,
                     'condition': cond,
                     'first_edition': first,
@@ -1284,13 +1298,13 @@ class BulkAddPage:
         self.warning_dialog.open()
 
     async def on_add_all_click(self):
-        count = len(self.state['library_filtered'])
+        count = self.state['library_filtered_count']
         if count == 0:
             ui.notify("No cards to add.", type='warning')
             return
 
         async def execute():
-             await self.process_batch_add(self.state['library_filtered'])
+             await self.process_batch_add(self._iter_filtered_library_entries())
 
         with ui.dialog() as d, ui.card():
              ui.label("Confirm Bulk Add").classes('text-h6')
@@ -1363,101 +1377,144 @@ class BulkAddPage:
                          await image_manager.ensure_image(img_id, high_res_url, high_res=True)
                 tooltip.on('show', ensure_high)
 
+    def _iter_selected_card_sets(self, card: ApiCard) -> Iterator[Optional[ApiCardSet]]:
+        """Yield one preferred-language printing for each logical card variant."""
+        if not card.card_sets:
+            yield None
+            return
+
+        default_lang = self.state['default_language'].upper()
+        grouped_sets: Dict[Tuple[str, str, str, str], ApiCardSet] = {}
+        for card_set in card.card_sets:
+            prefix, category, number = get_grouping_key_parts(card_set.set_code)
+            key = (prefix, category, number, card_set.set_rarity)
+            selected = grouped_sets.get(key)
+            if selected is None or (
+                extract_language_code(selected.set_code) != default_lang
+                and extract_language_code(card_set.set_code) == default_lang
+            ):
+                grouped_sets[key] = card_set
+
+        yield from grouped_sets.values()
+
+    @staticmethod
+    def _variant_price(card_set: Optional[ApiCardSet]) -> float:
+        if not card_set or not card_set.set_price:
+            return 0.0
+        try:
+            return float(card_set.set_price)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _build_library_entry(self, card: ApiCard, card_set: Optional[ApiCardSet]) -> LibraryEntry:
+        if card_set is None:
+            image_id = card.card_images[0].id if card.card_images else card.id
+            image_url = card.card_images[0].image_url_small if card.card_images else None
+            return LibraryEntry(
+                id=str(card.id),
+                api_card=card,
+                set_code="N/A",
+                set_name="No Set Info",
+                rarity="Common",
+                image_url=image_url,
+                image_id=image_id,
+            )
+
+        image_id = card_set.image_id or (card.card_images[0].id if card.card_images else card.id)
+        image_url = card.card_images[0].image_url_small if card.card_images else None
+        if card_set.image_id and card.card_images:
+            for image in card.card_images:
+                if image.id == card_set.image_id:
+                    image_url = image.image_url_small
+                    break
+
+        return LibraryEntry(
+            id=f"{card.id}_{card_set.set_code}_{card_set.set_rarity}",
+            api_card=card,
+            set_code=card_set.set_code,
+            set_name=card_set.set_name,
+            rarity=card_set.set_rarity,
+            image_url=image_url,
+            image_id=image_id,
+            price=self._variant_price(card_set),
+        )
+
+    def _variant_matches_library_filters(self, card: ApiCard, card_set: Optional[ApiCardSet]) -> bool:
+        values = self._library_filter_values
+        set_code = card_set.set_code if card_set else "N/A"
+        set_name = card_set.set_name if card_set else "No Set Info"
+        rarity = card_set.set_rarity if card_set else "Common"
+
+        text = values['text']
+        if text and not (
+            text in card.name.lower()
+            or text in card.desc.lower()
+            or text in set_code.lower()
+            or text in set_name.lower()
+        ):
+            return False
+
+        code_target = values['set_code_target']
+        name_target = values['set_name_target']
+        if code_target:
+            if code_target not in set_code.lower():
+                return False
+        elif name_target and name_target not in set_name.lower() and name_target not in set_code.lower():
+            return False
+
+        if values['rarity'] and rarity.lower() != values['rarity']:
+            return False
+
+        if values['price_active']:
+            price = self._variant_price(card_set)
+            if not values['price_min'] <= price <= values['price_max']:
+                return False
+
+        return True
+
+    def _iter_variant_refs_for_cards(
+        self,
+        cards: Iterable[ApiCard],
+    ) -> Iterator[Tuple[ApiCard, Optional[ApiCardSet]]]:
+        for card in cards:
+            for card_set in self._iter_selected_card_sets(card):
+                if self._variant_matches_library_filters(card, card_set):
+                    yield card, card_set
+
+    def _iter_filtered_library_refs(self) -> Iterator[Tuple[ApiCard, Optional[ApiCardSet]]]:
+        if self._library_variant_sort_refs is not None:
+            yield from self._library_variant_sort_refs
+            return
+        yield from self._iter_variant_refs_for_cards(self._library_filtered_cards)
+
+    def _iter_filtered_library_entries(self) -> Iterator[LibraryEntry]:
+        for card, card_set in self._iter_filtered_library_refs():
+            yield self._build_library_entry(card, card_set)
+
+    def _refresh_library_page_entries(self) -> None:
+        start = (self.state['library_page'] - 1) * self.state['library_page_size']
+        end = start + self.state['library_page_size']
+        entries = []
+        for index, (card, card_set) in enumerate(self._iter_filtered_library_refs()):
+            if index < start:
+                continue
+            if index >= end:
+                break
+            entries.append(self._build_library_entry(card, card_set))
+        self.state['library_filtered'] = entries
+
     async def load_library_data(self):
         try:
             logger.info("Starting load_library_data")
             lang_code = config_manager.get_language().lower()
             api_cards = await ygo_service.load_card_database(lang_code)
-            self.api_card_map = {c.id: c for c in api_cards}
+            self.api_card_map = ygo_service.get_card_index(lang_code)
             logger.info(f"Loaded {len(api_cards)} cards into API map")
-
-            # Build Set Code Map
-            # Note: Set codes in DB might be "SDAZ-EN001" or "SDAZ-EN001"
-            self.set_code_map = {}
-            for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        self.set_code_map[s.set_code] = c
-
-            entries = []
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            default_lang = self.state['default_language'].upper()
-
-            for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-                if c.card_sets:
-                    # Group sets by (Prefix, Category, Number, Rarity)
-                    grouped_sets = {}
-                    for s in c.card_sets:
-                        prefix, cat, num = get_grouping_key_parts(s.set_code)
-                        key = (prefix, cat, num, s.set_rarity)
-                        if key not in grouped_sets:
-                            grouped_sets[key] = []
-                        grouped_sets[key].append(s)
-
-                    for key, variants in grouped_sets.items():
-                        # Pick the best variant
-                        selected = variants[0]
-                        # Try to find match for default language
-                        for v in variants:
-                             v_lang = extract_language_code(v.set_code)
-                             if v_lang == default_lang:
-                                 selected = v
-                                 break
-
-                        # Create entry
-                        price = 0.0
-                        if selected.set_price:
-                            try: price = float(selected.set_price)
-                            except: pass
-
-                        img_id = selected.image_id if selected.image_id else (c.card_images[0].id if c.card_images else c.id)
-                        img_url = c.card_images[0].image_url_small if c.card_images else None
-                        if selected.image_id and c.card_images:
-                            for img in c.card_images:
-                                if img.id == selected.image_id:
-                                    img_url = img.image_url_small
-                                    break
-
-                        entries.append(LibraryEntry(
-                            id=f"{c.id}_{selected.set_code}_{selected.set_rarity}",
-                            api_card=c,
-                            set_code=selected.set_code,
-                            set_name=selected.set_name,
-                            rarity=selected.set_rarity,
-                            image_url=img_url,
-                            image_id=img_id,
-                            price=price
-                        ))
-                else:
-                    img_id = c.card_images[0].id if c.card_images else c.id
-                    img_url = c.card_images[0].image_url_small if c.card_images else None
-                    entries.append(LibraryEntry(
-                        id=str(c.id),
-                        api_card=c,
-                        set_code="N/A",
-                        set_name="No Set Info",
-                        rarity="Common",
-                        image_url=img_url,
-                        image_id=img_id
-                    ))
-
-            self.state['library_cards'] = entries
-            self.metadata['available_sets'][:] = sorted([s for s in sets if s])
-            self.metadata['available_monster_races'][:] = sorted([r for r in m_races if r])
-            self.metadata['available_st_races'][:] = sorted([r for r in st_races if r])
-            self.metadata['available_archetypes'][:] = sorted([a for a in archetypes if a])
+            self.state['library_cards'] = api_cards
+            filter_metadata = await ygo_service.get_filter_metadata(lang_code)
+            for key in self.metadata:
+                if key in filter_metadata:
+                    self.metadata[key][:] = filter_metadata[key]
 
             for k, v in self.metadata.items():
                 self.state[k] = v
@@ -1485,66 +1542,109 @@ class BulkAddPage:
 
     async def apply_library_filters(self):
         source = self.state['library_cards']
-        res = list(source)
-        txt = self.state['library_search_text'].lower()
-        if txt:
-            def matches(e: LibraryEntry):
-                return (txt in e.api_card.name.lower() or
-                        txt in e.set_code.lower() or
-                        txt in e.set_name.lower() or
-                        txt in e.api_card.desc.lower())
-            res = [e for e in res if matches(e)]
-
         s = self.state
-        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
-        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
-        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        text = s['library_search_text'].lower()
+        set_name_target = ''
+        set_code_target = ''
         if s['filter_set']:
-             parts = s['filter_set'].split('|')
-             name_target = parts[0].strip().lower()
-             code_target = parts[1].strip().lower() if len(parts) > 1 else None
+            parts = s['filter_set'].split('|')
+            set_name_target = parts[0].strip().lower()
+            set_code_target = parts[1].strip().lower() if len(parts) > 1 else ''
 
-             if code_target:
-                 res = [e for e in res if code_target in e.set_code.lower()]
-             else:
-                 res = [e for e in res if name_target in e.set_name.lower() or name_target in e.set_code.lower()]
-        if s['filter_rarity']:
-             target = s['filter_rarity'].lower()
-             res = [e for e in res if e.rarity.lower() == target]
-        if s['filter_monster_category']:
-             cats = s['filter_monster_category']
-             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
-        if s['filter_level'] is not None:
-             res = [e for e in res if e.api_card.level == int(s['filter_level'])]
         atk_min, atk_max = s['filter_atk_min'], s['filter_atk_max']
-        if atk_min > 0 or atk_max < 5000:
-             res = [e for e in res if e.api_card.atk is not None and atk_min <= int(e.api_card.atk) <= atk_max]
         def_min, def_max = s['filter_def_min'], s['filter_def_max']
-        if def_min > 0 or def_max < 5000:
-             res = [e for e in res if e.api_card.def_ is not None and def_min <= int(e.api_card.def_) <= def_max]
-        p_min, p_max = s['filter_price_min'], s['filter_price_max']
-        if p_min > 0 or p_max < 1000:
-             res = [e for e in res if p_min <= e.price <= p_max]
+        price_min, price_max = s['filter_price_min'], s['filter_price_max']
+        self._library_filter_values = {
+            'text': text,
+            'set_name_target': set_name_target,
+            'set_code_target': set_code_target,
+            'rarity': s['filter_rarity'].lower(),
+            'price_active': price_min > 0 or price_max < 1000,
+            'price_min': price_min,
+            'price_max': price_max,
+        }
+
+        card_types = s['filter_card_type']
+        categories = s['filter_monster_category']
+        level = int(s['filter_level']) if s['filter_level'] is not None else None
+        atk_active = atk_min > 0 or atk_max < 5000
+        def_active = def_min > 0 or def_max < 5000
+        filtered_cards = []
+
+        for card in source:
+            # Search first: it is normally the most selective condition.
+            if text and not (
+                text in card.name.lower()
+                or text in card.desc.lower()
+                or any(
+                    text in card_set.set_code.lower() or text in card_set.set_name.lower()
+                    for card_set in card.card_sets
+                )
+            ):
+                continue
+            if card_types and not any(card_type in card.type for card_type in card_types):
+                continue
+            if s['filter_attr'] and card.attribute != s['filter_attr']:
+                continue
+            if s['filter_monster_race'] and (
+                "Monster" not in card.type or card.race != s['filter_monster_race']
+            ):
+                continue
+            if s['filter_st_race'] and (
+                ("Spell" not in card.type and "Trap" not in card.type)
+                or card.race != s['filter_st_race']
+            ):
+                continue
+            if s['filter_archetype'] and card.archetype != s['filter_archetype']:
+                continue
+            if categories and not any(card.matches_category(category) for category in categories):
+                continue
+            if level is not None and card.level != level:
+                continue
+            if atk_active and (
+                card.atk is None or not atk_min <= int(card.atk) <= atk_max
+            ):
+                continue
+            if def_active and (
+                card.def_ is None or not def_min <= int(card.def_) <= def_max
+            ):
+                continue
+            filtered_cards.append(card)
 
         key = s['library_sort_by']
         reverse = s['library_sort_desc']
-        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
-        elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
-        elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
-        elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
-        elif key == 'Price': res.sort(key=lambda x: x.price, reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
-        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
+        self._library_variant_sort_refs = None
+        if key == 'Name':
+            filtered_cards.sort(key=lambda card: card.name, reverse=reverse)
+        elif key == 'ATK':
+            filtered_cards.sort(key=lambda card: card.atk or -1, reverse=reverse)
+        elif key == 'DEF':
+            filtered_cards.sort(key=lambda card: card.def_ or -1, reverse=reverse)
+        elif key == 'Level':
+            filtered_cards.sort(key=lambda card: card.level or -1, reverse=reverse)
+        elif key == 'Newest':
+            filtered_cards.sort(key=lambda card: card.id, reverse=reverse)
 
-        self.state['library_filtered'] = res
+        self._library_filtered_cards = filtered_cards
+        if key in {'Price', 'Set Code'}:
+            refs = list(self._iter_variant_refs_for_cards(filtered_cards))
+            if key == 'Price':
+                refs.sort(key=lambda ref: self._variant_price(ref[1]), reverse=reverse)
+            else:
+                refs.sort(key=lambda ref: ref[1].set_code if ref[1] else "N/A", reverse=reverse)
+            self._library_variant_sort_refs = refs
+            filtered_count = len(refs)
+        else:
+            filtered_count = sum(1 for _ in self._iter_variant_refs_for_cards(filtered_cards))
+
+        self.state['library_filtered_count'] = filtered_count
         self.state['library_page'] = 1
         self.update_library_pagination()
+        self._refresh_library_page_entries()
         self.render_library_content.refresh()
 
     def update_library_pagination(self):
-        count = len(self.state['library_filtered'])
+        count = self.state['library_filtered_count']
         self.state['library_total_pages'] = max(1, (count + self.state['library_page_size'] - 1) // self.state['library_page_size'])
 
     async def load_collection_data(self):
@@ -1575,59 +1675,76 @@ class BulkAddPage:
 
     async def apply_collection_filters(self, reset_page=True):
         source = self.col_state['collection_cards']
-        res = list(source)
         s = self.col_state
-
-        txt = s['search_text'].lower()
-        if txt:
-            def matches(e: BulkCollectionEntry):
-                return (txt in e.api_card.name.lower() or
-                        txt in e.set_code.lower() or
-                        txt in e.api_card.desc.lower())
-            res = [e for e in res if matches(e)]
-
-        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
-        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
-        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        text = s['search_text'].lower()
+        set_name_target = ''
+        set_code_target = ''
         if s['filter_set']:
-             parts = s['filter_set'].split('|')
-             name_target = parts[0].strip().lower()
-             code_target = parts[1].strip().lower() if len(parts) > 1 else None
+            parts = s['filter_set'].split('|')
+            set_name_target = parts[0].strip().lower()
+            set_code_target = parts[1].strip().lower() if len(parts) > 1 else ''
 
-             if code_target:
-                 res = [e for e in res if code_target in e.set_code.lower()]
-             else:
-                 res = [e for e in res if name_target in e.set_name.lower() or name_target in e.set_code.lower()]
-        if s['filter_rarity']:
-             target = s['filter_rarity'].lower()
-             res = [e for e in res if e.rarity.lower() == target]
-        if s['filter_monster_category']:
-             cats = s['filter_monster_category']
-             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
-        if s['filter_owned_lang']:
-             res = [e for e in res if e.language == s['filter_owned_lang']]
-        if s['filter_condition']:
-             res = [e for e in res if e.condition in s['filter_condition']]
-        if s['filter_storage']:
-             selected = set(s['filter_storage'])
-             def match_storage(e):
-                 loc = e.storage_location if e.storage_location else 'None'
-                 return loc in selected
-             res = [e for e in res if match_storage(e)]
+        card_types = s['filter_card_type']
+        rarity = s['filter_rarity'].lower()
+        categories = s['filter_monster_category']
+        conditions = set(s['filter_condition'])
+        storage_locations = set(s['filter_storage'])
+        result = []
+
+        for entry in source:
+            card = entry.api_card
+            if text and not (
+                text in card.name.lower()
+                or text in entry.set_code.lower()
+                or text in card.desc.lower()
+            ):
+                continue
+            if card_types and not any(card_type in card.type for card_type in card_types):
+                continue
+            if s['filter_attr'] and card.attribute != s['filter_attr']:
+                continue
+            if s['filter_monster_race'] and (
+                "Monster" not in card.type or card.race != s['filter_monster_race']
+            ):
+                continue
+            if s['filter_st_race'] and (
+                ("Spell" not in card.type and "Trap" not in card.type)
+                or card.race != s['filter_st_race']
+            ):
+                continue
+            if s['filter_archetype'] and card.archetype != s['filter_archetype']:
+                continue
+            if set_code_target:
+                if set_code_target not in entry.set_code.lower():
+                    continue
+            elif set_name_target and (
+                set_name_target not in entry.set_name.lower()
+                and set_name_target not in entry.set_code.lower()
+            ):
+                continue
+            if rarity and entry.rarity.lower() != rarity:
+                continue
+            if categories and not any(card.matches_category(category) for category in categories):
+                continue
+            if s['filter_owned_lang'] and entry.language != s['filter_owned_lang']:
+                continue
+            if conditions and entry.condition not in conditions:
+                continue
+            if storage_locations and (entry.storage_location or 'None') not in storage_locations:
+                continue
+            result.append(entry)
 
         key = s['sort_by']
         reverse = s['sort_desc']
-        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
-        elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
-        elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
-        elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
-        elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
-        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
+        if key == 'Name': result.sort(key=lambda entry: entry.api_card.name, reverse=reverse)
+        elif key == 'ATK': result.sort(key=lambda entry: entry.api_card.atk or -1, reverse=reverse)
+        elif key == 'DEF': result.sort(key=lambda entry: entry.api_card.def_ or -1, reverse=reverse)
+        elif key == 'Level': result.sort(key=lambda entry: entry.api_card.level or -1, reverse=reverse)
+        elif key == 'Set Code': result.sort(key=lambda entry: entry.set_code, reverse=reverse)
+        elif key == 'Quantity': result.sort(key=lambda entry: entry.quantity, reverse=reverse)
+        elif key == 'Newest': result.sort(key=lambda entry: entry.api_card.id, reverse=reverse)
 
-        self.col_state['collection_filtered'] = res
+        self.col_state['collection_filtered'] = result
         if reset_page:
             self.col_state['collection_page'] = 1
         self.update_collection_pagination()
@@ -1863,9 +1980,7 @@ class BulkAddPage:
 
     @ui.refreshable
     def render_library_content(self):
-        start = (self.state['library_page'] - 1) * self.state['library_page_size']
-        end = min(start + self.state['library_page_size'], len(self.state['library_filtered']))
-        items = self.state['library_filtered'][start:end]
+        items = self.state['library_filtered']
 
         url_map = {}
         for item in items:
@@ -2047,6 +2162,7 @@ class BulkAddPage:
                              new_p = max(1, min(self.state['library_total_pages'], self.state['library_page'] + delta))
                              if new_p != self.state['library_page']:
                                  self.state['library_page'] = new_p
+                                 self._refresh_library_page_entries()
                                  self.render_library_content.refresh()
                         ui.button(icon='chevron_left', on_click=lambda: change_page(-1)).props('flat dense color=white size=sm')
                         ui.label().bind_text_from(self.state, 'library_page', lambda p: f"{p}/{self.state['library_total_pages']}").classes('text-xs font-mono')
