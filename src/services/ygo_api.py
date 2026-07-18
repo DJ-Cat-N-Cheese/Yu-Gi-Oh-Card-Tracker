@@ -625,6 +625,12 @@ class YugiohService:
             self._rebuild_card_lookups(language, self._cards_cache[language])
         return self._cards_by_id.get(language, {}).get(card_id)
 
+    def get_card_index(self, language: str = "en") -> Dict[int, ApiCard]:
+        """Return the shared read-only-by-convention ID index for a loaded language."""
+        if language not in self._cards_by_id and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_id.get(language, {})
+
     def search_by_name(self, name: str, language: str = "en") -> Optional[ApiCard]:
         if language not in self._cards_by_name and language in self._cards_cache:
             self._rebuild_card_lookups(language, self._cards_cache[language])
