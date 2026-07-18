@@ -1675,59 +1675,76 @@ class BulkAddPage:
 
     async def apply_collection_filters(self, reset_page=True):
         source = self.col_state['collection_cards']
-        res = list(source)
         s = self.col_state
-
-        txt = s['search_text'].lower()
-        if txt:
-            def matches(e: BulkCollectionEntry):
-                return (txt in e.api_card.name.lower() or
-                        txt in e.set_code.lower() or
-                        txt in e.api_card.desc.lower())
-            res = [e for e in res if matches(e)]
-
-        if s['filter_card_type']: res = [e for e in res if any(t in e.api_card.type for t in s['filter_card_type'])]
-        if s['filter_attr']: res = [e for e in res if e.api_card.attribute == s['filter_attr']]
-        if s['filter_monster_race']: res = [e for e in res if "Monster" in e.api_card.type and e.api_card.race == s['filter_monster_race']]
-        if s['filter_st_race']: res = [e for e in res if ("Spell" in e.api_card.type or "Trap" in e.api_card.type) and e.api_card.race == s['filter_st_race']]
-        if s['filter_archetype']: res = [e for e in res if e.api_card.archetype == s['filter_archetype']]
+        text = s['search_text'].lower()
+        set_name_target = ''
+        set_code_target = ''
         if s['filter_set']:
-             parts = s['filter_set'].split('|')
-             name_target = parts[0].strip().lower()
-             code_target = parts[1].strip().lower() if len(parts) > 1 else None
+            parts = s['filter_set'].split('|')
+            set_name_target = parts[0].strip().lower()
+            set_code_target = parts[1].strip().lower() if len(parts) > 1 else ''
 
-             if code_target:
-                 res = [e for e in res if code_target in e.set_code.lower()]
-             else:
-                 res = [e for e in res if name_target in e.set_name.lower() or name_target in e.set_code.lower()]
-        if s['filter_rarity']:
-             target = s['filter_rarity'].lower()
-             res = [e for e in res if e.rarity.lower() == target]
-        if s['filter_monster_category']:
-             cats = s['filter_monster_category']
-             res = [e for e in res if any(e.api_card.matches_category(cat) for cat in cats)]
-        if s['filter_owned_lang']:
-             res = [e for e in res if e.language == s['filter_owned_lang']]
-        if s['filter_condition']:
-             res = [e for e in res if e.condition in s['filter_condition']]
-        if s['filter_storage']:
-             selected = set(s['filter_storage'])
-             def match_storage(e):
-                 loc = e.storage_location if e.storage_location else 'None'
-                 return loc in selected
-             res = [e for e in res if match_storage(e)]
+        card_types = s['filter_card_type']
+        rarity = s['filter_rarity'].lower()
+        categories = s['filter_monster_category']
+        conditions = set(s['filter_condition'])
+        storage_locations = set(s['filter_storage'])
+        result = []
+
+        for entry in source:
+            card = entry.api_card
+            if text and not (
+                text in card.name.lower()
+                or text in entry.set_code.lower()
+                or text in card.desc.lower()
+            ):
+                continue
+            if card_types and not any(card_type in card.type for card_type in card_types):
+                continue
+            if s['filter_attr'] and card.attribute != s['filter_attr']:
+                continue
+            if s['filter_monster_race'] and (
+                "Monster" not in card.type or card.race != s['filter_monster_race']
+            ):
+                continue
+            if s['filter_st_race'] and (
+                ("Spell" not in card.type and "Trap" not in card.type)
+                or card.race != s['filter_st_race']
+            ):
+                continue
+            if s['filter_archetype'] and card.archetype != s['filter_archetype']:
+                continue
+            if set_code_target:
+                if set_code_target not in entry.set_code.lower():
+                    continue
+            elif set_name_target and (
+                set_name_target not in entry.set_name.lower()
+                and set_name_target not in entry.set_code.lower()
+            ):
+                continue
+            if rarity and entry.rarity.lower() != rarity:
+                continue
+            if categories and not any(card.matches_category(category) for category in categories):
+                continue
+            if s['filter_owned_lang'] and entry.language != s['filter_owned_lang']:
+                continue
+            if conditions and entry.condition not in conditions:
+                continue
+            if storage_locations and (entry.storage_location or 'None') not in storage_locations:
+                continue
+            result.append(entry)
 
         key = s['sort_by']
         reverse = s['sort_desc']
-        if key == 'Name': res.sort(key=lambda x: x.api_card.name, reverse=reverse)
-        elif key == 'ATK': res.sort(key=lambda x: (x.api_card.atk or -1), reverse=reverse)
-        elif key == 'DEF': res.sort(key=lambda x: (getattr(x.api_card, 'def_', None) or -1), reverse=reverse)
-        elif key == 'Level': res.sort(key=lambda x: (x.api_card.level or -1), reverse=reverse)
-        elif key == 'Set Code': res.sort(key=lambda x: x.set_code, reverse=reverse)
-        elif key == 'Quantity': res.sort(key=lambda x: x.quantity, reverse=reverse)
-        elif key == 'Newest': res.sort(key=lambda x: x.api_card.id, reverse=reverse)
+        if key == 'Name': result.sort(key=lambda entry: entry.api_card.name, reverse=reverse)
+        elif key == 'ATK': result.sort(key=lambda entry: entry.api_card.atk or -1, reverse=reverse)
+        elif key == 'DEF': result.sort(key=lambda entry: entry.api_card.def_ or -1, reverse=reverse)
+        elif key == 'Level': result.sort(key=lambda entry: entry.api_card.level or -1, reverse=reverse)
+        elif key == 'Set Code': result.sort(key=lambda entry: entry.set_code, reverse=reverse)
+        elif key == 'Quantity': result.sort(key=lambda entry: entry.quantity, reverse=reverse)
+        elif key == 'Newest': result.sort(key=lambda entry: entry.api_card.id, reverse=reverse)
 
-        self.col_state['collection_filtered'] = res
+        self.col_state['collection_filtered'] = result
         if reset_page:
             self.col_state['collection_page'] = 1
         self.update_collection_pagination()
