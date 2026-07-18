@@ -32,8 +32,15 @@ def parse_cards_data(data: List[dict]) -> List[ApiCard]:
 class YugiohService:
     def __init__(self):
         self._cards_cache: Dict[str, List[ApiCard]] = {}
+        self._cards_by_id: Dict[str, Dict[int, ApiCard]] = {}
+        self._cards_by_name: Dict[str, Dict[str, ApiCard]] = {}
         self._sets_cache: Dict[str, Dict[str, Any]] = {} # set_code_prefix -> {name, code, image, date, count}
         self._migrate_old_db_files()
+
+    def _rebuild_card_lookups(self, language: str, cards: List[ApiCard]) -> None:
+        """Build lightweight indexes which reference the cached card objects."""
+        self._cards_by_id[language] = {card.id: card for card in cards}
+        self._cards_by_name[language] = {card.name.lower(): card for card in cards}
 
     def _migrate_old_db_files(self):
         """Moves existing database files from data/ to data/db/."""
@@ -236,6 +243,7 @@ class YugiohService:
     async def save_card_database(self, cards: List[ApiCard], language: str = "en"):
         """Saves the card database to disk."""
         self._cards_cache[language] = cards
+        self._rebuild_card_lookups(language, cards)
 
         if not cards:
             return
@@ -542,6 +550,7 @@ class YugiohService:
                  parsed_cards = parse_cards_data(data)
 
              self._cards_cache[language] = parsed_cards
+             self._rebuild_card_lookups(language, parsed_cards)
              logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
@@ -570,18 +579,14 @@ class YugiohService:
                 json.dump(data, f, separators=(',', ':'))
 
     def get_card(self, card_id: int, language: str = "en") -> Optional[ApiCard]:
-        cards = self._cards_cache.get(language, [])
-        for c in cards:
-            if c.id == card_id:
-                return c
-        return None
+        if language not in self._cards_by_id and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_id.get(language, {}).get(card_id)
 
     def search_by_name(self, name: str, language: str = "en") -> Optional[ApiCard]:
-        cards = self._cards_cache.get(language, [])
-        for c in cards:
-            if c.name.lower() == name.lower():
-                return c
-        return None
+        if language not in self._cards_by_name and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_name.get(language, {}).get(name.lower())
 
     # Forwarding image manager calls
     async def get_image_path(self, card_id: int, language: str = "en", high_res: bool = False) -> Optional[str]:
