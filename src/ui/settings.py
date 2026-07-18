@@ -1,3 +1,5 @@
+import asyncio
+
 from nicegui import app, run, ui
 
 from src.core.config import config_manager
@@ -121,8 +123,10 @@ def settings_page() -> None:
             with progress_dialog, ui.card().classes('w-96'):
                 ui.label(title).classes('text-h6')
                 ui.label(description).classes('text-sm text-grey')
-                progress_bar = ui.linear_progress(0).classes('w-full q-my-md')
-                status_label = ui.label('0%')
+                # NiceGUI otherwise renders its raw 0.0–1.0 value in the bar.
+                # Keep a single, readable percentage status for the user instead.
+                progress_bar = ui.linear_progress(0, show_value=False).classes('w-full q-my-md')
+                status_label = ui.label('0%').props('role=status aria-live=polite')
 
             def update_progress(value):
                 progress = max(0.0, min(1.0, float(value)))
@@ -130,6 +134,9 @@ def settings_page() -> None:
                 status_label.set_text(f'{int(progress * 100)}%')
 
             progress_dialog.open()
+            # Let NiceGUI flush the newly opened dialog before the action starts.
+            # This matters when an action spends time preparing its first request.
+            await asyncio.sleep(0)
             try:
                 result = await action(update_progress)
                 update_progress(1.0)
