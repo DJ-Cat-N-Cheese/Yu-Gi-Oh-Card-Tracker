@@ -56,6 +56,16 @@ class TestDeckGroupPersistence(unittest.TestCase):
         self.assertEqual(self.pm.load_deck("Shared.ydk", "Source").main, [1])
         self.assertEqual(self.pm.load_deck("Shared.ydk", "Destination").main, [2])
 
+    def test_move_deck_rejects_case_insensitive_destination_collision(self):
+        self.pm.save_deck(Deck(name="Source", main=[1]), "MyDeck.ydk", "Source")
+        self.pm.save_deck(Deck(name="Destination", main=[2]), "mydeck.ydk", "Destination")
+
+        with self.assertRaises(FileExistsError):
+            self.pm.move_deck("MyDeck.ydk", "Source", "Destination")
+
+        self.assertEqual(self.pm.load_deck("MyDeck.ydk", "Source").main, [1])
+        self.assertEqual(self.pm.load_deck("mydeck.ydk", "Destination").main, [2])
+
 
 if __name__ == "__main__":
     unittest.main()

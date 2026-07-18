@@ -1159,6 +1159,7 @@ class DeckBuilderPage:
                             # Switch to new deck
                             self.state['current_deck_group'] = group
                             self.state['current_deck_name'] = name
+                            self.state['current_deck'].name = name
                             self.state['available_decks'] = await run.io_bound(persistence.list_decks, group)
                             persistence.save_ui_state({
                                 'deck_builder_last_deck_group': group,

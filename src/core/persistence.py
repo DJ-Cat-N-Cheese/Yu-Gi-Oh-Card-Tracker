@@ -295,7 +295,8 @@ class PersistenceManager:
 
         if not os.path.exists(source_path):
             raise FileNotFoundError(f"Deck file {filename} not found in group {source_group}")
-        if os.path.exists(destination_path):
+        destination_filenames = os.listdir(os.path.dirname(destination_path))
+        if filename.lower() in {existing_filename.lower() for existing_filename in destination_filenames}:
             raise FileExistsError(f"Deck file {filename} already exists in group {destination_group}")
 
         logger.info(
