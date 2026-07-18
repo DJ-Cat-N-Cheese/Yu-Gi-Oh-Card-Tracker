@@ -1380,22 +1380,10 @@ class BulkAddPage:
                         self.set_code_map[s.set_code] = c
 
             entries = []
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
 
             default_lang = self.state['default_language'].upper()
 
             for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
                 if c.card_sets:
                     # Group sets by (Prefix, Category, Number, Rarity)
                     grouped_sets = {}
@@ -1454,10 +1442,10 @@ class BulkAddPage:
                     ))
 
             self.state['library_cards'] = entries
-            self.metadata['available_sets'][:] = sorted([s for s in sets if s])
-            self.metadata['available_monster_races'][:] = sorted([r for r in m_races if r])
-            self.metadata['available_st_races'][:] = sorted([r for r in st_races if r])
-            self.metadata['available_archetypes'][:] = sorted([a for a in archetypes if a])
+            filter_metadata = await ygo_service.get_filter_metadata(lang_code)
+            for key in self.metadata:
+                if key in filter_metadata:
+                    self.metadata[key][:] = filter_metadata[key]
 
             for k, v in self.metadata.items():
                 self.state[k] = v

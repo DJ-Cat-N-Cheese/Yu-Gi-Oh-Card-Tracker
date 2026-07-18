@@ -505,30 +505,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
-            # Setup Filters Metadata
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            for i, c in enumerate(api_cards):
-                if i % 1000 == 0:
-                    await asyncio.sleep(0) # Yield control back to the event loop occasionally
-                if c.card_sets:
-                    for s in c.card_sets:
-                        parts = s.set_code.split('-')
-                        prefix = parts[0] if len(parts) > 0 else s.set_code
-                        sets.add(f"{s.set_name} | {prefix}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.state['available_sets'] = sorted([s for s in sets if s])
-            self.state['available_monster_races'] = sorted([r for r in m_races if r])
-            self.state['available_st_races'] = sorted([r for r in st_races if r])
-            self.state['available_archetypes'] = sorted([a for a in archetypes if a])
-            self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
+            self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Load Decks List
             self.state['available_deck_groups'] = persistence.list_deck_groups()

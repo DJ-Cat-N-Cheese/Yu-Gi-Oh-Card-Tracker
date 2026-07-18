@@ -47,3 +47,25 @@ def test_set_card_counts_are_cached_and_deduplicate_variants():
 
     assert first_result == {"LOB": 1, "SDK": 1}
     assert second_result is first_result
+
+
+def test_filter_metadata_is_compiled_with_set_counts():
+    service = YugiohService()
+    card = ApiCard(
+        id=1,
+        name="Dark Magician",
+        type="Normal Monster",
+        frameType="normal",
+        desc="",
+        race="Spellcaster",
+        archetype="Dark Magician",
+        card_sets=[ApiCardSet(set_name="Legend", set_code="LOB-EN005", set_rarity="Ultra Rare")],
+    )
+    service._cards_cache["en"] = [card]
+
+    metadata = asyncio.run(service.get_filter_metadata())
+
+    assert metadata["available_sets"] == ["Legend | LOB"]
+    assert metadata["available_monster_races"] == ["Spellcaster"]
+    assert metadata["available_st_races"] == []
+    assert metadata["available_archetypes"] == ["Dark Magician"]

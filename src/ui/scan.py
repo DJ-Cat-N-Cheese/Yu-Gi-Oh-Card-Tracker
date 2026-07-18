@@ -615,25 +615,7 @@ class ScanPage:
             api_cards = await ygo_service.load_card_database(lang_code)
             self.api_card_map = {c.id: c for c in api_cards}
 
-            # Populate Metadata for Filters
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.col_state['available_sets'] = sorted([s for s in sets if s])
-            self.col_state['available_monster_races'] = sorted([r for r in m_races if r])
-            self.col_state['available_st_races'] = sorted([r for r in st_races if r])
-            self.col_state['available_archetypes'] = sorted([a for a in archetypes if a])
+            self.col_state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Initial Data Load (Recent Scans -> View Model)
             await self.load_data()

@@ -35,6 +35,7 @@ class YugiohService:
         self._cards_by_id: Dict[str, Dict[int, ApiCard]] = {}
         self._cards_by_name: Dict[str, Dict[str, ApiCard]] = {}
         self._set_card_counts: Dict[str, Dict[str, int]] = {}
+        self._filter_metadata: Dict[str, Dict[str, List[str]]] = {}
         self._sets_cache: Dict[str, Dict[str, Any]] = {} # set_code_prefix -> {name, code, image, date, count}
         self._migrate_old_db_files()
 
@@ -43,18 +44,43 @@ class YugiohService:
         self._cards_by_id[language] = {card.id: card for card in cards}
         self._cards_by_name[language] = {card.name.lower(): card for card in cards}
 
-    def _rebuild_set_card_counts(self, language: str, cards: List[ApiCard]) -> None:
-        """Count each card once per set prefix while the database is loaded."""
+    def _rebuild_card_metadata(self, language: str, cards: List[ApiCard]) -> None:
+        """Compile lightweight set counts and filter options in one database pass."""
         counts: Dict[str, int] = {}
+        sets = set()
+        monster_races = set()
+        spell_trap_races = set()
+        archetypes = set()
+
         for card in cards:
-            prefixes = {
-                card_set.set_code.split('-', 1)[0].upper()
-                for card_set in card.card_sets
-                if card_set.set_code
-            }
+            prefixes = set()
+            for card_set in card.card_sets:
+                if not card_set.set_code:
+                    continue
+                prefix = card_set.set_code.split('-', 1)[0]
+                prefixes.add(prefix.upper())
+                sets.add(f"{card_set.set_name} | {prefix}")
+
             for prefix in prefixes:
                 counts[prefix] = counts.get(prefix, 0) + 1
+
+            if card.archetype:
+                archetypes.add(card.archetype)
+            if "Monster" in card.type:
+                if card.race:
+                    monster_races.add(card.race)
+            elif "Spell" in card.type or "Trap" in card.type:
+                if card.race:
+                    spell_trap_races.add(card.race)
+
         self._set_card_counts[language] = counts
+        self._filter_metadata[language] = {
+            "available_sets": sorted(sets),
+            "available_monster_races": sorted(monster_races),
+            "available_st_races": sorted(spell_trap_races),
+            "available_archetypes": sorted(archetypes),
+            "available_card_types": ["Monster", "Spell", "Trap", "Skill"],
+        }
 
     def _migrate_old_db_files(self):
         """Moves existing database files from data/ to data/db/."""
@@ -258,7 +284,7 @@ class YugiohService:
         """Saves the card database to disk."""
         self._cards_cache[language] = cards
         self._rebuild_card_lookups(language, cards)
-        self._rebuild_set_card_counts(language, cards)
+        self._rebuild_card_metadata(language, cards)
 
         if not cards:
             return
@@ -566,7 +592,7 @@ class YugiohService:
 
              self._cards_cache[language] = parsed_cards
              self._rebuild_card_lookups(language, parsed_cards)
-             self._rebuild_set_card_counts(language, parsed_cards)
+             self._rebuild_card_metadata(language, parsed_cards)
              logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
@@ -603,6 +629,13 @@ class YugiohService:
         if language not in self._cards_by_name and language in self._cards_cache:
             self._rebuild_card_lookups(language, self._cards_cache[language])
         return self._cards_by_name.get(language, {}).get(name.lower())
+
+    async def get_filter_metadata(self, language: str = "en") -> Dict[str, List[str]]:
+        """Return pre-compiled dropdown options for the loaded card database."""
+        cards = await self.load_card_database(language)
+        if language not in self._filter_metadata:
+            self._rebuild_card_metadata(language, cards)
+        return self._filter_metadata[language]
 
     # Forwarding image manager calls
     async def get_image_path(self, card_id: int, language: str = "en", high_res: bool = False) -> Optional[str]:
@@ -910,7 +943,7 @@ class YugiohService:
         """
         cards = await self.load_card_database(language)
         if language not in self._set_card_counts:
-            self._rebuild_set_card_counts(language, cards)
+            self._rebuild_card_metadata(language, cards)
         return self._set_card_counts[language]
 
     async def bulk_update_set_prefix(self, old_prefix: str, new_prefix: str, language: str = "en") -> int:
