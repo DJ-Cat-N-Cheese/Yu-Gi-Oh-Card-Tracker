@@ -1,6 +1,7 @@
 import os
 import json
 import time
+from itertools import count
 import logging
 from typing import Dict, Any, Optional, List, Union
 
@@ -9,6 +10,11 @@ logger = logging.getLogger(__name__)
 CHANGELOGS_DIR = os.path.join("data", "changelogs")
 
 class ChangelogManager:
+    # A process-wide sequence remains unique even when the wall clock has a
+    # coarse resolution or is mocked. It intentionally does not inspect log
+    # files before appending.
+    _entry_ids = count(time.monotonic_ns())
+
     def __init__(self, data_dir: str = CHANGELOGS_DIR):
         self.data_dir = data_dir
         os.makedirs(self.data_dir, exist_ok=True)
@@ -47,7 +53,7 @@ class ChangelogManager:
     def _write_entry(self, collection_name: str, entry_data: Dict[str, Any]):
         filepath = self._get_filepath(collection_name)
         timestamp_ns = time.time_ns()
-        entry_data['id'] = timestamp_ns
+        entry_data['id'] = next(self._entry_ids)
         entry_data['timestamp'] = timestamp_ns / 1_000_000_000
 
         try:

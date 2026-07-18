@@ -31,6 +31,18 @@ def test_rebuild_card_lookups_replaces_stale_entries():
     assert service.get_card(2) is replacement
 
 
+def test_card_lookups_preserve_first_duplicate_card():
+    service = YugiohService()
+    first = _card(1, "Duplicate")
+    duplicate_id = _card(1, "Different Name")
+    duplicate_name = _card(2, "Duplicate")
+
+    service._rebuild_card_lookups("en", [first, duplicate_id, duplicate_name])
+
+    assert service.get_card(1) is first
+    assert service.search_by_name("duplicate") is first
+
+
 def test_set_card_counts_are_cached_and_deduplicate_variants():
     service = YugiohService()
     card = _card(1, "Card With Reprints")

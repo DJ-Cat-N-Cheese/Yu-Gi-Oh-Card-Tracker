@@ -41,8 +41,16 @@ class YugiohService:
 
     def _rebuild_card_lookups(self, language: str, cards: List[ApiCard]) -> None:
         """Build lightweight indexes which reference the cached card objects."""
-        self._cards_by_id[language] = {card.id: card for card in cards}
-        self._cards_by_name[language] = {card.name.lower(): card for card in cards}
+        # Match the former linear-search behavior: when duplicate IDs or names
+        # are present, the first card in the cached order is the lookup result.
+        cards_by_id: Dict[int, ApiCard] = {}
+        cards_by_name: Dict[str, ApiCard] = {}
+        for card in cards:
+            cards_by_id.setdefault(card.id, card)
+            cards_by_name.setdefault(card.name.lower(), card)
+
+        self._cards_by_id[language] = cards_by_id
+        self._cards_by_name[language] = cards_by_name
 
     def _rebuild_card_metadata(self, language: str, cards: List[ApiCard]) -> None:
         """Compile lightweight set counts and filter options in one database pass."""
