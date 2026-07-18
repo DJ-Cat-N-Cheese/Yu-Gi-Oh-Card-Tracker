@@ -34,6 +34,7 @@ class YugiohService:
         self._cards_cache: Dict[str, List[ApiCard]] = {}
         self._cards_by_id: Dict[str, Dict[int, ApiCard]] = {}
         self._cards_by_name: Dict[str, Dict[str, ApiCard]] = {}
+        self._set_card_counts: Dict[str, Dict[str, int]] = {}
         self._sets_cache: Dict[str, Dict[str, Any]] = {} # set_code_prefix -> {name, code, image, date, count}
         self._migrate_old_db_files()
 
@@ -41,6 +42,19 @@ class YugiohService:
         """Build lightweight indexes which reference the cached card objects."""
         self._cards_by_id[language] = {card.id: card for card in cards}
         self._cards_by_name[language] = {card.name.lower(): card for card in cards}
+
+    def _rebuild_set_card_counts(self, language: str, cards: List[ApiCard]) -> None:
+        """Count each card once per set prefix while the database is loaded."""
+        counts: Dict[str, int] = {}
+        for card in cards:
+            prefixes = {
+                card_set.set_code.split('-', 1)[0].upper()
+                for card_set in card.card_sets
+                if card_set.set_code
+            }
+            for prefix in prefixes:
+                counts[prefix] = counts.get(prefix, 0) + 1
+        self._set_card_counts[language] = counts
 
     def _migrate_old_db_files(self):
         """Moves existing database files from data/ to data/db/."""
@@ -244,6 +258,7 @@ class YugiohService:
         """Saves the card database to disk."""
         self._cards_cache[language] = cards
         self._rebuild_card_lookups(language, cards)
+        self._rebuild_set_card_counts(language, cards)
 
         if not cards:
             return
@@ -551,6 +566,7 @@ class YugiohService:
 
              self._cards_cache[language] = parsed_cards
              self._rebuild_card_lookups(language, parsed_cards)
+             self._rebuild_set_card_counts(language, parsed_cards)
              logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
@@ -890,29 +906,12 @@ class YugiohService:
 
     async def get_real_set_counts(self, language: str = "en") -> Dict[str, int]:
         """
-        Calculates the real number of unique cards per set based on the local card database.
-        Returns a dict mapping set_code_prefix -> unique card count.
+        Returns cached unique card counts by set-code prefix.
         """
         cards = await self.load_card_database(language)
-        counts = {}
-
-        for card in cards:
-            if not card.card_sets:
-                continue
-
-            # Identify unique sets this card belongs to
-            seen_prefixes = set()
-            for cs in card.card_sets:
-                # Normalize prefix
-                parts = cs.set_code.split('-')
-                if not parts: continue
-                prefix = parts[0].upper() # Normalize to Upper for matching
-
-                if prefix not in seen_prefixes:
-                    seen_prefixes.add(prefix)
-                    counts[prefix] = counts.get(prefix, 0) + 1
-
-        return counts
+        if language not in self._set_card_counts:
+            self._rebuild_set_card_counts(language, cards)
+        return self._set_card_counts[language]
 
     async def bulk_update_set_prefix(self, old_prefix: str, new_prefix: str, language: str = "en") -> int:
         """

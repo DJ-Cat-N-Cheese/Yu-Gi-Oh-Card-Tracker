@@ -1,4 +1,6 @@
-from src.core.models import ApiCard
+import asyncio
+
+from src.core.models import ApiCard, ApiCardSet
 from src.services.ygo_api import YugiohService
 
 
@@ -27,3 +29,21 @@ def test_rebuild_card_lookups_replaces_stale_entries():
     assert service.get_card(1) is None
     assert service.search_by_name("Old Card") is None
     assert service.get_card(2) is replacement
+
+
+def test_set_card_counts_are_cached_and_deduplicate_variants():
+    service = YugiohService()
+    card = _card(1, "Card With Reprints")
+    card.card_sets = [
+        ApiCardSet(set_name="Legend", set_code="LOB-EN001", set_rarity="Rare"),
+        ApiCardSet(set_name="Legend", set_code="LOB-DE001", set_rarity="Common"),
+        ApiCardSet(set_name="Starter", set_code="SDK-001", set_rarity="Common"),
+    ]
+    service._cards_cache["en"] = [card]
+
+    first_result = asyncio.run(service.get_real_set_counts())
+    card.card_sets.clear()
+    second_result = asyncio.run(service.get_real_set_counts())
+
+    assert first_result == {"LOB": 1, "SDK": 1}
+    assert second_result is first_result
