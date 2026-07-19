@@ -72,7 +72,7 @@ class AmbiguityDialog(ui.dialog):
                          on_change=self.on_name_change
                      ).classes('w-full')
                  else:
-                     ui.label(self.selected_name).classes('text-lg font-bold text-primary mb-2')
+                     ui.label(self.selected_name).classes('text-lg font-bold text-secondary mb-2')
 
                  # 2. Language
                  ui.select(
@@ -140,7 +140,7 @@ class AmbiguityDialog(ui.dialog):
                  # Buttons
                  with ui.row().classes('w-full justify-end gap-2'):
                      ui.button("Cancel", on_click=self.close, color='secondary') # Cancel is Secondary
-                     ui.button("Confirm", on_click=self.confirm, color='primary') # Confirm is Primary (Highlighted)
+                     ui.button("Confirm", on_click=self.confirm, color='secondary')
 
     async def load_full_data(self):
         """Loads full card data from API/DB to populate all variants."""

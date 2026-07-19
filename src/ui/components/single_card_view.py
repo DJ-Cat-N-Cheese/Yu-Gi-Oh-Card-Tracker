@@ -302,7 +302,7 @@ class SingleCardView:
                                          d.close()
                                          # Proceed with MOVE
                                          await on_save_callback(mode, matched_variant_id, quantity_override=quantity_override, storage_location=input_state.get('storage_location'))
-                                     ui.button('Merge', on_click=do_merge).props('color=primary')
+                                     ui.button('Merge', on_click=do_merge).props('color=secondary')
                              d.open()
                              return
 
@@ -458,7 +458,7 @@ class SingleCardView:
 
                         ui.label('Collection Status').classes('oy-seclabel q-mb-sm select-none')
                         with ui.row().classes('gap-2 items-center'):
-                            with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
+                            with ui.chip(icon='format_list_numbered').props('color=secondary text-color=black'):
                                 ui.label(f"Total: {total_owned}").classes('select-text')
 
                             if owned_breakdown:
@@ -978,7 +978,7 @@ class SingleCardView:
                          ui.separator().classes('q-my-md bg-gray-700')
                          ui.label('Collection Status').classes('oy-seclabel q-mb-sm select-none')
                          with ui.row().classes('gap-2 items-center'):
-                             with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
+                             with ui.chip(icon='format_list_numbered').props('color=secondary text-color=black'):
                                  ui.label(f"Total: {owned_count}").classes('select-text')
 
                              if owned_breakdown:
@@ -1628,7 +1628,7 @@ class SingleCardView:
                                     await on_add_variant(selected_objs, state['selected_image_id'])
                                     d.close()
 
-                                ui.button('Apply Art', on_click=do_apply).props('color=primary icon=brush')
+                                ui.button('Apply Art', on_click=do_apply).props('color=secondary icon=brush')
                                 ui.button('Add as New Variant', on_click=do_add).props('color=secondary icon=add_circle')
 
         except Exception as e:

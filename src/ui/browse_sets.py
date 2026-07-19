@@ -4,6 +4,7 @@ from src.services.image_manager import image_manager
 from src.core.constants import RARITY_RANKING
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from src.ui.collection import build_collector_rows, CollectorRow, CardViewModel
 from src.core.persistence import persistence
 from src.core.utils import transform_set_code, normalize_set_code
@@ -247,7 +248,7 @@ class BrowseSetsPage:
 
             with ui.row().classes('w-full justify-end q-mt-md gap-4'):
                 ui.button('Cancel', on_click=lambda: dialog.close()).props('flat')
-                ui.button('Select', on_click=lambda: result.set_result(dialog_state['selected'])).props('color=primary')
+                ui.button('Select', on_click=lambda: result.set_result(dialog_state['selected'])).props('color=secondary')
 
         # Handle cleanup
         def on_close():
@@ -854,7 +855,7 @@ class BrowseSetsPage:
             await self.open_set_detail(set_info['code'])
 
         # Use a plain div with q-card class
-        with ui.element('div').classes('q-card w-full p-0 overflow-hidden cursor-pointer hover:border-[#cba6f7]/45 hover:-translate-y-0.5 transition-all relative') \
+        with ui.element('div').classes('oy-accent-border-hover q-card w-full p-0 overflow-hidden cursor-pointer hover:-translate-y-0.5 transition-all relative') \
                 .on('click', on_click):
 
             # Image Area wrapper - h-[600px] as requested
@@ -866,12 +867,12 @@ class BrowseSetsPage:
             # Text Area
             with ui.column().classes('px-4 py-3 w-full gap-0'):
                 with ui.row().classes('w-full justify-between items-center no-wrap'):
-                    ui.label(set_info['code']).classes('oy-mono text-[11px] font-bold tracking-wide text-[#e8b34d]')
+                    ui.label(set_info['code']).classes('oy-mono text-[11px] font-bold tracking-wide oy-text-gold')
                     count = set_info.get('count', 0)
-                    ui.label(f"{count} cards").classes('text-xs text-[#726d84]')
+                    ui.label(f"{count} cards").classes('text-xs oy-text-faint')
                 ui.label(set_info['name']).classes('oy-display text-[15px] font-semibold truncate w-full text-white')
                 date = set_info.get('date')
-                ui.label(date if date else "Unknown Date").classes('text-xs text-[#726d84] mt-0.5')
+                ui.label(date if date else "Unknown Date").classes('text-xs oy-text-faint mt-0.5')
 
     @ui.refreshable
     def render_content(self):
@@ -883,10 +884,8 @@ class BrowseSetsPage:
     def render_gallery_view(self):
         # Editorial header
         with ui.row().classes('w-full items-end justify-between mb-5'):
-            with ui.column().classes('gap-1'):
-                ui.label('Browse Sets').classes('oy-h1')
-                ui.label('Every Yu-Gi-Oh! set ever released, visually.').classes('oy-sub')
-            ui.button('Import Set', on_click=self.show_import_set_dialog).props('color=primary icon=cloud_download rounded unelevated')
+            page_header('Browse Sets', 'Every Yu-Gi-Oh! set ever released, visually.')
+            ui.button('Import Set', on_click=self.show_import_set_dialog).props('color=secondary icon=cloud_download rounded unelevated')
 
         # Controls & Filters
         with ui.column().classes('w-full q-mb-md gap-4'):
@@ -970,7 +969,7 @@ class BrowseSetsPage:
                                  ui.label(c['name']).classes('truncate text-sm')
                                  ui.label(c['set_rarity']).classes('text-gray-400 text-xs')
 
-            ui.button("Preview", on_click=fetch_preview).props('color=primary').classes('w-full')
+            ui.button("Preview", on_click=fetch_preview).props('color=secondary').classes('w-full')
 
             # Placeholder to ensure container exists in layout
             with preview_container: pass
@@ -1008,7 +1007,7 @@ class BrowseSetsPage:
                     date_min_input = ui.input(placeholder='YYYY-MM').classes('w-28').props('dense borderless dark')
                     date_slider = ui.range(min=self.state['slider_min_date'],
                                             max=self.state['slider_max_date'],
-                                            step=1).classes('col-grow').props('label=false color=primary')
+                                            step=1).classes('col-grow').props('label=false color=secondary')
                     date_max_input = ui.input(placeholder='YYYY-MM').classes('w-28').props('dense borderless dark')
 
                     # Init
@@ -1073,7 +1072,7 @@ class BrowseSetsPage:
                     count_min_input = ui.number().classes('w-16').props('dense borderless dark')
                     count_slider = ui.range(min=self.state['slider_min_count'],
                                             max=self.state['slider_max_count'],
-                                            step=1).classes('col-grow').props('label=false color=primary')
+                                            step=1).classes('col-grow').props('label=false color=secondary')
                     count_max_input = ui.number().classes('w-16').props('dense borderless dark')
 
                     # Init
@@ -1181,7 +1180,7 @@ class BrowseSetsPage:
 
         # Back link
         ui.label('← Back to Browse Sets') \
-            .classes('text-xs font-medium text-[#8f89a3] hover:text-[#ecdffb] cursor-pointer mb-3 transition-colors') \
+            .classes('oy-interactive-muted text-xs font-medium cursor-pointer mb-3 transition-colors') \
             .on('click', self.back_to_gallery)
 
         # Header
@@ -1195,14 +1194,14 @@ class BrowseSetsPage:
             with ui.column().classes('gap-2 flex-grow min-w-0'):
                 ui.label(info['name']).classes('oy-h1')
                 with ui.row().classes('gap-3 items-center'):
-                    ui.label(info['code']).classes('oy-mono text-sm text-[#e8b34d] font-semibold')
+                    ui.label(info['code']).classes('oy-mono text-sm oy-text-gold font-semibold')
                     released = f" · Released {info['date']}" if info.get('date') else ''
                     ui.label(f"{info.get('count', 0)} cards{released}").classes('oy-sub')
 
             # Completion + Collection Selector
             with ui.column().classes('items-end gap-3 flex-none'):
                 with ui.column().classes('items-end gap-0'):
-                    ui.label(f"{pct:.0f}%").classes('oy-stat text-[#cba6f7]')
+                    ui.label(f"{pct:.0f}%").classes('oy-stat oy-text-accent')
                     ui.label(f"COMPLETE · {owned}/{total}").classes('oy-label')
 
                 files = persistence.list_collections()
@@ -1213,9 +1212,9 @@ class BrowseSetsPage:
                 async def change_col(e):
                     self.state['selected_collection_file'] = e.value
                     try:
-                       persistence.save_ui_state({'last_collection': e.value})
-                    except Exception as e:
-                       logger.error(f"Error saving UI state: {e}")
+                       await run.io_bound(persistence.save_ui_state, {'last_collection': e.value})
+                    except Exception as exc:
+                       logger.error(f"Error saving UI state: {exc}")
                     await self.load_data() # Reloads collection
                     # Need to reload rows too
                     await self.load_set_details(self.state['selected_set'])
@@ -1226,7 +1225,7 @@ class BrowseSetsPage:
         # Completion bar
         with ui.element('div').classes('w-full h-2 rounded-full overflow-hidden mb-6').style('background: rgba(255,255,255,.08)'):
             ui.element('div').classes('h-full rounded-full').style(
-                f'width: {pct:.1f}%; background: linear-gradient(90deg, #8a5ce8, #cba6f7)'
+                f'width: {pct:.1f}%; background: linear-gradient(90deg, var(--oy-accent-deep), var(--oy-accent))'
             )
 
     def render_detail_view(self):
@@ -1276,9 +1275,9 @@ class BrowseSetsPage:
     def render_view_scope_toggles(self):
         is_cons = self.state['view_scope'] == 'consolidated'
         with ui.button_group():
-            with ui.button('Collectors', on_click=lambda: self.switch_view_scope('collectors')).props('outline color=grey-5' if is_cons else 'unelevated color=primary'):
+            with ui.button('Collectors', on_click=lambda: self.switch_view_scope('collectors')).props('outline color=grey-5' if is_cons else 'unelevated color=secondary'):
                 ui.tooltip('View all printings separately')
-            with ui.button('Consolidated', on_click=lambda: self.switch_view_scope('consolidated')).props('unelevated color=primary' if is_cons else 'outline color=grey-5'):
+            with ui.button('Consolidated', on_click=lambda: self.switch_view_scope('consolidated')).props('unelevated color=secondary' if is_cons else 'outline color=grey-5'):
                 ui.tooltip('View unique cards only')
 
     def render_detail_controls(self):
@@ -1322,7 +1321,7 @@ class BrowseSetsPage:
             self.render_detail_pagination_controls()
 
             ui.space()
-            ui.button('Filters', icon='filter_list', on_click=self.filter_dialog.open).props('color=primary')
+            ui.button('Filters', icon='filter_list', on_click=self.filter_dialog.open).props('color=secondary')
 
     async def open_consolidated_view(self, vm: CardViewModel):
          owned_breakdown = {}

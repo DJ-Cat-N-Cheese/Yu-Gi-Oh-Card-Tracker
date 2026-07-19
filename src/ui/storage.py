@@ -8,6 +8,7 @@ from src.core.changelog_manager import changelog_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from src.core.utils import LANGUAGE_COUNTRY_MAP
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Callable
@@ -148,7 +149,7 @@ class StorageDialog:
 
             with ui.row().classes('w-full justify-end q-mt-md gap-4'):
                 ui.button('Cancel', on_click=self.dialog.close).props('flat')
-                ui.button('Save', on_click=self.save).props('color=primary')
+                ui.button('Save', on_click=self.save).props('color=secondary')
 
     def open(self, existing_data: Optional[Dict] = None):
         self.current_data = existing_data or {}
@@ -648,9 +649,7 @@ class StoragePage:
     def render_gallery_view(self):
         # Header
         with ui.row().classes('w-full items-end justify-between mb-6'):
-            with ui.column().classes('gap-1'):
-                ui.label('Storage').classes('oy-h1')
-                ui.label('Where your physical cards actually live.').classes('oy-sub')
+            page_header('Storage', 'Where your physical cards actually live.')
 
             with ui.row().classes('items-center gap-4'):
                 # Collection Selector
@@ -688,7 +687,7 @@ class StoragePage:
                 ui.button(icon='arrow_downward' if self.state['storage_sort_desc'] else 'arrow_upward',
                           on_click=toggle_sort_order).props('flat round color=white')
 
-                ui.button('New Storage', icon='add', on_click=self.open_new_storage_dialog).props('color=primary')
+                ui.button('New Storage', icon='add', on_click=self.open_new_storage_dialog).props('color=secondary')
 
         # Grid
         with ui.grid(columns='repeat(auto-fill, minmax(250px, 1fr))').classes('w-full gap-6'):
@@ -698,21 +697,21 @@ class StoragePage:
             self.render_add_storage_card()
 
     def render_add_storage_card(self):
-        with ui.element('div').classes('w-full h-full min-h-[14rem] cursor-pointer rounded-[14px] border border-dashed border-white/20 hover:border-[#cba6f7]/60 bg-transparent flex items-center justify-center transition-colors group') \
+        with ui.element('div').classes('oy-add-storage w-full h-full min-h-[14rem] cursor-pointer rounded-[14px] border border-dashed border-white/20 bg-transparent flex items-center justify-center transition-colors group') \
                 .on('click', self.open_new_storage_dialog):
 
             with ui.column().classes('items-center gap-2'):
-                ui.icon('add', size='2.5rem').classes('text-[#a79fc0] group-hover:text-[#cba6f7] transition-colors')
-                ui.label('Add Storage').classes('text-sm font-medium text-[#8f89a3] group-hover:text-[#ecdffb] transition-colors')
+                ui.icon('add', size='2.5rem').classes('oy-add-storage-icon oy-text-soft transition-colors')
+                ui.label('Add Storage').classes('oy-add-storage-label text-sm font-medium oy-text-muted transition-colors')
 
     @staticmethod
     def _storage_type_color(storage_type: str) -> str:
-        return {'Binder': 'text-[#89b4fa]', 'Deck': 'text-[#6fcf7c]'}.get(storage_type, 'text-[#cba6f7]')
+        return {'Binder': 'oy-text-blue', 'Deck': 'oy-text-green'}.get(storage_type, 'oy-text-accent')
 
     def render_storage_card(self, storage):
         count = self.state['storage_counts'].get(storage['name'], 0)
 
-        with ui.card().classes('w-full p-0 overflow-hidden cursor-pointer hover:border-[#cba6f7]/45 hover:-translate-y-0.5 transition-all') \
+        with ui.card().classes('oy-accent-border-hover w-full p-0 overflow-hidden cursor-pointer hover:-translate-y-0.5 transition-all') \
                 .on('click', lambda s=storage: self.open_storage(s)):
 
             with ui.element('div').classes('relative w-full h-48 bg-black/40 overflow-hidden'):
@@ -724,17 +723,17 @@ class StoragePage:
                     src = f"/sets/{safe_code}.jpg"
                     ui.image(src).classes('w-full h-full object-contain')
                 else:
-                    ui.icon('inventory_2', size='4xl').classes('text-[#4c465e] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
+                    ui.icon('inventory_2', size='4xl').classes('oy-text-placeholder absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
 
             with ui.column().classes('px-4 py-3 w-full gap-1'):
                 ui.label(storage['name']).classes('oy-display text-base font-semibold truncate w-full text-white')
 
                 with ui.row().classes('w-full justify-between items-center'):
                     ui.label(storage.get('type', 'Unknown')).classes(f"text-xs font-semibold {self._storage_type_color(storage.get('type', ''))}")
-                    ui.label(f"{count} cards").classes('text-xs text-[#a79fc0]')
+                    ui.label(f"{count} cards").classes('text-xs oy-text-soft')
 
                 if storage.get('description'):
-                    ui.label(storage['description']).classes('text-xs text-[#726d84] truncate w-full')
+                    ui.label(storage['description']).classes('text-xs oy-text-faint truncate w-full')
 
     def render_detail_view(self):
         s = self.state['current_storage']
@@ -748,7 +747,7 @@ class StoragePage:
                      safe_code = "".join(c for c in s['set_code'] if c.isalnum() or c in ('-', '_')).strip()
                      ui.image(f"/sets/{safe_code}.jpg").classes('w-full h-full object-contain')
                  else:
-                     ui.icon('inventory_2', size='xl').classes('text-[#4c465e] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
+                     ui.icon('inventory_2', size='xl').classes('oy-text-placeholder absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
 
             with ui.column().classes('gap-1 flex-grow'):
                 ui.label(s['name']).classes('oy-h1')
@@ -817,7 +816,7 @@ class StoragePage:
 
             self.render_pagination_controls()
             self.render_undo_button()
-            ui.button('Filters', icon='filter_list', on_click=self.filter_dialog.open).props('color=primary')
+            ui.button('Filters', icon='filter_list', on_click=self.filter_dialog.open).props('color=secondary')
 
         self.render_detail_grid()
 

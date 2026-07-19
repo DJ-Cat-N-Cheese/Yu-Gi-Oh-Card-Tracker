@@ -127,5 +127,5 @@ def login_page(next_path: str | None = None) -> None:
             ).classes('w-full')
             password.on('keydown.enter', login)
             submit = ui.button('Sign in', icon='login', on_click=login).props(
-                'color=primary size=lg rounded unelevated'
+                'color=secondary size=lg rounded unelevated'
             ).classes('w-full q-mt-md')

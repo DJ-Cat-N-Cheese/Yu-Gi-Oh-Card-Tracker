@@ -8,6 +8,7 @@ from src.core.config import config_manager
 from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, LANGUAGE_COUNTRY_MAP, REGION_TO_LANGUAGE_MAP, is_set_code_compatible, extract_language_code
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import METRIC_VALUE_CLASSES, page_header
 from src.services.collection_editor import CollectionEditor
 from src.services.pricing_service import pricing_service
 from dataclasses import dataclass, field, replace
@@ -1612,17 +1613,15 @@ class CollectionPage:
     def render_header(self):
         with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md'):
             with ui.row().classes('w-full items-end justify-between no-wrap'):
-                with ui.column().classes('gap-1'):
-                    ui.label('Collection').classes('oy-h1')
-                    ui.label('Browse, filter, and value every card you own.').classes('oy-sub')
+                page_header('Collection', 'Browse, filter, and value every card you own.')
 
                 with ui.button_group().classes('shrink-0'):
                     is_cons = self.state['view_scope'] == 'consolidated'
                     with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
-                        .props('unelevated color=primary' if is_cons else 'outline color=grey-5'):
+                        .props('unelevated color=secondary' if is_cons else 'outline color=grey-5'):
                         ui.tooltip('View consolidated gameplay statistics (totals per card)')
                     with ui.button('Collectors', on_click=lambda: self.switch_scope('collectors')) \
-                        .props('outline color=grey-5' if is_cons else 'unelevated color=primary'):
+                        .props('outline color=grey-5' if is_cons else 'unelevated color=secondary'):
                         ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
 
             files = persistence.list_collections()
@@ -1710,10 +1709,10 @@ class CollectionPage:
             with ui.button_group().classes('shrink-0'):
                 is_grid = self.state['view_mode'] == 'grid'
                 with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')) \
-                    .props('unelevated color=primary' if is_grid else 'outline color=grey-5'):
+                    .props('unelevated color=secondary' if is_grid else 'outline color=grey-5'):
                     ui.tooltip('Show cards in a grid layout')
                 with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')) \
-                    .props('outline color=grey-5' if is_grid else 'unelevated color=primary'):
+                    .props('outline color=grey-5' if is_grid else 'unelevated color=secondary'):
                     ui.tooltip('Show cards in a list layout')
 
             ui.space()
@@ -1734,7 +1733,7 @@ class CollectionPage:
             with ui.button(icon='settings', on_click=self.open_metrics_settings).props('flat color=white size=md'):
                 ui.tooltip('Header Metrics Settings')
 
-            with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg'):
+            with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=secondary size=lg'):
                 ui.tooltip('Open advanced filters')
 
     def open_metrics_settings(self):
@@ -1773,7 +1772,7 @@ class CollectionPage:
                         on_change=lambda e: [on_setting_change('price_preview', e.value), getattr(self, 'render_card_display', type('Dummy', (), {'refresh': lambda: None})).refresh()]).props('dark')
 
             with ui.row().classes('w-full justify-end q-mt-md'):
-                ui.button('Close', on_click=d.close).props('flat color=primary')
+                ui.button('Close', on_click=d.close).props('flat color=secondary')
         d.open()
 
     @ui.refreshable
@@ -1784,12 +1783,10 @@ class CollectionPage:
         if not any(config.values()) or not self.metrics:
             return
 
-        value_colors = {'positive': 'text-[#cba6f7]', 'info': 'text-[#89b4fa]'}
-
         def metric_card(label, value, icon, color='accent'):
-            with ui.card().classes('flex-1 p-5 gap-2 min-w-[180px] hover:border-[#cba6f7]/40 transition-colors'):
+            with ui.card().classes('oy-metric-card flex-1 p-5 gap-2 min-w-[180px] transition-colors'):
                 ui.label(label).classes('oy-label')
-                ui.label(str(value)).classes(f"oy-stat text-3xl {value_colors.get(color, 'text-white')}")
+                ui.label(str(value)).classes(f"oy-stat text-3xl {METRIC_VALUE_CLASSES.get(color, 'text-white')}")
 
         with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md'):
 
@@ -1813,7 +1810,7 @@ class CollectionPage:
                         with ui.row().classes('w-full gap-2 flex-wrap'):
                             sorted_rarities = sorted(self.metrics['rarity_dist'].items(), key=lambda x: x[1], reverse=True)
                             for r_name, r_count in sorted_rarities:
-                                ui.label(f"{r_name}: {r_count}").classes('bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-xs text-[#c9c1de]')
+                                ui.label(f"{r_name}: {r_count}").classes('bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-xs oy-text-body')
 
                 if config['language_breakdown'] and self.metrics['language_dist']:
                     with ui.card().classes('w-full p-4'):

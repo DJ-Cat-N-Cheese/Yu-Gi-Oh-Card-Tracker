@@ -22,7 +22,7 @@ def create_layout(content_function):
 
     try:
         current_path = ui.context.client.page.path
-    except Exception:
+    except (AttributeError, RuntimeError):
         current_path = ''
 
     def logout() -> None:

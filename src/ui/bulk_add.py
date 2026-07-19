@@ -10,6 +10,7 @@ from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.ui.components.structure_deck_dialog import StructureDeckDialog
+from src.ui.theme import page_header
 from src.core.models import ApiCardSet, Collection
 from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional, Any, Dict, Tuple
@@ -1348,7 +1349,7 @@ class BulkAddPage:
 
     async def on_collection_change(self, new_val):
         self.state['selected_collection'] = new_val
-        persistence.save_ui_state({'bulk_selected_collection': new_val})
+        await run.io_bound(persistence.save_ui_state, {'bulk_selected_collection': new_val})
         self.render_header.refresh()
         await self.load_collection_data()
 
@@ -1918,9 +1919,7 @@ class BulkAddPage:
     @ui.refreshable
     def render_header(self):
         with ui.row().classes('w-full items-center gap-4 mb-4'):
-             with ui.column().classes('gap-1 mr-2'):
-                ui.label('Bulk Add').classes('oy-h1')
-                ui.label('Drag cards to build your collection.').classes('oy-sub')
+             page_header('Bulk Add', 'Drag cards to build your collection.').classes('mr-2')
 
              cols = {c: c.replace('.json', '').replace('.yaml', '') for c in self.state['available_collections']}
              cols['__NEW_COLLECTION__'] = '+ New Collection'

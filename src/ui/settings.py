@@ -6,14 +6,15 @@ from src.core.config import config_manager
 from src.services.auth_service import AUTH_REVISION_KEY, auth_service
 from src.services.sample_generator import generate_sample_collection
 from src.services.ygo_api import ygo_service
+from src.ui.theme import page_header
 
 
 def settings_page() -> None:
     """Render application preferences, account security, and data tools."""
-    ui.label('Configuration').classes('oy-h1')
-    ui.label('Global preferences, credentials, and local database management.').classes(
-        'oy-sub q-mb-md'
-    )
+    page_header(
+        'Configuration',
+        'Global preferences, credentials, and local database management.',
+    ).classes('q-mb-md')
 
     with ui.grid(columns=1).classes('w-full gap-4 lg:grid-cols-2'):
         with ui.card().classes('w-full q-pa-lg'):

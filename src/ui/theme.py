@@ -6,11 +6,13 @@ CHART_COLORS = [
     '#6fcf7c', '#f38ba8', '#e8b34d', '#a79fc0', '#74c7ec',
 ]
 
-FONTS_HTML = """
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-"""
+METRIC_VALUE_CLASSES = {
+    'primary': 'text-white',
+    'secondary': 'oy-text-accent',
+    'accent': 'oy-text-blue',
+    'info': 'oy-text-blue',
+    'positive': 'oy-text-green',
+}
 
 GLOBAL_CSS = """
 <style>
@@ -24,6 +26,8 @@ GLOBAL_CSS = """
   --oy-body-text: #c9c1de;
   --oy-muted: #8f89a3;
   --oy-faint: #726d84;
+  --oy-soft: #a79fc0;
+  --oy-placeholder: #4c465e;
   --oy-accent: #cba6f7;
   --oy-accent-deep: #8a5ce8;
   --oy-blue: #89b4fa;
@@ -32,9 +36,9 @@ GLOBAL_CSS = """
   --oy-yellow: #f9e2af;
   --oy-gold: #e8b34d;
   --oy-ink: #14101d;
-  --oy-font-display: 'Space Grotesk', Inter, system-ui, sans-serif;
-  --oy-font-body: Inter, system-ui, sans-serif;
-  --oy-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --oy-font-display: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --oy-font-body: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --oy-font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 /* ---------- Base canvas ---------- */
@@ -130,7 +134,8 @@ a:hover { color: #e6d9fb; }
 .border-gray-600, .border-gray-700, .border-gray-800 { border-color: var(--oy-border) !important; }
 .hover\\:bg-gray-800:hover, .hover\\:bg-gray-700:hover { background: rgba(255,255,255,.05) !important; }
 .hover\\:border-gray-500:hover, .hover\\:border-gray-600:hover { border-color: rgba(203,166,247,.45) !important; }
-.text-gray-400, .text-grey-4, .text-grey-5 { color: var(--oy-muted) !important; }
+.text-gray-300 { color: var(--oy-body-text) !important; }
+.text-gray-400, .text-gray-600, .text-grey-4, .text-grey-5 { color: var(--oy-muted) !important; }
 .text-gray-500, .text-grey-6 { color: var(--oy-faint) !important; }
 
 /* Semantic accent remaps: set codes gold, prices green, warnings soft */
@@ -142,6 +147,28 @@ a:hover { color: #e6d9fb; }
 .text-purple-400 { color: var(--oy-accent) !important; }
 .font-mono { font-family: var(--oy-font-mono) !important; }
 
+/* Semantic utility classes for Python-rendered elements */
+.oy-text-accent { color: var(--oy-accent) !important; }
+.oy-text-blue { color: var(--oy-blue) !important; }
+.oy-text-green { color: var(--oy-green) !important; }
+.oy-text-gold { color: var(--oy-gold) !important; }
+.oy-text-body { color: var(--oy-body-text) !important; }
+.oy-text-muted { color: var(--oy-muted) !important; }
+.oy-text-faint { color: var(--oy-faint) !important; }
+.oy-text-soft { color: var(--oy-soft) !important; }
+.oy-text-placeholder { color: var(--oy-placeholder) !important; }
+.oy-interactive-muted { color: var(--oy-muted) !important; }
+.oy-interactive-muted:hover { color: var(--oy-text) !important; }
+.oy-accent-border-hover:hover { border-color: rgba(203,166,247,.45) !important; }
+.oy-metric-card:hover { border-color: rgba(203,166,247,.4) !important; }
+.oy-nav-card:hover { border-color: rgba(203,166,247,.45) !important; }
+.oy-nav-glow { background: rgba(203,166,247,.1); }
+.oy-nav-card:hover .oy-nav-glow { background: rgba(203,166,247,.2); }
+.oy-nav-card:hover .oy-nav-card-title { color: var(--oy-accent) !important; }
+.oy-add-storage:hover { border-color: rgba(203,166,247,.6) !important; }
+.oy-add-storage:hover .oy-add-storage-icon { color: var(--oy-accent) !important; }
+.oy-add-storage:hover .oy-add-storage-label { color: var(--oy-text) !important; }
+
 .q-separator { background: rgba(255,255,255,.08) !important; }
 
 /* ---------- Buttons ---------- */
@@ -152,10 +179,11 @@ a:hover { color: #e6d9fb; }
   text-transform: none;
 }
 .q-btn--rectangle { border-radius: 999px; }
-.q-btn.bg-primary, .q-btn.bg-secondary, .q-btn.bg-accent,
+.q-btn.bg-secondary, .q-btn.bg-accent,
 .q-btn.bg-positive, .q-btn.bg-negative, .q-btn.bg-info, .q-btn.bg-warning {
   color: var(--oy-ink) !important;
 }
+.q-btn.bg-primary { color: var(--oy-text) !important; }
 .q-btn.bg-green { background: var(--oy-green) !important; color: var(--oy-ink) !important; }
 .q-btn.bg-red { background: var(--oy-red) !important; color: var(--oy-ink) !important; }
 .q-btn.bg-orange { background: var(--oy-gold) !important; color: var(--oy-ink) !important; }
@@ -177,11 +205,13 @@ a:hover { color: #e6d9fb; }
 .q-uploader__list { background: transparent; }
 
 /* Chips on light accent backgrounds need dark ink text */
-.q-chip.bg-primary, .q-chip.bg-secondary, .q-chip.bg-accent,
+.q-chip.bg-secondary, .q-chip.bg-accent,
 .q-chip.bg-positive, .q-chip.bg-warning {
   color: var(--oy-ink) !important;
 }
-.q-chip.bg-primary .q-icon, .q-chip.bg-secondary .q-icon,
+.q-chip.bg-primary { color: var(--oy-text) !important; }
+.q-chip.bg-primary .q-icon { color: var(--oy-text) !important; }
+.q-chip.bg-secondary .q-icon,
 .q-chip.bg-accent .q-icon, .q-chip.bg-positive .q-icon, .q-chip.bg-warning .q-icon {
   color: var(--oy-ink) !important;
 }
@@ -308,7 +338,7 @@ a:hover { color: #e6d9fb; }
 def apply_theme():
     """Applies the global color theme and editorial design system."""
     ui.colors(
-        primary='#cba6f7',   # Accent purple (main actions)
+        primary='#1e1e2e',   # Dark background
         secondary='#cba6f7', # Accent purple
         accent='#89b4fa',    # Accent blue
         dark='#12101a',      # Dark surface
@@ -317,14 +347,20 @@ def apply_theme():
         info='#89b4fa',      # Blue
         warning='#f9e2af'    # Yellow
     )
-    ui.add_head_html(FONTS_HTML + GLOBAL_CSS)
     # Force dark mode for the page
     ui.dark_mode().enable()
 
 
+def install_global_styles() -> None:
+    """Install the design system once for all NiceGUI pages."""
+    ui.add_head_html(GLOBAL_CSS, shared=True)
+
+
 def page_header(title: str, subtitle: str | None = None):
     """Standard oversized editorial page heading."""
-    with ui.column().classes('gap-1'):
+    header = ui.column().classes('gap-1')
+    with header:
         ui.label(title).classes('oy-h1')
         if subtitle:
             ui.label(subtitle).classes('oy-sub')
+    return header

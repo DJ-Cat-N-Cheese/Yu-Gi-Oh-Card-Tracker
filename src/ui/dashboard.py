@@ -3,7 +3,7 @@ from src.core.persistence import persistence
 from src.services.ygo_api import ygo_service
 from src.core.config import config_manager
 from src.services.pricing_service import PricingService
-from src.ui.theme import CHART_COLORS
+from src.ui.theme import CHART_COLORS, METRIC_VALUE_CLASSES, page_header
 import logging
 
 logger = logging.getLogger(__name__)
@@ -131,27 +131,19 @@ async def load_dashboard_data(filename=None):
         logger.error(f"Error loading dashboard data: {e}")
         return None, [], None
 
-METRIC_VALUE_COLORS = {
-    'primary': 'text-white',
-    'secondary': 'text-[#cba6f7]',
-    'accent': 'text-[#89b4fa]',
-    'info': 'text-[#89b4fa]',
-    'positive': 'text-[#6fcf7c]',
-}
-
 def metric_card(label, value, icon, color='accent', sub_text=None):
-    with ui.card().classes('flex-1 p-5 gap-2 min-w-[180px] hover:border-[#cba6f7]/40 transition-colors'):
+    with ui.card().classes('oy-metric-card flex-1 p-5 gap-2 min-w-[180px] transition-colors'):
         ui.label(label).classes('oy-label')
-        ui.label(str(value)).classes(f"oy-stat {METRIC_VALUE_COLORS.get(color, 'text-white')}")
+        ui.label(str(value)).classes(f"oy-stat {METRIC_VALUE_CLASSES.get(color, 'text-white')}")
         if sub_text:
-            ui.label(sub_text).classes('text-xs text-[#726d84]')
+            ui.label(sub_text).classes('text-xs oy-text-faint')
 
 def nav_card(title, description, icon, target_url, color_class='text-accent', is_large=False):
-    with ui.card().classes('group relative overflow-hidden p-6 cursor-pointer hover:border-[#cba6f7]/45 hover:bg-white/[.05] transition-all duration-300') \
+    with ui.card().classes('oy-nav-card group relative overflow-hidden p-6 cursor-pointer hover:bg-white/[.05] transition-all duration-300') \
             .on('click', lambda: ui.navigate.to(target_url)):
 
         # Hover glow effect
-        ui.element('div').classes('absolute -right-6 -top-6 w-24 h-24 bg-[#cba6f7]/10 rounded-full blur-xl group-hover:bg-[#cba6f7]/20 transition-all')
+        ui.element('div').classes('oy-nav-glow absolute -right-6 -top-6 w-24 h-24 rounded-full blur-xl transition-all')
 
         with ui.row().classes('w-full items-start justify-between q-mb-md'):
             with ui.element('div').classes('p-3 rounded-lg bg-white/5 group-hover:bg-white/10 transition-colors'):
@@ -162,7 +154,7 @@ def nav_card(title, description, icon, target_url, color_class='text-accent', is
         title_size = 'text-2xl' if is_large else 'text-xl'
         desc_size = 'text-base' if is_large else 'text-sm'
 
-        ui.label(title).classes(f'oy-display {title_size} font-bold text-white q-mb-sm group-hover:text-[#cba6f7] transition-colors')
+        ui.label(title).classes(f'oy-nav-card-title oy-display {title_size} font-bold text-white q-mb-sm transition-colors')
         ui.label(description).classes(f'{desc_size} text-gray-400 leading-relaxed')
 
 @ui.refreshable
@@ -305,9 +297,7 @@ def dashboard_page():
 
             # --- Header & Dropdown ---
             with ui.element('div').classes('flex flex-col md:flex-row w-full items-start md:items-center justify-between gap-4'):
-                with ui.column().classes('gap-1'):
-                    ui.label('Dashboard').classes('oy-h1')
-                    ui.label("Welcome back — here's your collection at a glance.").classes('oy-sub')
+                page_header('Dashboard', "Welcome back — here's your collection at a glance.")
 
                 with ui.element('div').classes('flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto'):
                     # Collection Dropdown

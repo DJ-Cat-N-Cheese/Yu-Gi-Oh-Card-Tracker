@@ -15,6 +15,7 @@ from src.core.constants import RARITY_ABBREVIATIONS
 from src.services.ygo_api import ygo_service
 from src.services.collection_editor import CollectionEditor
 from src.services.cardmarket_parser import CardmarketParser, ParsedRow
+from src.ui.theme import page_header
 
 logger = logging.getLogger(__name__)
 
@@ -1188,7 +1189,7 @@ class UnifiedImportController:
                     self.refresh_status_ui()
                     dialog.close()
 
-                ui.button("Confirm Resolution", on_click=confirm).classes('bg-primary text-white')
+                ui.button("Confirm Resolution", on_click=confirm).classes('bg-secondary text-black')
 
         dialog.open()
 
@@ -1273,7 +1274,7 @@ class UnifiedImportController:
                     self.refresh_status_ui()
                     dialog.close()
 
-                ui.button("Update Selection", on_click=confirm).classes('bg-primary text-white')
+                ui.button("Update Selection", on_click=confirm).classes('bg-secondary text-black')
 
         dialog.open()
 
@@ -1394,9 +1395,10 @@ def import_tools_page():
     merge_controller = MergeController()
 
     with ui.column().classes('w-full q-pa-md gap-6'):
-        with ui.column().classes('gap-1'):
-            ui.label('Import Tools').classes('oy-h1')
-            ui.label('Bring in a JSON backup, a Cardmarket export, or merge two collections.').classes('oy-sub')
+        page_header(
+            'Import Tools',
+            'Bring in a JSON backup, a Cardmarket export, or merge two collections.',
+        )
 
         # --- UNIFIED IMPORT CARD ---
         with ui.card().classes('w-full p-6'):
@@ -1467,7 +1469,7 @@ def import_tools_page():
                         .props('outline color=warning')
 
                     controller.import_btn = ui.button('Import', on_click=controller.apply_import) \
-                        .props('color=primary rounded unelevated').classes('text-lg px-8')
+                        .props('color=secondary rounded unelevated').classes('text-lg px-8')
                     controller.import_btn.enabled = False
 
         # --- MERGE CARD ---
@@ -1481,4 +1483,4 @@ def import_tools_page():
                 ui.input(label='New Name', on_change=lambda e: setattr(merge_controller, 'new_name', e.value)).props('dark')
 
             with ui.row().classes('w-full justify-end q-mt-md'):
-                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').props('color=primary rounded unelevated')
+                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').props('color=secondary rounded unelevated')

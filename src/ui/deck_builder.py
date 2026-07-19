@@ -9,6 +9,7 @@ from src.services.image_manager import image_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Set
 import logging
@@ -505,7 +506,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
-            lang_code = config_manager.get_language().lower()
+            lang_code = (config_manager.get_language() or 'en').lower()
             self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Load Decks List
@@ -661,7 +662,7 @@ class DeckBuilderPage:
 
             with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
                 ui.button('Cancel', on_click=d.close).props('flat')
-                ui.button('Move', on_click=move).props('color=primary')
+                ui.button('Move', on_click=move).props('color=secondary')
         d.open()
 
     async def create_new_deck(self, name):
@@ -1054,9 +1055,7 @@ class DeckBuilderPage:
     @ui.refreshable
     def render_header(self):
         with ui.row().classes('w-full items-center gap-4 q-mb-md'):
-            with ui.column().classes('gap-1 mr-2'):
-                ui.label('Deck Builder').classes('oy-h1')
-                ui.label('Build decks straight from the cards you own.').classes('oy-sub')
+            page_header('Deck Builder', 'Build decks straight from the cards you own.').classes('mr-2')
 
             deck_groups = list(self.state['available_deck_groups'] or ['main'])
             if self.state['current_deck_group'] not in deck_groups:
@@ -1151,7 +1150,7 @@ class DeckBuilderPage:
                             logger.error(f"Error saving deck: {e}")
                             ui.notify(f"Error saving: {e}", type='negative')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_deck_as).props('flat round color=white').tooltip('Save Deck As')
@@ -1276,7 +1275,7 @@ class DeckBuilderPage:
                         d.close()
                         ui.notify(f"Saved banlist: {name_input.value}", type='positive')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_banlist_as).props('flat round color=white').tooltip('Save Banlist As')
@@ -1705,7 +1704,7 @@ class DeckBuilderPage:
             with ui.row().classes('gap-2 items-center'):
                 ui.label(title).classes('oy-display font-semibold text-white text-[13px] uppercase tracking-wider')
                 # Initialize label with placeholder
-                lbl = ui.label('(0)').classes('text-[13px] text-[#726d84]')
+                lbl = ui.label('(0)').classes('text-[13px] oy-text-faint')
                 if not hasattr(self, 'header_count_labels'): self.header_count_labels = {}
                 self.header_count_labels[target] = lbl
 

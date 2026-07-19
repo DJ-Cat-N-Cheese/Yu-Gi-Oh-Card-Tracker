@@ -26,6 +26,7 @@ from src.services.image_manager import image_manager
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from src.core import config_manager
 from src.core.config import config_manager as app_config
 from src.core.changelog_manager import changelog_manager
@@ -488,7 +489,7 @@ class ScanPage:
              if self.collections:
                  async def on_col_change(e):
                      self.target_collection_file = e.value
-                     persistence.save_ui_state({'scan_target_collection': e.value})
+                     await run.io_bound(persistence.save_ui_state, {'scan_target_collection': e.value})
                      self.check_undo_add_all_availability()
                      await self.load_target_collection_storage()
 
@@ -1914,7 +1915,7 @@ class ScanPage:
 
         # Header Stats
         with ui.row().classes('w-full items-center justify-between mb-2'):
-            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-primary')
+            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-secondary')
 
             # Show Detected Features prominently
             with ui.row().classes('gap-4'):
@@ -1995,7 +1996,7 @@ class ScanPage:
 
         with ui.card().classes('w-full border border-gray-600 rounded p-0'):
              with ui.row().classes('w-full bg-gray-800 p-2 items-center'):
-                 ui.icon('list', color='primary')
+                 ui.icon('list', color='secondary')
                  ui.label(f"Scan Queue ({len(queue_items)})").classes('font-bold')
 
              if not queue_items:
@@ -2065,7 +2066,7 @@ class ScanPage:
 
             # --- CARD 1: CONTROLS & INPUT ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-primary')
+                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-secondary')
                 self.render_status_controls()
 
                 # Configuration Section
@@ -2136,7 +2137,7 @@ class ScanPage:
 
             # --- CARD 2: VISUAL ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-primary')
+                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-secondary')
                 self.render_debug_analysis()
 
             # --- CARD 3: RESULTS ---
@@ -2199,9 +2200,7 @@ def scan_page():
         ui.run_javascript(f'setRotation({page.rotation})')
 
     with ui.row().classes('w-full items-end justify-between q-mb-sm'):
-        with ui.column().classes('gap-1'):
-            ui.label('Scan Cards').classes('oy-h1')
-            ui.label('Local AI webcam scanner · zero cloud uploads.').classes('oy-sub')
+        page_header('Scan Cards', 'Local AI webcam scanner · zero cloud uploads.')
 
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
@@ -2240,7 +2239,7 @@ def scan_page():
                         ui.html('<img id="scan-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; transition: opacity 0.2s ease-out;">', sanitize=False)
 
                     # Capture Button
-                    ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=primary size=lg id=btn-live-scan').classes('w-full font-bold')
+                    ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=secondary size=lg id=btn-live-scan').classes('w-full font-bold')
 
                 # RIGHT PANEL: Recent Scans Gallery
                 with ui.column().classes('w-1/2 h-full bg-dark border-l border-gray-800 flex flex-col overflow-hidden'):
