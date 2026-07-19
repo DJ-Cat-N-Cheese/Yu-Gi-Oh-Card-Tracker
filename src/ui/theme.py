@@ -280,6 +280,148 @@ a:hover { color: #e6d9fb; }
 }
 .q-notification { border-radius: 12px; font-family: var(--oy-font-body); }
 
+/* ---------- Single-card views ---------- */
+.oy-single-card-dialog,
+.q-dialog .q-card.oy-single-card-dialog {
+  background:
+    radial-gradient(900px 520px at 5% 8%, rgba(138,92,232,.16), transparent 62%),
+    linear-gradient(135deg, #0d0b17 0%, #12101d 48%, #0a0912 100%);
+  border: 0;
+  border-radius: 0;
+  color: var(--oy-body-text);
+}
+.oy-single-card-shell { background: transparent; }
+.oy-single-card-art {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(203,166,247,.13), transparent 42%),
+    linear-gradient(155deg, rgba(255,255,255,.035), rgba(0,0,0,.2));
+  border-right: 1px solid var(--oy-border);
+  overflow: hidden;
+}
+.oy-single-card-art::after {
+  content: '';
+  position: absolute;
+  inset: 9%;
+  border: 1px solid rgba(203,166,247,.08);
+  border-radius: 24px;
+  pointer-events: none;
+}
+.oy-single-card-image {
+  z-index: 1;
+  border-radius: 10px;
+  filter: drop-shadow(0 24px 38px rgba(0,0,0,.52));
+}
+.oy-single-card-content { background: transparent; }
+.oy-single-card-close {
+  background: rgba(10,9,18,.72) !important;
+  border: 1px solid rgba(255,255,255,.12);
+  color: var(--oy-soft) !important;
+  backdrop-filter: blur(10px);
+  transition: background .15s, border-color .15s, color .15s;
+}
+.oy-single-card-close:hover {
+  background: rgba(203,166,247,.14) !important;
+  border-color: rgba(203,166,247,.42);
+  color: var(--oy-text) !important;
+}
+.oy-single-card-title {
+  font-family: var(--oy-font-display);
+  color: var(--oy-text);
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -.45px;
+}
+.oy-single-card-meta {
+  font-family: var(--oy-font-mono);
+  color: var(--oy-faint);
+  font-size: 11px;
+}
+.oy-single-card-panel,
+.q-card.oy-single-card-panel {
+  background: rgba(255,255,255,.032);
+  border: 1px solid var(--oy-border);
+  border-radius: 14px;
+  box-shadow: none;
+}
+.oy-single-card-stat {
+  min-width: 0;
+  padding: 13px 14px;
+  gap: 4px;
+  background: rgba(255,255,255,.028);
+  border: 1px solid rgba(255,255,255,.065);
+  border-radius: 11px;
+}
+.oy-single-card-stat-label {
+  color: var(--oy-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.1px;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+.oy-single-card-stat-value {
+  color: var(--oy-text);
+  font-family: var(--oy-font-display);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.oy-single-card-effect {
+  color: var(--oy-body-text);
+  font-size: 16px;
+  line-height: 1.72;
+}
+.oy-single-card-status .q-chip {
+  background: rgba(203,166,247,.11) !important;
+  border: 1px solid rgba(203,166,247,.2);
+  color: #e8def7 !important;
+}
+.oy-single-card-status .q-chip .q-icon { color: var(--oy-accent) !important; }
+.oy-single-card-owned {
+  color: var(--oy-accent);
+  font-family: var(--oy-font-display);
+  font-weight: 700;
+}
+.oy-single-card-inventory,
+.q-card.oy-single-card-inventory { background: rgba(203,166,247,.035); }
+.oy-single-card-set-list { overflow: hidden; }
+.oy-single-card-set-header {
+  background: rgba(203,166,247,.07);
+  border-bottom: 1px solid var(--oy-border);
+  color: var(--oy-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+.oy-single-card-set-row {
+  border-bottom: 1px solid rgba(255,255,255,.055);
+  color: var(--oy-body-text);
+}
+.oy-single-card-set-row:last-child { border-bottom: 0; }
+.oy-single-card-set-row:hover { background: rgba(255,255,255,.025); }
+.oy-single-card-chart {
+  background: rgba(255,255,255,.02);
+  border: 1px solid var(--oy-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.oy-single-card-table-header { background: rgba(203,166,247,.07); }
+.oy-single-card-table-row {
+  border-bottom: 1px solid rgba(255,255,255,.055);
+  transition: background .15s;
+}
+.oy-single-card-table-row:hover { background: rgba(203,166,247,.055); }
+
+@media (max-width: 639px) {
+  .oy-single-card-art {
+    border-right: 0;
+    border-bottom: 1px solid var(--oy-border);
+  }
+  .oy-single-card-art::after { inset: 6%; }
+}
+
 /* ---------- Shell (drawer + header) ---------- */
 .q-drawer {
   background: rgba(15,13,24,.85);
