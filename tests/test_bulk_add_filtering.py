@@ -169,5 +169,19 @@ class TestBulkAddFiltering(unittest.TestCase):
         self.page._refresh_library_page_entries()
         self.assertEqual(self.page.state['library_filtered'][0].api_card.name, "Card 010")
 
+    def test_clearable_search_and_rarity_filters_accept_none(self):
+        self.page.state['library_cards'] = []
+        self.page.state['library_search_text'] = None
+        self.page.state['filter_rarity'] = None
+        asyncio.run(self.page.apply_library_filters())
+
+        self.page.col_state['collection_cards'] = []
+        self.page.col_state['search_text'] = None
+        self.page.col_state['filter_rarity'] = None
+        asyncio.run(self.page.apply_collection_filters())
+
+        self.assertEqual(self.page.state['library_filtered'], [])
+        self.assertEqual(self.page.col_state['collection_filtered'], [])
+
 if __name__ == '__main__':
     unittest.main()

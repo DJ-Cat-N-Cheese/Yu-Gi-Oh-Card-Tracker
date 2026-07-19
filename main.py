@@ -22,12 +22,14 @@ from src.ui.db_editor import db_editor_page
 from src.ui.storage import storage_page
 from src.ui.auth import complete_login_callback, login_page
 from src.ui.settings import settings_page
+from src.ui.theme import install_global_styles
 from src.api.routes import router as api_router
 from src.services.auth_middleware import AuthenticationMiddleware
 from src.services.auth_service import get_storage_secret
 
 app.include_router(api_router)
 app.add_middleware(AuthenticationMiddleware)
+install_global_styles()
 
 @ui.page('/login')
 def login(request: Request):

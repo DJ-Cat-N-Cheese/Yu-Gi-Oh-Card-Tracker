@@ -302,7 +302,7 @@ class SingleCardView:
                                          d.close()
                                          # Proceed with MOVE
                                          await on_save_callback(mode, matched_variant_id, quantity_override=quantity_override, storage_location=input_state.get('storage_location'))
-                                     ui.button('Merge', on_click=do_merge).props('color=primary')
+                                     ui.button('Merge', on_click=do_merge).props('color=secondary')
                              d.open()
                              return
 
@@ -347,7 +347,7 @@ class SingleCardView:
 
     def _render_available_sets(self, card: ApiCard):
         ui.separator().classes('q-my-md')
-        ui.label('Available Sets').classes('text-h6 q-mb-sm select-none text-accent')
+        ui.label('Available Sets').classes('oy-seclabel q-mb-sm select-none')
 
         if card.card_sets:
             with ui.grid(columns=4).classes('w-full gap-2 text-sm'):
@@ -417,7 +417,7 @@ class SingleCardView:
 
                     with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
                         with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
+                            ui.label(card.name).classes('oy-display text-2xl sm:text-4xl font-bold text-white select-text')
 
                         ui.separator().classes('q-my-md bg-gray-700')
 
@@ -452,13 +452,13 @@ class SingleCardView:
                                 ui.label(' / '.join(card.typeline)).classes('text-gray-400 text-sm mt-2 select-text')
 
                         ui.separator().classes('q-my-md')
-                        ui.label('Effect').classes('text-h6 q-mb-sm select-none text-accent')
+                        ui.label('Effect').classes('oy-seclabel q-mb-sm select-none')
                         ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg select-text')
                         ui.separator().classes('q-my-md')
 
-                        ui.label('Collection Status').classes('text-h6 q-mb-sm select-none text-accent')
+                        ui.label('Collection Status').classes('oy-seclabel q-mb-sm select-none')
                         with ui.row().classes('gap-2 items-center'):
-                            with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
+                            with ui.chip(icon='format_list_numbered').props('color=secondary text-color=black'):
                                 ui.label(f"Total: {total_owned}").classes('select-text')
 
                             if owned_breakdown:
@@ -658,7 +658,7 @@ class SingleCardView:
 
                     with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
                         with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
+                            ui.label(card.name).classes('oy-display text-2xl sm:text-4xl font-bold text-white select-text')
 
                         initial_owned_qty, initial_owned_text = get_ownership_text(
                             initial_base_code, rarity, image_id, language, condition, first_edition
@@ -716,7 +716,7 @@ class SingleCardView:
                         ui.separator().classes('q-my-md bg-gray-700')
 
                         # Market Prices
-                        ui.label('Market Prices').classes('text-h6 q-mb-sm select-none text-accent')
+                        ui.label('Market Prices').classes('oy-seclabel q-mb-sm select-none')
                         with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 gap-4 w-full'):
                                 tcg_price = '-'
                                 cm_price = '-'
@@ -976,9 +976,9 @@ class SingleCardView:
                          ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg q-mb-md')
 
                          ui.separator().classes('q-my-md bg-gray-700')
-                         ui.label('Collection Status').classes('text-h6 q-mb-sm select-none text-accent')
+                         ui.label('Collection Status').classes('oy-seclabel q-mb-sm select-none')
                          with ui.row().classes('gap-2 items-center'):
-                             with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
+                             with ui.chip(icon='format_list_numbered').props('color=secondary text-color=black'):
                                  ui.label(f"Total: {owned_count}").classes('select-text')
 
                              if owned_breakdown:
@@ -1013,7 +1013,7 @@ class SingleCardView:
                          ui.separator().classes('q-my-md bg-gray-700')
 
                          # Add to Deck Section
-                         ui.label('Add to Deck').classes('text-h6 q-mb-sm text-accent')
+                         ui.label('Add to Deck').classes('oy-seclabel q-mb-sm')
 
                          qty_input = ui.number('Quantity', value=1, min=1, max=3).classes('w-32').props('dark')
 
@@ -1486,7 +1486,7 @@ class SingleCardView:
                     # --- Right Column: List & Controls ---
                     with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
                         # Header
-                        ui.label(f"Consolidated View: {card.name}").classes('text-3xl font-bold text-white q-mb-md')
+                        ui.label(f"Consolidated View: {card.name}").classes('oy-display text-3xl font-bold text-white q-mb-md')
                         ui.label(f"Card ID: {card.id}").classes('text-xs text-gray-500 font-mono q-mb-xs')
                         ui.label(f"Total Variants: {len(sorted_variants)}").classes('text-gray-400 q-mb-lg')
 
@@ -1628,7 +1628,7 @@ class SingleCardView:
                                     await on_add_variant(selected_objs, state['selected_image_id'])
                                     d.close()
 
-                                ui.button('Apply Art', on_click=do_apply).props('color=primary icon=brush')
+                                ui.button('Apply Art', on_click=do_apply).props('color=secondary icon=brush')
                                 ui.button('Add as New Variant', on_click=do_add).props('color=secondary icon=add_circle')
 
         except Exception as e:

@@ -23,6 +23,7 @@ class TestDeckBuilderLogic(unittest.TestCase):
         self.persistence_mock = self.persistence_patcher.start()
         self.persistence_mock.load_ui_state.return_value = {}
         self.persistence_mock.list_decks.return_value = []
+        self.persistence_mock.list_deck_groups.return_value = ['main']
         self.persistence_mock.list_collections.return_value = []
 
         self.config_patcher = patch('src.ui.deck_builder.config_manager')
@@ -148,6 +149,32 @@ class TestDeckBuilderLogic(unittest.TestCase):
         # No match
         self.assertFalse(self.page._is_duplicate_deck("NewDeck"))
         self.assertFalse(self.page._is_duplicate_deck("MyDeck2"))
+
+    def test_clearable_filters_accept_none(self):
+        self.page.state['all_api_cards'] = []
+        self.page.state['search_text'] = None
+        self.page.state['filter_set'] = None
+        self.page.state['filter_rarity'] = None
+
+        asyncio.run(self.page.apply_filters())
+
+        self.assertEqual(self.page.state['filtered_items'], [])
+
+    def test_initial_load_defaults_missing_language_to_english(self):
+        self.config_mock.get_language.return_value = None
+        self.page.filter_pane = MagicMock()
+
+        with patch('src.ui.deck_builder.ygo_service') as ygo_service_mock, \
+             patch('src.ui.deck_builder.banlist_service') as banlist_service_mock:
+            ygo_service_mock.load_card_database = AsyncMock(return_value=[])
+            ygo_service_mock.get_filter_metadata = AsyncMock(return_value={})
+            banlist_service_mock.get_banlists.return_value = {'TCG': {}}
+            banlist_service_mock.load_banlist = AsyncMock(return_value={})
+
+            asyncio.run(self.page.load_initial_data())
+
+        ygo_service_mock.get_filter_metadata.assert_awaited_once_with('en')
+        self.assertFalse(self.page.state['loading'])
 
 if __name__ == '__main__':
     unittest.main()

@@ -10,6 +10,7 @@ from src.core.constants import CARD_CONDITIONS, CONDITION_ABBREVIATIONS
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
 from src.ui.components.structure_deck_dialog import StructureDeckDialog
+from src.ui.theme import page_header
 from src.core.models import ApiCardSet, Collection
 from dataclasses import dataclass
 from typing import Iterable, Iterator, List, Optional, Any, Dict, Tuple
@@ -1348,7 +1349,7 @@ class BulkAddPage:
 
     async def on_collection_change(self, new_val):
         self.state['selected_collection'] = new_val
-        persistence.save_ui_state({'bulk_selected_collection': new_val})
+        await run.io_bound(persistence.save_ui_state, {'bulk_selected_collection': new_val})
         self.render_header.refresh()
         await self.load_collection_data()
 
@@ -1543,7 +1544,7 @@ class BulkAddPage:
     async def apply_library_filters(self):
         source = self.state['library_cards']
         s = self.state
-        text = s['library_search_text'].lower()
+        text = (s['library_search_text'] or '').lower()
         set_name_target = ''
         set_code_target = ''
         if s['filter_set']:
@@ -1558,7 +1559,7 @@ class BulkAddPage:
             'text': text,
             'set_name_target': set_name_target,
             'set_code_target': set_code_target,
-            'rarity': s['filter_rarity'].lower(),
+            'rarity': (s['filter_rarity'] or '').lower(),
             'price_active': price_min > 0 or price_max < 1000,
             'price_min': price_min,
             'price_max': price_max,
@@ -1676,7 +1677,7 @@ class BulkAddPage:
     async def apply_collection_filters(self, reset_page=True):
         source = self.col_state['collection_cards']
         s = self.col_state
-        text = s['search_text'].lower()
+        text = (s['search_text'] or '').lower()
         set_name_target = ''
         set_code_target = ''
         if s['filter_set']:
@@ -1685,7 +1686,7 @@ class BulkAddPage:
             set_code_target = parts[1].strip().lower() if len(parts) > 1 else ''
 
         card_types = s['filter_card_type']
-        rarity = s['filter_rarity'].lower()
+        rarity = (s['filter_rarity'] or '').lower()
         categories = s['filter_monster_category']
         conditions = set(s['filter_condition'])
         storage_locations = set(s['filter_storage'])
@@ -1917,12 +1918,8 @@ class BulkAddPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 p-4 bg-gray-900 rounded-lg border border-gray-800 mb-4 shadow-lg'):
-             with ui.column().classes('gap-0'):
-                ui.label('Bulk Add').classes('text-h5 font-bold leading-none')
-                ui.label('Drag cards to build your collection').classes('text-xs text-gray-400')
-
-             ui.separator().props('vertical')
+        with ui.row().classes('w-full items-center gap-4 mb-4'):
+             page_header('Bulk Add', 'Drag cards to build your collection.').classes('mr-2')
 
              cols = {c: c.replace('.json', '').replace('.yaml', '') for c in self.state['available_collections']}
              cols['__NEW_COLLECTION__'] = '+ New Collection'
@@ -1936,8 +1933,6 @@ class BulkAddPage:
              ui.select(cols, label='Target Collection', value=self.state['selected_collection'],
                        on_change=handle_col_change).classes('w-48')
 
-             ui.separator().props('vertical')
-
              storage_opts = {None: 'None'}
              if self.current_collection_obj:
                  for s in self.current_collection_obj.storage_definitions:
@@ -1947,8 +1942,8 @@ class BulkAddPage:
              if self.state['default_storage'] not in storage_opts:
                  self.state['default_storage'] = None
 
-             with ui.row().classes('items-center gap-2 bg-gray-800 p-2 rounded border border-gray-700'):
-                 ui.label('Defaults:').classes('text-accent font-bold text-xs uppercase mr-2')
+             with ui.row().classes('items-center gap-2'):
+                 ui.label('DEFAULTS').classes('oy-label mr-2')
                  ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
                            value=self.state['default_language'],
                            on_change=lambda e: [self.state.update({'default_language': e.value}), persistence.save_ui_state({'bulk_default_lang': e.value})]).props('dense options-dense').classes('w-20')
@@ -2140,10 +2135,10 @@ class BulkAddPage:
 
         with ui.row().classes('w-full h-[calc(100vh-140px)] gap-4 flex-nowrap relative z-[60]').props('id="bulk-add-container"').on('card_drop', self.handle_drop):
             # Left: Library
-            with ui.column().classes('w-1/2 h-full bg-dark border border-gray-800 rounded flex flex-col overflow-hidden'):
+            with ui.column().classes('w-1/2 h-full oy-card flex flex-col overflow-hidden'):
                 # Header
-                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
-                    ui.label('Library').classes('text-h6 font-bold')
+                with ui.row().classes('w-full p-2 bg-white/[.03] border-b border-white/10 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+                    ui.label('Library').classes('oy-display text-base font-semibold text-white px-2')
                     with ui.row().classes('items-center gap-1 flex-nowrap'):
                         ui.button("Add All", on_click=self.on_add_all_click).props('flat dense color=positive size=sm')
 
@@ -2191,10 +2186,10 @@ class BulkAddPage:
                          self.render_library_content()
 
             # Right: Collection
-            with ui.column().classes('w-1/2 h-full bg-dark border border-gray-800 rounded flex flex-col overflow-hidden'):
+            with ui.column().classes('w-1/2 h-full oy-card flex flex-col overflow-hidden'):
                 # Header
-                with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
-                    ui.label('Collection').classes('text-h6 font-bold')
+                with ui.row().classes('w-full p-2 bg-white/[.03] border-b border-white/10 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+                    ui.label('Collection').classes('oy-display text-base font-semibold text-white px-2')
                     with ui.row().classes('items-center gap-1 flex-nowrap'):
                         # Update Controls
                         with ui.row().classes('gap-1 items-center bg-gray-800 rounded px-1 border border-gray-700'):

@@ -114,10 +114,10 @@ def login_page(next_path: str | None = None) -> None:
             submit.props(remove='loading disable')
 
     with ui.column().classes('absolute-center items-center w-full q-px-md'):
-        with ui.card().classes('w-full max-w-md q-pa-lg shadow-12'):
-            ui.label('OpenYuGi').classes('text-h4 text-weight-bold text-center w-full')
+        with ui.card().classes('w-full max-w-md q-pa-lg gap-1'):
+            ui.label('OpenYuGi').classes('oy-logo text-[26px] text-center w-full')
             ui.label('Sign in to manage your collection').classes(
-                'text-subtitle1 text-grey-5 text-center w-full q-mb-md'
+                'oy-sub text-center w-full q-mb-md'
             )
             username = ui.input('Username', value='').props(
                 'outlined autocomplete=username autofocus'
@@ -127,5 +127,5 @@ def login_page(next_path: str | None = None) -> None:
             ).classes('w-full')
             password.on('keydown.enter', login)
             submit = ui.button('Sign in', icon='login', on_click=login).props(
-                'color=secondary size=lg'
+                'color=secondary size=lg rounded unelevated'
             ).classes('w-full q-mt-md')

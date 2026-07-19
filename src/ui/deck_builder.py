@@ -9,6 +9,7 @@ from src.services.image_manager import image_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Set
 import logging
@@ -505,6 +506,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
+            lang_code = (config_manager.get_language() or 'en').lower()
             self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Load Decks List
@@ -660,7 +662,7 @@ class DeckBuilderPage:
 
             with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
                 ui.button('Cancel', on_click=d.close).props('flat')
-                ui.button('Move', on_click=move).props('color=primary')
+                ui.button('Move', on_click=move).props('color=secondary')
         d.open()
 
     async def create_new_deck(self, name):
@@ -745,12 +747,12 @@ class DeckBuilderPage:
         ref_col = self.state['reference_collection']
         owned_map = {card.card_id: card for card in ref_col.cards} if ref_col else {}
         state = self.state
-        text = state['search_text'].lower()
+        text = (state['search_text'] or '').lower()
         card_types = state['filter_card_type']
         if isinstance(card_types, str):
             card_types = [card_types]
-        set_target = state['filter_set'].split('|')[0].strip().lower()
-        rarity_target = state['filter_rarity'].lower()
+        set_target = (state['filter_set'] or '').split('|')[0].strip().lower()
+        rarity_target = (state['filter_rarity'] or '').lower()
         categories = state['filter_monster_category']
         level = int(state['filter_level']) if state['filter_level'] is not None else None
         atk_min, atk_max = state['filter_atk_min'], state['filter_atk_max']
@@ -1052,8 +1054,8 @@ class DeckBuilderPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Deck Builder').classes('text-h5')
+        with ui.row().classes('w-full items-center gap-4 q-mb-md'):
+            page_header('Deck Builder', 'Build decks straight from the cards you own.').classes('mr-2')
 
             deck_groups = list(self.state['available_deck_groups'] or ['main'])
             if self.state['current_deck_group'] not in deck_groups:
@@ -1148,7 +1150,7 @@ class DeckBuilderPage:
                             logger.error(f"Error saving deck: {e}")
                             ui.notify(f"Error saving: {e}", type='negative')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_deck_as).props('flat round color=white').tooltip('Save Deck As')
@@ -1273,7 +1275,7 @@ class DeckBuilderPage:
                         d.close()
                         ui.notify(f"Saved banlist: {name_input.value}", type='positive')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_banlist_as).props('flat round color=white').tooltip('Save Banlist As')
@@ -1699,10 +1701,10 @@ class DeckBuilderPage:
 
     def setup_header(self, title, target):
         with ui.row().classes('w-full items-center justify-between q-mb-sm'):
-            with ui.row().classes('gap-1 items-center'):
-                ui.label(title).classes('font-bold text-white text-xs uppercase tracking-wider')
+            with ui.row().classes('gap-2 items-center'):
+                ui.label(title).classes('oy-display font-semibold text-white text-[13px] uppercase tracking-wider')
                 # Initialize label with placeholder
-                lbl = ui.label('(0)').classes('font-bold text-white text-xs uppercase tracking-wider')
+                lbl = ui.label('(0)').classes('text-[13px] oy-text-faint')
                 if not hasattr(self, 'header_count_labels'): self.header_count_labels = {}
                 self.header_count_labels[target] = lbl
 
@@ -1754,7 +1756,7 @@ class DeckBuilderPage:
     def setup_zone(self, title, target):
         # Zones expand dynamically based on content
         height_class = 'h-auto min-h-[220px]'
-        with ui.column().classes(f'w-full {height_class} bg-dark border border-gray-700 p-2 rounded flex flex-col relative'):
+        with ui.column().classes(f'w-full {height_class} oy-card p-3 flex flex-col relative'):
             self.setup_header(title, target)
 
             # The container handles drops on empty space (appending)
@@ -2143,11 +2145,11 @@ class DeckBuilderPage:
             .on('deck_change', self.handle_deck_change):
 
             # Gallery is sticky so it stays visible while scrolling decks
-            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden'):
+            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 oy-card flex flex-col deck-builder-search-results relative overflow-hidden'):
                 # HEADER (Search, Filters, etc.)
-                with ui.column().classes('w-full p-2 gap-2 border-b border-gray-800 bg-gray-900'):
+                with ui.column().classes('w-full p-2 gap-2 border-b border-white/10 bg-white/[.03]'):
                      with ui.row().classes('w-full items-center justify-between'):
-                         ui.label('Library').classes('text-h6 text-white font-bold')
+                         ui.label('Library').classes('oy-display text-base font-semibold text-white px-2')
 
                          with ui.row().classes('gap-1 items-center'):
                              async def on_owned_toggle(e):

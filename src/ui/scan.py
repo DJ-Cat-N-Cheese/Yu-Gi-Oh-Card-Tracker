@@ -26,6 +26,7 @@ from src.services.image_manager import image_manager
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from src.core import config_manager
 from src.core.config import config_manager as app_config
 from src.core.changelog_manager import changelog_manager
@@ -483,12 +484,12 @@ class ScanPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center justify-between p-2 bg-gray-900 border-b border-gray-800 gap-4'):
+        with ui.row().classes('w-full items-center justify-between p-2 gap-4'):
              # Left: Collection Select
              if self.collections:
                  async def on_col_change(e):
                      self.target_collection_file = e.value
-                     persistence.save_ui_state({'scan_target_collection': e.value})
+                     await run.io_bound(persistence.save_ui_state, {'scan_target_collection': e.value})
                      self.check_undo_add_all_availability()
                      await self.load_target_collection_storage()
 
@@ -498,8 +499,8 @@ class ScanPage:
              ui.space()
 
              # Center: Defaults
-             with ui.row().classes('items-center gap-2 bg-gray-800 p-1 rounded border border-gray-700'):
-                 ui.label('DEFAULTS:').classes('text-accent font-bold text-xs mr-2')
+             with ui.row().classes('items-center gap-2'):
+                 ui.label('DEFAULTS').classes('oy-label mr-2')
                  ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
                            value=self.default_language,
                            on_change=lambda e: [setattr(self, 'default_language', e.value), persistence.save_ui_state({'scan_default_lang': e.value})]).props('dense options-dense borderless').classes('w-16')
@@ -543,8 +544,8 @@ class ScanPage:
 
     @ui.refreshable
     def render_recent_scans_header(self):
-        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
-            ui.label('Recent Scans').classes('text-h6 font-bold whitespace-nowrap')
+        with ui.row().classes('w-full p-2 bg-white/[.03] border-b border-white/10 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('oy-display text-base font-semibold text-white whitespace-nowrap px-2')
 
             with ui.row().classes('items-center gap-1 flex-nowrap'):
                 # Undo
@@ -1914,7 +1915,7 @@ class ScanPage:
 
         # Header Stats
         with ui.row().classes('w-full items-center justify-between mb-2'):
-            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-primary')
+            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-secondary')
 
             # Show Detected Features prominently
             with ui.row().classes('gap-4'):
@@ -1995,7 +1996,7 @@ class ScanPage:
 
         with ui.card().classes('w-full border border-gray-600 rounded p-0'):
              with ui.row().classes('w-full bg-gray-800 p-2 items-center'):
-                 ui.icon('list', color='primary')
+                 ui.icon('list', color='secondary')
                  ui.label(f"Scan Queue ({len(queue_items)})").classes('font-bold')
 
              if not queue_items:
@@ -2065,7 +2066,7 @@ class ScanPage:
 
             # --- CARD 1: CONTROLS & INPUT ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-primary')
+                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-secondary')
                 self.render_status_controls()
 
                 # Configuration Section
@@ -2136,7 +2137,7 @@ class ScanPage:
 
             # --- CARD 2: VISUAL ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-primary')
+                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-secondary')
                 self.render_debug_analysis()
 
             # --- CARD 3: RESULTS ---
@@ -2198,6 +2199,9 @@ def scan_page():
         # Re-apply rotation on tab change to ensure video element has correct style
         ui.run_javascript(f'setRotation({page.rotation})')
 
+    with ui.row().classes('w-full items-end justify-between q-mb-sm'):
+        page_header('Scan Cards', 'Local AI webcam scanner · zero cloud uploads.')
+
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
         debug_tab = ui.tab('Debug Lab')
@@ -2235,7 +2239,7 @@ def scan_page():
                         ui.html('<img id="scan-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; transition: opacity 0.2s ease-out;">', sanitize=False)
 
                     # Capture Button
-                    ui.button('CAPTURE & SCAN', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg id=btn-live-scan').classes('w-full font-bold')
+                    ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=secondary size=lg id=btn-live-scan').classes('w-full font-bold')
 
                 # RIGHT PANEL: Recent Scans Gallery
                 with ui.column().classes('w-1/2 h-full bg-dark border-l border-gray-800 flex flex-col overflow-hidden'):
