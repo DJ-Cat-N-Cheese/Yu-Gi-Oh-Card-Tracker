@@ -453,7 +453,7 @@ class DeckBuilderPage:
         self.state['loading'] = True
         try:
             # Load API Data
-            lang = config_manager.get_language()
+            lang = (config_manager.get_language() or 'en').lower()
             api_cards = await ygo_service.load_card_database(lang)
             self.state['all_api_cards'] = api_cards
             self.api_card_map = {c.id: c for c in api_cards}
@@ -506,8 +506,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
-            lang_code = (config_manager.get_language() or 'en').lower()
-            self.state.update(await ygo_service.get_filter_metadata(lang_code))
+            self.state.update(await ygo_service.get_filter_metadata(lang))
 
             # Load Decks List
             self.state['available_deck_groups'] = persistence.list_deck_groups()
