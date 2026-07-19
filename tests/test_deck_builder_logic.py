@@ -135,6 +135,27 @@ class TestDeckBuilderLogic(unittest.TestCase):
         # Order: Owned 5, Owned 2, Owned 0 -> id: 1, 3, 2
         self.assertEqual([c.id for c in res], [1, 3, 2])
 
+    def test_card_storage_locations_groups_entries_by_variant_and_location(self):
+        self.page.state['reference_collection'] = Collection(name="TestCol", cards=[
+            CollectionCard(card_id=1, name="Card 1", variants=[
+                CollectionVariant(variant_id="v1", set_code="SETA-EN001", rarity="Rare", entries=[
+                    CollectionEntry(quantity=2, storage_location="Blue Binder"),
+                    CollectionEntry(quantity=1, storage_location="Blue Binder"),
+                    CollectionEntry(quantity=1),
+                ]),
+                CollectionVariant(variant_id="v2", set_code="SETB-EN001", rarity="Common", entries=[
+                    CollectionEntry(quantity=4, storage_location="Box A"),
+                ]),
+            ])
+        ])
+
+        self.assertEqual(self.page._get_card_storage_locations(1), [
+            ("SETA-EN001 (Rare)", "Blue Binder", 3),
+            ("SETA-EN001 (Rare)", "Unsorted", 1),
+            ("SETB-EN001 (Common)", "Box A", 4),
+        ])
+        self.assertEqual(self.page._get_card_storage_locations(999), [])
+
     def test_duplicate_check(self):
         # Setup available decks
         self.page.state['available_decks'] = ['MyDeck.ydk', 'OtherDeck.ydk']
