@@ -1357,8 +1357,37 @@ class DeckBuilderPage:
         if "Trap" in type_str: return "change_history"
         return "help_outline"
 
+    def _get_card_storage_locations(self, card_id: int) -> List[tuple[str, str, int]]:
+        """Return owned quantities grouped by printing and storage for the hover overlay."""
+        collection = self.state.get('reference_collection')
+        if not collection:
+            return []
+
+        for collection_card in collection.cards:
+            if collection_card.card_id != card_id:
+                continue
+
+            locations: Dict[tuple[str, str], int] = {}
+            for variant in collection_card.variants:
+                variant_name = f"{variant.set_code} ({variant.rarity})"
+                for entry in variant.entries:
+                    if entry.quantity <= 0:
+                        continue
+                    location = entry.storage_location or 'Unsorted'
+                    key = (variant_name, location)
+                    locations[key] = locations.get(key, 0) + entry.quantity
+
+            return [
+                (variant_name, location, quantity)
+                for (variant_name, location), quantity in sorted(locations.items())
+            ]
+
+        return []
+
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
+
+        storage_locations = self._get_card_storage_locations(card.id)
 
         if specific_image_id:
             img_id = specific_image_id
@@ -1384,7 +1413,8 @@ class DeckBuilderPage:
         with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none') \
                          .props('style="max-width: none" delay=10') as tooltip:
 
-            with ui.row().classes('w-[600px] bg-gray-900 border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start'):
+            with ui.row().classes('w-[600px] border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start') \
+                    .style('background: var(--oy-ink);'):
                 # Left Column: Image
                 with ui.column().classes('w-[180px] shrink-0'):
                      ui.image(initial_src).classes('w-full rounded shadow-md')
@@ -1451,6 +1481,17 @@ class DeckBuilderPage:
                     # Let's limit height and ellipsis if needed, or just let it grow (but max height).
                     with ui.scroll_area().classes('w-full h-[150px] pr-2'):
                          ui.markdown(card.desc).classes('text-xs text-gray-300 leading-relaxed whitespace-pre-wrap')
+
+                    if storage_locations:
+                        ui.separator().classes('my-2 bg-gray-700')
+                        with ui.column().classes('w-full gap-1'):
+                            with ui.row().classes('items-center gap-1'):
+                                ui.icon('inventory_2').classes('text-sm oy-text-accent')
+                                ui.label('Storage').classes('text-xs font-bold oy-text-accent')
+                            for variant_name, location, quantity in storage_locations:
+                                with ui.row().classes('w-full justify-between gap-2 text-xs'):
+                                    ui.label(variant_name).classes('text-gray-300')
+                                    ui.label(f'{quantity} × {location}').classes('oy-text-muted text-right')
 
                     ui.separator().classes('my-2 bg-gray-700')
 
