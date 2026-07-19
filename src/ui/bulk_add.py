@@ -1543,7 +1543,7 @@ class BulkAddPage:
     async def apply_library_filters(self):
         source = self.state['library_cards']
         s = self.state
-        text = s['library_search_text'].lower()
+        text = (s['library_search_text'] or '').lower()
         set_name_target = ''
         set_code_target = ''
         if s['filter_set']:
@@ -1558,7 +1558,7 @@ class BulkAddPage:
             'text': text,
             'set_name_target': set_name_target,
             'set_code_target': set_code_target,
-            'rarity': s['filter_rarity'].lower(),
+            'rarity': (s['filter_rarity'] or '').lower(),
             'price_active': price_min > 0 or price_max < 1000,
             'price_min': price_min,
             'price_max': price_max,
@@ -1676,7 +1676,7 @@ class BulkAddPage:
     async def apply_collection_filters(self, reset_page=True):
         source = self.col_state['collection_cards']
         s = self.col_state
-        text = s['search_text'].lower()
+        text = (s['search_text'] or '').lower()
         set_name_target = ''
         set_code_target = ''
         if s['filter_set']:
@@ -1685,7 +1685,7 @@ class BulkAddPage:
             set_code_target = parts[1].strip().lower() if len(parts) > 1 else ''
 
         card_types = s['filter_card_type']
-        rarity = s['filter_rarity'].lower()
+        rarity = (s['filter_rarity'] or '').lower()
         categories = s['filter_monster_category']
         conditions = set(s['filter_condition'])
         storage_locations = set(s['filter_storage'])

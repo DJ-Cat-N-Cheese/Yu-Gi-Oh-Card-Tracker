@@ -505,6 +505,7 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
+            lang_code = config_manager.get_language().lower()
             self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Load Decks List
@@ -745,12 +746,12 @@ class DeckBuilderPage:
         ref_col = self.state['reference_collection']
         owned_map = {card.card_id: card for card in ref_col.cards} if ref_col else {}
         state = self.state
-        text = state['search_text'].lower()
+        text = (state['search_text'] or '').lower()
         card_types = state['filter_card_type']
         if isinstance(card_types, str):
             card_types = [card_types]
-        set_target = state['filter_set'].split('|')[0].strip().lower()
-        rarity_target = state['filter_rarity'].lower()
+        set_target = (state['filter_set'] or '').split('|')[0].strip().lower()
+        rarity_target = (state['filter_rarity'] or '').lower()
         categories = state['filter_monster_category']
         level = int(state['filter_level']) if state['filter_level'] is not None else None
         atk_min, atk_max = state['filter_atk_min'], state['filter_atk_max']
