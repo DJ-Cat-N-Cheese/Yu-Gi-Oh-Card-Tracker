@@ -1053,8 +1053,10 @@ class DeckBuilderPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Deck Builder').classes('text-h5')
+        with ui.row().classes('w-full items-center gap-4 q-mb-md'):
+            with ui.column().classes('gap-1 mr-2'):
+                ui.label('Deck Builder').classes('oy-h1')
+                ui.label('Build decks straight from the cards you own.').classes('oy-sub')
 
             deck_groups = list(self.state['available_deck_groups'] or ['main'])
             if self.state['current_deck_group'] not in deck_groups:
@@ -1700,10 +1702,10 @@ class DeckBuilderPage:
 
     def setup_header(self, title, target):
         with ui.row().classes('w-full items-center justify-between q-mb-sm'):
-            with ui.row().classes('gap-1 items-center'):
-                ui.label(title).classes('font-bold text-white text-xs uppercase tracking-wider')
+            with ui.row().classes('gap-2 items-center'):
+                ui.label(title).classes('oy-display font-semibold text-white text-[13px] uppercase tracking-wider')
                 # Initialize label with placeholder
-                lbl = ui.label('(0)').classes('font-bold text-white text-xs uppercase tracking-wider')
+                lbl = ui.label('(0)').classes('text-[13px] text-[#726d84]')
                 if not hasattr(self, 'header_count_labels'): self.header_count_labels = {}
                 self.header_count_labels[target] = lbl
 
@@ -1755,7 +1757,7 @@ class DeckBuilderPage:
     def setup_zone(self, title, target):
         # Zones expand dynamically based on content
         height_class = 'h-auto min-h-[220px]'
-        with ui.column().classes(f'w-full {height_class} bg-dark border border-gray-700 p-2 rounded flex flex-col relative'):
+        with ui.column().classes(f'w-full {height_class} oy-card p-3 flex flex-col relative'):
             self.setup_header(title, target)
 
             # The container handles drops on empty space (appending)
@@ -2144,11 +2146,11 @@ class DeckBuilderPage:
             .on('deck_change', self.handle_deck_change):
 
             # Gallery is sticky so it stays visible while scrolling decks
-            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden'):
+            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 oy-card flex flex-col deck-builder-search-results relative overflow-hidden'):
                 # HEADER (Search, Filters, etc.)
-                with ui.column().classes('w-full p-2 gap-2 border-b border-gray-800 bg-gray-900'):
+                with ui.column().classes('w-full p-2 gap-2 border-b border-white/10 bg-white/[.03]'):
                      with ui.row().classes('w-full items-center justify-between'):
-                         ui.label('Library').classes('text-h6 text-white font-bold')
+                         ui.label('Library').classes('oy-display text-base font-semibold text-white px-2')
 
                          with ui.row().classes('gap-1 items-center'):
                              async def on_owned_toggle(e):

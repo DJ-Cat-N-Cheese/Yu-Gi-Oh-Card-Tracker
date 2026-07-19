@@ -1394,11 +1394,13 @@ def import_tools_page():
     merge_controller = MergeController()
 
     with ui.column().classes('w-full q-pa-md gap-6'):
-        ui.label('Import Tools').classes('text-h4')
+        with ui.column().classes('gap-1'):
+            ui.label('Import Tools').classes('oy-h1')
+            ui.label('Bring in a JSON backup, a Cardmarket export, or merge two collections.').classes('oy-sub')
 
         # --- UNIFIED IMPORT CARD ---
-        with ui.card().classes('w-full bg-dark border border-gray-700 p-6'):
-            ui.label('Import Manager').classes('text-xl font-bold q-mb-md')
+        with ui.card().classes('w-full p-6'):
+            ui.label('Import Manager').classes('oy-display text-xl font-semibold text-white q-mb-md')
 
             # Row 1: Target Collection
             with ui.row().classes('items-center gap-4 w-full'):
@@ -1438,7 +1440,7 @@ def import_tools_page():
                     ui.toggle({
                         'ADD': 'Add to Collection',
                         'SUBTRACT': 'Remove from Collection'
-                    }, value='ADD', on_change=lambda e: [setattr(controller, 'import_mode', e.value), controller.refresh_status_ui()]).props('dark color=red')
+                    }, value='ADD', on_change=lambda e: [setattr(controller, 'import_mode', e.value), controller.refresh_status_ui()]).props('dark')
 
             # Row 4: Upload Area
             # Note: We can't easily change props of ui.upload after creation dynamically in a clean way
@@ -1457,7 +1459,7 @@ def import_tools_page():
             # Row 6: Actions
             with ui.row().classes('w-full justify-between items-center q-mt-lg'):
                 controller.undo_btn = ui.button('Undo Last Import', on_click=controller.undo_last, icon='undo') \
-                    .classes('bg-red-500 text-white').props('flat')
+                    .props('flat color=negative')
                 controller.undo_btn.visible = False
 
                 with ui.row().classes('gap-4 items-center'):
@@ -1465,12 +1467,12 @@ def import_tools_page():
                         .props('outline color=warning')
 
                     controller.import_btn = ui.button('Import', on_click=controller.apply_import) \
-                        .classes('bg-primary text-white text-lg px-8')
+                        .props('color=primary rounded unelevated').classes('text-lg px-8')
                     controller.import_btn.enabled = False
 
         # --- MERGE CARD ---
-        with ui.card().classes('w-full bg-dark border border-gray-700 p-6'):
-            ui.label('Merge Collections').classes('text-xl font-bold q-mb-md')
+        with ui.card().classes('w-full p-6'):
+            ui.label('Merge Collections').classes('oy-display text-xl font-semibold text-white q-mb-md')
             with ui.grid().classes('grid-cols-1 md:grid-cols-3 gap-4 w-full'):
                 ui.select(merge_controller.collections, label='Collection A',
                           on_change=lambda e: setattr(merge_controller, 'coll_a', e.value)).props('dark')
@@ -1479,4 +1481,4 @@ def import_tools_page():
                 ui.input(label='New Name', on_change=lambda e: setattr(merge_controller, 'new_name', e.value)).props('dark')
 
             with ui.row().classes('w-full justify-end q-mt-md'):
-                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').classes('bg-primary text-white')
+                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').props('color=primary rounded unelevated')

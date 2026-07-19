@@ -644,22 +644,26 @@ class DbEditorPage:
         info = next((s for s in self.state['set_gallery_items'] if s['code'] == code), None)
         name = info['name'] if info else "Unknown Set"
 
+        def go_back():
+            self.state['main_view'] = 'sets'
+            self.render_content.refresh()
+            self.render_header.refresh()
+
+        # Back link
+        ui.label('← Back to Sets') \
+            .classes('text-xs font-medium text-[#8f89a3] hover:text-[#ecdffb] cursor-pointer mb-3 transition-colors') \
+            .on('click', go_back)
+
         # Header
-        with ui.row().classes('w-full items-start gap-6 mb-6 p-6 bg-gray-900 rounded-lg border border-gray-800'):
+        with ui.row().classes('w-full items-start gap-6 mb-6'):
             # Image
             if info and info.get('image'):
-                ui.image(info['image']).classes('w-32 h-auto object-contain')
+                with ui.element('div').classes('rounded-xl border border-white/10 overflow-hidden flex-none'):
+                    ui.image(info['image']).classes('w-32 h-auto object-contain')
 
-            with ui.column().classes('gap-2'):
-                ui.label(name).classes('text-h4 font-bold text-white')
-                ui.label(code).classes('text-xl font-mono text-yellow-500')
-
-                def go_back():
-                    self.state['main_view'] = 'sets'
-                    self.render_content.refresh()
-                    self.render_header.refresh()
-
-                ui.button('Back to Sets', icon='arrow_back', on_click=go_back).props('flat color=white')
+            with ui.column().classes('gap-1'):
+                ui.label(name).classes('oy-h1')
+                ui.label(code).classes('oy-mono text-sm text-[#e8b34d] font-semibold')
 
         # Bulk Operations
         with ui.card().classes('w-full bg-gray-800 p-4 mb-4 gap-4'):
@@ -735,35 +739,36 @@ class DbEditorPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Card Database Editor').classes('text-h5')
+        # View Toggle
+        def switch_main_view(mode):
+            self.state['main_view'] = mode
+            if mode == 'sets':
+                self.load_sets_data()
+            elif mode == 'cards':
+                self.state['selected_set_code'] = None
+                self.update_pagination()
+                self.update_pagination_labels()
 
-            # View Toggle
-            def switch_main_view(mode):
-                self.state['main_view'] = mode
-                if mode == 'sets':
-                    self.load_sets_data()
-                elif mode == 'cards':
-                    self.state['selected_set_code'] = None
-                    self.update_pagination()
-                    self.update_pagination_labels()
+            if hasattr(self, 'pagination_row'):
+                self.pagination_row.set_visibility(mode in ['cards', 'sets', 'set_detail', 'consolidated'])
 
-                if hasattr(self, 'pagination_row'):
-                    self.pagination_row.set_visibility(mode in ['cards', 'sets', 'set_detail', 'consolidated'])
+            self.render_content.refresh()
+            self.render_header.refresh()
 
-                self.render_content.refresh()
-                self.render_header.refresh()
+        with ui.row().classes('w-full items-end justify-between q-mb-md'):
+            with ui.column().classes('gap-1'):
+                ui.label('Database Editor').classes('oy-h1')
+                ui.label('Fix data, add custom cards, manage sets directly.').classes('oy-sub')
 
             with ui.button_group():
                 is_cards = self.state['main_view'] == 'cards'
                 is_consolidated = self.state['main_view'] == 'consolidated'
                 is_sets = self.state['main_view'] in ['sets', 'set_detail']
-                ui.button('Cards', on_click=lambda: switch_main_view('cards')).props(f'flat={not is_cards} color=accent')
-                ui.button('Consolidated', on_click=lambda: switch_main_view('consolidated')).props(f'flat={not is_consolidated} color=accent')
-                ui.button('Sets', on_click=lambda: switch_main_view('sets')).props(f'flat={not is_sets} color=accent')
+                ui.button('Cards', on_click=lambda: switch_main_view('cards')).props('unelevated color=primary' if is_cards else 'outline color=grey-5')
+                ui.button('Consolidated', on_click=lambda: switch_main_view('consolidated')).props('unelevated color=primary' if is_consolidated else 'outline color=grey-5')
+                ui.button('Sets', on_click=lambda: switch_main_view('sets')).props('unelevated color=primary' if is_sets else 'outline color=grey-5')
 
-            ui.separator().props('vertical')
-
+        with ui.row().classes('w-full items-center gap-4 q-mb-md'):
             if self.state['main_view'] in ['cards', 'consolidated']:
                 async def on_search(e):
                     self.state['search_text'] = e.value
@@ -799,8 +804,8 @@ class DbEditorPage:
 
                 with ui.button_group():
                     is_grid = self.state['view_mode'] == 'grid'
-                    with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')).props(f'flat={not is_grid} color=accent'): pass
-                    with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')).props(f'flat={is_grid} color=accent'): pass
+                    with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')).props('unelevated color=primary' if is_grid else 'outline color=grey-5'): pass
+                    with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')).props('outline color=grey-5' if is_grid else 'unelevated color=primary'): pass
 
                 ui.space()
                 ui.button('+ New Card Info', on_click=self.show_yugipedia_import_dialog).props('color=green icon=add')

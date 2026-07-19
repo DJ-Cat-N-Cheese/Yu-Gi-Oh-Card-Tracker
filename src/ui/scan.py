@@ -483,7 +483,7 @@ class ScanPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center justify-between p-2 bg-gray-900 border-b border-gray-800 gap-4'):
+        with ui.row().classes('w-full items-center justify-between p-2 gap-4'):
              # Left: Collection Select
              if self.collections:
                  async def on_col_change(e):
@@ -498,8 +498,8 @@ class ScanPage:
              ui.space()
 
              # Center: Defaults
-             with ui.row().classes('items-center gap-2 bg-gray-800 p-1 rounded border border-gray-700'):
-                 ui.label('DEFAULTS:').classes('text-accent font-bold text-xs mr-2')
+             with ui.row().classes('items-center gap-2'):
+                 ui.label('DEFAULTS').classes('oy-label mr-2')
                  ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
                            value=self.default_language,
                            on_change=lambda e: [setattr(self, 'default_language', e.value), persistence.save_ui_state({'scan_default_lang': e.value})]).props('dense options-dense borderless').classes('w-16')
@@ -543,8 +543,8 @@ class ScanPage:
 
     @ui.refreshable
     def render_recent_scans_header(self):
-        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
-            ui.label('Recent Scans').classes('text-h6 font-bold whitespace-nowrap')
+        with ui.row().classes('w-full p-2 bg-white/[.03] border-b border-white/10 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('oy-display text-base font-semibold text-white whitespace-nowrap px-2')
 
             with ui.row().classes('items-center gap-1 flex-nowrap'):
                 # Undo
@@ -2198,6 +2198,11 @@ def scan_page():
         # Re-apply rotation on tab change to ensure video element has correct style
         ui.run_javascript(f'setRotation({page.rotation})')
 
+    with ui.row().classes('w-full items-end justify-between q-mb-sm'):
+        with ui.column().classes('gap-1'):
+            ui.label('Scan Cards').classes('oy-h1')
+            ui.label('Local AI webcam scanner · zero cloud uploads.').classes('oy-sub')
+
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
         debug_tab = ui.tab('Debug Lab')
@@ -2235,7 +2240,7 @@ def scan_page():
                         ui.html('<img id="scan-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; transition: opacity 0.2s ease-out;">', sanitize=False)
 
                     # Capture Button
-                    ui.button('CAPTURE & SCAN', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg id=btn-live-scan').classes('w-full font-bold')
+                    ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=primary size=lg id=btn-live-scan').classes('w-full font-bold')
 
                 # RIGHT PANEL: Recent Scans Gallery
                 with ui.column().classes('w-1/2 h-full bg-dark border-l border-gray-800 flex flex-col overflow-hidden'):

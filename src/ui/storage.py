@@ -647,8 +647,10 @@ class StoragePage:
 
     def render_gallery_view(self):
         # Header
-        with ui.row().classes('w-full items-center justify-between p-4 bg-gray-900 rounded-lg border border-gray-800 mb-4'):
-            ui.label('Storage').classes('text-h5 text-white')
+        with ui.row().classes('w-full items-end justify-between mb-6'):
+            with ui.column().classes('gap-1'):
+                ui.label('Storage').classes('oy-h1')
+                ui.label('Where your physical cards actually live.').classes('oy-sub')
 
             with ui.row().classes('items-center gap-4'):
                 # Collection Selector
@@ -696,20 +698,24 @@ class StoragePage:
             self.render_add_storage_card()
 
     def render_add_storage_card(self):
-        with ui.card().classes('w-full h-full min-h-[14rem] p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-700 bg-gray-800 flex items-center justify-center group') \
+        with ui.element('div').classes('w-full h-full min-h-[14rem] cursor-pointer rounded-[14px] border border-dashed border-white/20 hover:border-[#cba6f7]/60 bg-transparent flex items-center justify-center transition-colors group') \
                 .on('click', self.open_new_storage_dialog):
 
-            with ui.column().classes('items-center gap-2 group-hover:text-primary transition-colors'):
-                ui.icon('add_circle_outline', size='4xl', color='grey').classes('group-hover:text-primary transition-colors')
-                ui.label('Add Storage').classes('text-lg font-bold text-gray-400 group-hover:text-primary transition-colors')
+            with ui.column().classes('items-center gap-2'):
+                ui.icon('add', size='2.5rem').classes('text-[#a79fc0] group-hover:text-[#cba6f7] transition-colors')
+                ui.label('Add Storage').classes('text-sm font-medium text-[#8f89a3] group-hover:text-[#ecdffb] transition-colors')
+
+    @staticmethod
+    def _storage_type_color(storage_type: str) -> str:
+        return {'Binder': 'text-[#89b4fa]', 'Deck': 'text-[#6fcf7c]'}.get(storage_type, 'text-[#cba6f7]')
 
     def render_storage_card(self, storage):
         count = self.state['storage_counts'].get(storage['name'], 0)
 
-        with ui.card().classes('w-full p-0 cursor-pointer hover:scale-105 transition-transform border border-gray-700 bg-gray-800') \
+        with ui.card().classes('w-full p-0 overflow-hidden cursor-pointer hover:border-[#cba6f7]/45 hover:-translate-y-0.5 transition-all') \
                 .on('click', lambda s=storage: self.open_storage(s)):
 
-            with ui.element('div').classes('relative w-full h-48 bg-black overflow-hidden'):
+            with ui.element('div').classes('relative w-full h-48 bg-black/40 overflow-hidden'):
                 if storage.get('image_path'):
                     src = f"/storage/{storage['image_path']}"
                     ui.image(src).classes('w-full h-full object-cover')
@@ -718,36 +724,36 @@ class StoragePage:
                     src = f"/sets/{safe_code}.jpg"
                     ui.image(src).classes('w-full h-full object-contain')
                 else:
-                    ui.icon('inventory_2', size='4xl', color='grey').classes('absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
+                    ui.icon('inventory_2', size='4xl').classes('text-[#4c465e] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
 
-            with ui.column().classes('p-3 w-full gap-1'):
-                ui.label(storage['name']).classes('text-lg font-bold truncate w-full text-white')
+            with ui.column().classes('px-4 py-3 w-full gap-1'):
+                ui.label(storage['name']).classes('oy-display text-base font-semibold truncate w-full text-white')
 
                 with ui.row().classes('w-full justify-between items-center'):
-                    ui.label(storage.get('type', 'Unknown')).classes('text-sm text-yellow-500 font-bold')
-                    ui.label(f"{count} Cards").classes('text-xs text-gray-400')
+                    ui.label(storage.get('type', 'Unknown')).classes(f"text-xs font-semibold {self._storage_type_color(storage.get('type', ''))}")
+                    ui.label(f"{count} cards").classes('text-xs text-[#a79fc0]')
 
                 if storage.get('description'):
-                    ui.label(storage['description']).classes('text-xs text-gray-400 truncate w-full')
+                    ui.label(storage['description']).classes('text-xs text-[#726d84] truncate w-full')
 
     def render_detail_view(self):
         s = self.state['current_storage']
         if not s: return
 
-        with ui.row().classes('w-full items-start gap-6 mb-4 p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            with ui.element('div').classes('w-24 h-24 relative bg-black rounded shadow-lg overflow-hidden'):
+        with ui.row().classes('w-full items-start gap-6 mb-6'):
+            with ui.element('div').classes('w-24 h-24 relative bg-black/40 rounded-xl border border-white/10 overflow-hidden'):
                  if s.get('image_path'):
                      ui.image(f"/storage/{s['image_path']}").classes('w-full h-full object-cover')
                  elif s.get('set_code'):
                      safe_code = "".join(c for c in s['set_code'] if c.isalnum() or c in ('-', '_')).strip()
                      ui.image(f"/sets/{safe_code}.jpg").classes('w-full h-full object-contain')
                  else:
-                     ui.icon('inventory_2', size='xl', color='grey').classes('absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
+                     ui.icon('inventory_2', size='xl').classes('text-[#4c465e] absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2')
 
             with ui.column().classes('gap-1 flex-grow'):
-                ui.label(s['name']).classes('text-h4 font-bold text-white leading-none')
-                ui.label(s.get('type', '')).classes('text-lg text-yellow-500')
-                ui.label(s.get('description', '')).classes('text-sm text-gray-400')
+                ui.label(s['name']).classes('oy-h1')
+                ui.label(s.get('type', '')).classes(f"text-sm font-semibold {self._storage_type_color(s.get('type', ''))}")
+                ui.label(s.get('description', '')).classes('oy-sub')
 
             with ui.column().classes('items-end gap-2'):
                 ui.button('Back', icon='arrow_back', on_click=self.back_to_gallery).props('flat color=white')

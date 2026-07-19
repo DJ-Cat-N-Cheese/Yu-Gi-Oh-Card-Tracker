@@ -1610,8 +1610,20 @@ class CollectionPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Gallery').classes('text-h5')
+        with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md'):
+            with ui.row().classes('w-full items-end justify-between no-wrap'):
+                with ui.column().classes('gap-1'):
+                    ui.label('Collection').classes('oy-h1')
+                    ui.label('Browse, filter, and value every card you own.').classes('oy-sub')
+
+                with ui.button_group().classes('shrink-0'):
+                    is_cons = self.state['view_scope'] == 'consolidated'
+                    with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
+                        .props('unelevated color=primary' if is_cons else 'outline color=grey-5'):
+                        ui.tooltip('View consolidated gameplay statistics (totals per card)')
+                    with ui.button('Collectors', on_click=lambda: self.switch_scope('collectors')) \
+                        .props('outline color=grey-5' if is_cons else 'unelevated color=primary'):
+                        ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
 
             files = persistence.list_collections()
             # Transform file list to dict for cleaner display (hide .json/.yaml)
@@ -1696,21 +1708,12 @@ class CollectionPage:
             ui.separator().props('vertical').classes('hidden sm:block')
 
             with ui.button_group().classes('shrink-0'):
-                is_cons = self.state['view_scope'] == 'consolidated'
-                with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
-                    .props(f'flat={not is_cons} color=accent'):
-                    ui.tooltip('View consolidated gameplay statistics (totals per card)')
-                with ui.button('Collectors', on_click=lambda: self.switch_scope('collectors')) \
-                    .props(f'flat={is_cons} color=accent'):
-                    ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
-
-            with ui.button_group().classes('shrink-0'):
                 is_grid = self.state['view_mode'] == 'grid'
                 with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')) \
-                    .props(f'flat={not is_grid} color=accent'):
+                    .props('unelevated color=primary' if is_grid else 'outline color=grey-5'):
                     ui.tooltip('Show cards in a grid layout')
                 with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')) \
-                    .props(f'flat={is_grid} color=accent'):
+                    .props('outline color=grey-5' if is_grid else 'unelevated color=primary'):
                     ui.tooltip('Show cards in a list layout')
 
             ui.space()
@@ -1781,15 +1784,14 @@ class CollectionPage:
         if not any(config.values()) or not self.metrics:
             return
 
-        def metric_card(label, value, icon, color='accent'):
-            with ui.card().classes('flex-1 bg-dark border border-gray-700 p-4 items-center flex-row gap-4 min-w-[200px] hover:border-gray-500 transition-colors shadow-none'):
-                with ui.element('div').classes(f'p-3 rounded-full bg-{color}/10'):
-                    ui.icon(icon, size='2rem').classes(f'text-{color}')
-                with ui.column().classes('gap-0'):
-                    ui.label(label).classes('text-grey-4 text-xs uppercase font-bold tracking-wider')
-                    ui.label(str(value)).classes(f"text-2xl font-bold text-white")
+        value_colors = {'positive': 'text-[#cba6f7]', 'info': 'text-[#89b4fa]'}
 
-        with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
+        def metric_card(label, value, icon, color='accent'):
+            with ui.card().classes('flex-1 p-5 gap-2 min-w-[180px] hover:border-[#cba6f7]/40 transition-colors'):
+                ui.label(label).classes('oy-label')
+                ui.label(str(value)).classes(f"oy-stat text-3xl {value_colors.get(color, 'text-white')}")
+
+        with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md'):
 
             with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
                 if config['total_value']:
@@ -1806,22 +1808,22 @@ class CollectionPage:
 
             with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 w-full gap-4'):
                 if config['rarity_breakdown'] and self.metrics['rarity_dist']:
-                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
-                        ui.label('Rarity Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                    with ui.card().classes('w-full p-4'):
+                        ui.label('Rarity Breakdown').classes('oy-label q-mb-sm')
                         with ui.row().classes('w-full gap-2 flex-wrap'):
                             sorted_rarities = sorted(self.metrics['rarity_dist'].items(), key=lambda x: x[1], reverse=True)
                             for r_name, r_count in sorted_rarities:
-                                ui.label(f"{r_name}: {r_count}").classes('bg-gray-800 px-2 py-1 rounded text-xs text-white')
+                                ui.label(f"{r_name}: {r_count}").classes('bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-xs text-[#c9c1de]')
 
                 if config['language_breakdown'] and self.metrics['language_dist']:
-                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
-                        ui.label('Language Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                    with ui.card().classes('w-full p-4'):
+                        ui.label('Language Breakdown').classes('oy-label q-mb-sm')
                         with ui.row().classes('w-full gap-2 flex-wrap'):
                             sorted_langs = sorted(self.metrics['language_dist'].items(), key=lambda x: x[1], reverse=True)
                             for l_name, l_count in sorted_langs:
                                 l_code = l_name.strip().upper()
                                 country_code = LANGUAGE_COUNTRY_MAP.get(l_code)
-                                with ui.row().classes('items-center bg-gray-800 px-2 py-1 rounded gap-1'):
+                                with ui.row().classes('items-center bg-white/5 border border-white/10 px-2.5 py-1 rounded-full gap-1'):
                                     if country_code:
                                         flag_url = image_manager.get_flag_image_url(country_code)
                                         if flag_url:
