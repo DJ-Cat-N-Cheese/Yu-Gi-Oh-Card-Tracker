@@ -312,17 +312,24 @@ a:hover { color: #e6d9fb; }
   filter: drop-shadow(0 24px 38px rgba(0,0,0,.52));
 }
 .oy-single-card-content { background: transparent; }
-.oy-single-card-close {
+.q-btn.oy-single-card-close {
   background: rgba(10,9,18,.72) !important;
   border: 1px solid rgba(255,255,255,.12);
   color: var(--oy-soft) !important;
   backdrop-filter: blur(10px);
   transition: background .15s, border-color .15s, color .15s;
 }
-.oy-single-card-close:hover {
+.q-btn.oy-single-card-close:hover {
   background: rgba(203,166,247,.14) !important;
   border-color: rgba(203,166,247,.42);
   color: var(--oy-text) !important;
+}
+.q-btn.oy-single-card-close .q-btn__content {
+  color: var(--oy-text) !important;
+  font-family: var(--oy-font-body);
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
 }
 .oy-single-card-title {
   font-family: var(--oy-font-display);
@@ -454,11 +461,14 @@ a:hover { color: #e6d9fb; }
     padding-inline: 4px !important;
   }
 
-  /* The maximized card view scrolls as one page on mobile. */
+  /* Use a normal block stack so dynamically injected responsive utilities
+     cannot leave the details one viewport to the right of the artwork. */
   .oy-single-card-shell {
-    height: auto !important;
-    min-height: 100%;
-    overflow-y: auto;
+    display: block !important;
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow-x: hidden !important;
+    overflow-y: auto !important;
   }
   .oy-single-card-art {
     border-right: 0;
@@ -483,10 +493,11 @@ a:hover { color: #e6d9fb; }
   }
   .oy-single-card-image .q-img__image { object-fit: contain !important; }
   .oy-single-card-content {
+    width: 100% !important;
     height: auto !important;
     overflow-y: visible !important;
   }
-  .oy-single-card-close {
+  .q-btn.oy-single-card-close {
     position: fixed !important;
     top: max(12px, env(safe-area-inset-top)) !important;
     right: max(12px, env(safe-area-inset-right)) !important;
@@ -500,7 +511,7 @@ a:hover { color: #e6d9fb; }
     box-shadow: 0 6px 22px rgba(0,0,0,.55);
     z-index: 10000 !important;
   }
-  .oy-single-card-close .q-icon { font-size: 28px; }
+  .q-btn.oy-single-card-close .q-btn__content { font-size: 32px; }
 }
 
 @media (max-width: 767px) {
