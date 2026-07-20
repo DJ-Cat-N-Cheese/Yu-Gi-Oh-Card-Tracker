@@ -26,6 +26,15 @@ STANDARD_RARITIES = [
 ]
 
 class SingleCardView:
+    @staticmethod
+    def _render_close_button(dialog):
+        """Render a close control that does not depend on an icon font."""
+        return (
+            ui.button('×', on_click=dialog.close)
+            .props('flat round aria-label="Close" title="Close"')
+            .classes('oy-single-card-close absolute top-3 right-3 z-50')
+        )
+
     def _setup_high_res_image_logic(self, img_id: int, high_res_remote_url: str, low_res_url: str, image_element: ui.image, current_id_check: Callable[[], bool] = None):
         """
         Sets the source of the image element.
@@ -384,7 +393,7 @@ class SingleCardView:
         try:
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round').classes('oy-single-card-close absolute top-3 right-3 z-50')
+                self._render_close_button(d)
 
                 with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column
@@ -621,7 +630,7 @@ class SingleCardView:
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.on('close', lambda e: [t.cancel() for t in active_timers])
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round').classes('oy-single-card-close absolute top-3 right-3 z-50')
+                self._render_close_button(d)
 
                 with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
@@ -934,7 +943,7 @@ class SingleCardView:
         try:
              with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round').classes('oy-single-card-close absolute top-3 right-3 z-50')
+                self._render_close_button(d)
 
                 with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column (Simplified, just use default/first image)
@@ -1259,7 +1268,7 @@ class SingleCardView:
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round').classes('oy-single-card-close absolute top-3 right-3 z-50')
+                self._render_close_button(d)
 
                 with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column
@@ -1446,7 +1455,7 @@ class SingleCardView:
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round').classes('oy-single-card-close absolute top-3 right-3 z-50')
+                self._render_close_button(d)
 
                 with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # --- Left Column: Image Preview ---

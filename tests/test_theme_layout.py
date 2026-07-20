@@ -24,6 +24,13 @@ def test_global_css_is_offline_and_remaps_legacy_gray_text():
     assert '.text-gray-600' in theme.GLOBAL_CSS
 
 
+def test_mobile_single_card_layout_stacks_and_scrolls_details():
+    assert 'display: block !important;' in theme.GLOBAL_CSS
+    assert 'overflow-x: hidden !important;' in theme.GLOBAL_CSS
+    assert 'overflow-y: auto !important;' in theme.GLOBAL_CSS
+    assert '.q-btn.oy-single-card-close .q-btn__content' in theme.GLOBAL_CSS
+
+
 def test_apply_theme_uses_distinct_semantic_colors_and_enables_dark_mode():
     dark_mode = MagicMock()
     with patch.object(theme.ui, 'colors') as colors, \
