@@ -415,11 +415,163 @@ a:hover { color: #e6d9fb; }
 .oy-single-card-table-row:hover { background: rgba(203,166,247,.055); }
 
 @media (max-width: 639px) {
+  /* Collection controls: keep fields and view toggles usable at phone widths. */
+  .oy-collection-title-row {
+    align-items: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 16px;
+  }
+  .oy-collection-view-toggle {
+    display: flex !important;
+    width: 100%;
+  }
+  .oy-collection-view-toggle > .q-btn {
+    flex: 1 1 50%;
+    min-height: 44px;
+    min-width: 0;
+  }
+  .oy-collection-controls {
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+  .oy-collection-controls > .q-field {
+    flex: 1 1 100%;
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .oy-collection-controls > .nicegui-row {
+    max-width: 100%;
+    flex-wrap: wrap;
+  }
+  .oy-collection-controls > .nicegui-row .q-field {
+    flex: 1 1 180px;
+    min-width: 0;
+  }
+  .oy-collection-controls > .q-space { display: none; }
+  .oy-collection-pagination {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-inline: 4px !important;
+  }
+
+  /* The maximized card view scrolls as one page on mobile. */
+  .oy-single-card-shell {
+    height: auto !important;
+    min-height: 100%;
+    overflow-y: auto;
+  }
   .oy-single-card-art {
     border-right: 0;
     border-bottom: 1px solid var(--oy-border);
+    height: 48dvh !important;
+    min-height: 280px;
+    max-height: 430px;
+    padding: 20px 44px 20px 20px !important;
   }
   .oy-single-card-art::after { inset: 6%; }
+  .oy-single-card-image {
+    width: auto !important;
+    height: 100% !important;
+    max-width: 100% !important;
+    max-height: 100% !important;
+    aspect-ratio: 59 / 86;
+  }
+  .oy-single-card-image .q-img__container,
+  .oy-single-card-image .q-img__image {
+    width: 100% !important;
+    height: 100% !important;
+  }
+  .oy-single-card-image .q-img__image { object-fit: contain !important; }
+  .oy-single-card-content {
+    height: auto !important;
+    overflow-y: visible !important;
+  }
+  .oy-single-card-close {
+    position: fixed !important;
+    top: max(12px, env(safe-area-inset-top)) !important;
+    right: max(12px, env(safe-area-inset-right)) !important;
+    width: 48px;
+    height: 48px;
+    min-width: 48px;
+    min-height: 48px;
+    background: var(--oy-ink) !important;
+    border-color: rgba(203,166,247,.65);
+    color: var(--oy-text) !important;
+    box-shadow: 0 6px 22px rgba(0,0,0,.55);
+    z-index: 10000 !important;
+  }
+  .oy-single-card-close .q-icon { font-size: 28px; }
+}
+
+@media (max-width: 767px) {
+  /* Deck builder: stack the library above the deck and constrain every child. */
+  .oy-deck-builder-header {
+    align-items: stretch !important;
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+  .oy-deck-builder-header > .nicegui-column { flex: 1 0 100%; }
+  .oy-deck-builder-header > .q-field {
+    flex: 1 1 230px;
+    width: auto;
+    min-width: 0 !important;
+  }
+  .oy-deck-builder-header > .q-space { display: none; }
+  .oy-deck-builder-header .q-btn,
+  .deck-builder-library-controls .q-btn,
+  .deck-builder-deck-area .q-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  #deck-builder-container {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .deck-builder-search-results {
+    position: relative !important;
+    top: auto !important;
+    width: 100% !important;
+    height: min(58dvh, 520px) !important;
+    min-height: 400px;
+    flex: none !important;
+  }
+  .deck-builder-library-header {
+    align-items: stretch !important;
+    flex-wrap: wrap !important;
+    gap: 8px;
+  }
+  .deck-builder-library-header > .oy-display { width: 100%; }
+  .deck-builder-library-controls {
+    width: 100%;
+    flex-wrap: wrap !important;
+  }
+  .deck-builder-library-controls .q-field {
+    flex: 1 1 96px;
+    width: auto !important;
+    min-width: 0;
+  }
+  .deck-builder-library-controls .q-separator { display: none; }
+  #gallery-list {
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)) !important;
+  }
+  .deck-builder-deck-area {
+    width: 100%;
+    min-width: 0;
+    flex: none !important;
+  }
+  .deck-builder-deck-area > .oy-card { padding: 10px !important; }
+  #deck-main, #deck-extra, #deck-side {
+    grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)) !important;
+    gap: 8px !important;
+  }
+  .q-dialog__inner--right > .q-card {
+    width: min(100vw, 384px) !important;
+    max-width: 100vw;
+  }
 }
 
 /* ---------- Shell (drawer + header) ---------- */

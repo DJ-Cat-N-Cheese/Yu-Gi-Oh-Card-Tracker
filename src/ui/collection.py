@@ -21,6 +21,10 @@ import os
 
 logger = logging.getLogger(__name__)
 
+COLLECTION_DESKTOP_PAGE_SIZE = 48
+COLLECTION_MOBILE_PAGE_SIZE = 24
+COLLECTION_MOBILE_BREAKPOINT = 639
+
 @dataclass
 class CardViewModel:
     api_card: ApiCard
@@ -392,7 +396,7 @@ class CollectionPage:
             'view_scope': saved_state.get('collection_view_scope', 'consolidated'),
             'view_mode': saved_state.get('collection_view_mode', 'grid'),
             'page': 1,
-            'page_size': 48,
+            'page_size': COLLECTION_DESKTOP_PAGE_SIZE,
             'total_pages': 1,
         }
 
@@ -439,6 +443,8 @@ class CollectionPage:
     async def load_data(self, keep_page=False):
         logger.info(f"Loading data... (Language: {self.state['language']})")
 
+        await self._set_responsive_page_size()
+
         try:
             lang_code = self.state['language'].lower() if self.state['language'] else 'en'
             api_cards = await ygo_service.load_card_database(lang_code)
@@ -483,6 +489,24 @@ class CollectionPage:
         await self.apply_filters(reset_page=not keep_page)
         self.update_filter_ui()
         logger.info(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
+
+    async def _set_responsive_page_size(self):
+        """Use a smaller first page on phones without changing the desktop default."""
+        try:
+            viewport_width = await ui.run_javascript('window.innerWidth', timeout=2.0)
+            viewport_width = float(viewport_width)
+        except (TypeError, ValueError, TimeoutError, RuntimeError):
+            logger.debug("Could not detect viewport width; keeping desktop page size")
+            return
+
+        page_size = (
+            COLLECTION_MOBILE_PAGE_SIZE
+            if viewport_width <= COLLECTION_MOBILE_BREAKPOINT
+            else COLLECTION_DESKTOP_PAGE_SIZE
+        )
+        if self.state['page_size'] != page_size:
+            self.state['page_size'] = page_size
+            self.state['page'] = 1
 
     def update_filter_ui(self):
         if self.filter_pane:
@@ -1611,11 +1635,11 @@ class CollectionPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md'):
-            with ui.row().classes('w-full items-end justify-between no-wrap'):
+        with ui.element('div').classes('oy-collection-controls w-full flex flex-wrap items-center gap-4 q-mb-md'):
+            with ui.row().classes('oy-collection-title-row w-full items-end justify-between no-wrap'):
                 page_header('Collection', 'Browse, filter, and value every card you own.')
 
-                with ui.button_group().classes('shrink-0'):
+                with ui.button_group().classes('oy-collection-view-toggle shrink-0'):
                     is_cons = self.state['view_scope'] == 'consolidated'
                     with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
                         .props('unelevated color=secondary' if is_cons else 'outline color=grey-5'):
@@ -1850,7 +1874,7 @@ class CollectionPage:
 
     def content_area(self):
         # Pagination controls - static
-        with ui.row().classes('w-full items-center justify-between q-mb-sm px-4'):
+        with ui.row().classes('oy-collection-pagination w-full items-center justify-between q-mb-sm px-4'):
             self.pagination_showing_label = ui.label("Loading...").classes('text-grey')
 
             with ui.row().classes('items-center gap-2'):
