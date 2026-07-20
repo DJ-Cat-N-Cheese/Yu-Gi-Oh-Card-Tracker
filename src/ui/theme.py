@@ -390,6 +390,32 @@ a:hover { color: #e6d9fb; }
   font-family: var(--oy-font-display);
   font-weight: 700;
 }
+.oy-single-card-owned-locations {
+  color: var(--oy-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+/* Storage breakdown: hover shows a tooltip, tap opens the menu. On touch devices
+   the tooltip is suppressed so a tap does not fire both at once. */
+.oy-storage-chip .oy-storage-chip-caret {
+  color: var(--oy-accent) !important;
+  opacity: .75;
+}
+.oy-storage-menu {
+  background: var(--oy-surface);
+  border: 1px solid var(--oy-border);
+  border-radius: 12px;
+  color: var(--oy-body-text);
+}
+@media (hover: none) {
+  .oy-storage-tip { display: none !important; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .oy-storage-chip .oy-storage-chip-caret { opacity: .45; }
+  .oy-storage-chip:hover .oy-storage-chip-caret { opacity: 1; }
+}
 .oy-single-card-inventory,
 .q-card.oy-single-card-inventory { background: rgba(203,166,247,.035); }
 .oy-single-card-set-list { overflow: hidden; }

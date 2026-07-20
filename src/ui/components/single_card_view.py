@@ -354,6 +354,65 @@ class SingleCardView:
                     with ui.button('REMOVE', on_click=confirm_remove).props('color=negative'):
                          ui.tooltip('Remove this entry from your collection').classes('bg-black text-white')
 
+    def _render_storage_breakdown(self, chip, locations: Dict[str, int]):
+        """Expose a variant's storage locations on hover *and* on tap.
+
+        A bare tooltip is unreachable on a touch screen, so the chip also anchors a
+        menu that opens on tap. The tooltip is suppressed on touch devices (see
+        `.oy-storage-tip` in theme.py) so the two never fire together.
+        """
+        chip.props('clickable')
+        chip.classes('oy-storage-chip cursor-pointer')
+
+        def location_rows():
+            for loc, qty in locations.items():
+                with ui.row().classes('gap-6 items-baseline justify-between w-full flex-nowrap'):
+                    ui.label(f"{loc}:").classes('font-semibold whitespace-nowrap')
+                    ui.label(str(qty)).classes('oy-text-accent font-semibold')
+
+        ui.icon('expand_more').classes('oy-storage-chip-caret text-base ml-1')
+
+        with ui.tooltip().classes('oy-storage-tip border border-white/10 shadow-xl text-base p-3'):
+            location_rows()
+
+        with ui.menu().props('anchor="bottom middle" self="top middle"').classes('oy-storage-menu'):
+            with ui.column().classes('gap-1 px-4 py-3'):
+                ui.label('Storage').classes('oy-seclabel select-none')
+                location_rows()
+
+    async def _render_collection_status(self, total_owned: int, owned_breakdown: Dict[str, Dict[str, Any]]):
+        """Collection Status panel shared by the consolidated and deck-builder views."""
+        with ui.element('section').classes('oy-single-card-panel oy-single-card-status w-full p-5 sm:p-6 mb-5'):
+            ui.label('Collection Status').classes('oy-seclabel mb-3 select-none')
+            with ui.row().classes('gap-2 items-center flex-wrap'):
+                with ui.chip(icon='format_list_numbered'):
+                    ui.label(f"Total: {total_owned}").classes('select-text')
+
+                if owned_breakdown:
+                    # Start ensuring flags immediately
+                    await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
+
+                    for key, count_data in owned_breakdown.items():
+                        if isinstance(count_data, dict):
+                            total = count_data.get('total', 0)
+                            locations = count_data.get('locations', {})
+                        else:
+                            total = count_data
+                            locations = {}
+
+                        flag_url = self._get_flag_url(key)
+                        with ui.chip() as chip:
+                            if flag_url:
+                                ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
+                            else:
+                                ui.icon('layers').classes('oy-text-accent text-lg mr-1')
+                            ui.label(f"{key}: {total}").classes('select-text')
+
+                            if locations:
+                                self._render_storage_breakdown(chip, locations)
+                elif total_owned == 0:
+                    ui.label('Not in collection').classes('oy-text-faint italic')
+
     def _render_available_sets(self, card: ApiCard):
         ui.label('Available Sets').classes('oy-seclabel mt-2 select-none')
 
@@ -461,40 +520,7 @@ class SingleCardView:
                             ui.label('Effect').classes('oy-seclabel mb-3 select-none')
                             ui.markdown(card.desc).classes('oy-single-card-effect select-text')
 
-                        with ui.element('section').classes('oy-single-card-panel oy-single-card-status w-full p-5 sm:p-6 mb-5'):
-                            ui.label('Collection Status').classes('oy-seclabel mb-3 select-none')
-                            with ui.row().classes('gap-2 items-center flex-wrap'):
-                                with ui.chip(icon='format_list_numbered'):
-                                    ui.label(f"Total: {total_owned}").classes('select-text')
-
-                                if owned_breakdown:
-                                    # Start ensuring flags immediately
-                                    await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
-
-                                    for key, count_data in owned_breakdown.items():
-                                        if isinstance(count_data, dict):
-                                            total = count_data.get('total', 0)
-                                            locations = count_data.get('locations', {})
-                                        else:
-                                            total = count_data
-                                            locations = {}
-
-                                        flag_url = self._get_flag_url(key)
-                                        with ui.chip() as chip:
-                                            if flag_url:
-                                                ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
-                                            else:
-                                                ui.icon('layers').classes('oy-text-accent text-lg mr-1')
-                                            ui.label(f"{key}: {total}").classes('select-text')
-
-                                            if locations:
-                                                with ui.tooltip().classes('border border-white/10 shadow-xl text-base p-3'):
-                                                    for loc, qty in locations.items():
-                                                        with ui.row().classes('gap-1 items-center'):
-                                                            ui.label(f"{loc}:").classes('font-semibold')
-                                                            ui.label(str(qty))
-                                elif total_owned == 0:
-                                    ui.label('Not in collection').classes('oy-text-faint italic')
+                        await self._render_collection_status(total_owned, owned_breakdown)
 
                         self._render_available_sets(card)
 
@@ -619,13 +645,11 @@ class SingleCardView:
                                     # break
                             break
 
-                text = str(cur_owned)
+                locations_text = ''
                 if cur_owned > 0 and storage_breakdown:
-                    parts = []
-                    for loc, qty in sorted(storage_breakdown.items()):
-                        parts.append(f"[{loc}]: {qty}")
-                    text += f" | Locations {', '.join(parts)}"
-                return cur_owned, text
+                    parts = [f"{loc}: {qty}" for loc, qty in sorted(storage_breakdown.items())]
+                    locations_text = ' · '.join(parts)
+                return cur_owned, locations_text
 
             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.on('close', lambda e: [t.cancel() for t in active_timers])
@@ -666,7 +690,7 @@ class SingleCardView:
                         with ui.column().classes('w-full gap-2 pr-12 mb-5'):
                             ui.label(card.name).classes('oy-single-card-title text-3xl sm:text-4xl select-text')
 
-                        initial_owned_qty, initial_owned_text = get_ownership_text(
+                        initial_owned_qty, initial_owned_locations = get_ownership_text(
                             initial_base_code, rarity, image_id, language, condition, first_edition
                         )
                         # Fallback to passed owned_count if calculation fails (e.g. mismatch), though calculation is preferred for breakdown
@@ -674,20 +698,7 @@ class SingleCardView:
                              # This happens if there's a mismatch in finding the variant/entries by properties
                              # We use the simple count but lose the breakdown
                              initial_owned_qty = owned_count
-                             initial_owned_text = str(owned_count)
-
-                        with ui.row().classes('oy-single-card-panel oy-single-card-status w-full items-center gap-3 px-4 py-3 mb-5'):
-                             ui.label('Total Owned').classes('oy-label')
-                             owned_label = ui.label(initial_owned_text).classes('oy-single-card-owned text-xl')
-                             with owned_label:
-                                ui.tooltip('Owned Count')
-
-                        if initial_owned_qty == 0:
-                            owned_label.set_visibility(False)
-
-                        if hide_header_stats:
-                            # Hide total owned section if requested (or just the count, prompt says 'no Total owned')
-                            owned_label.parent_slot.parent.set_visibility(False)
+                             initial_owned_locations = ''
 
                         # Card Details Grid
                         with ui.element('div').classes('grid grid-cols-2 lg:grid-cols-3 gap-3 w-full mb-5'):
@@ -696,6 +707,20 @@ class SingleCardView:
                                         ui.label(title).classes('oy-single-card-stat-label select-none')
                                         l = ui.label(str(initial_value)).classes(f'oy-single-card-stat-value text-{color} select-text')
                                     return l
+
+                                # Total Owned is one of the card's fields, so it belongs in this
+                                # grid -- as its own banner above it, it rendered as an empty
+                                # box whenever the count was zero.
+                                with ui.column().classes('oy-single-card-stat oy-single-card-owned-stat') as owned_stat:
+                                    ui.label('Total Owned').classes('oy-single-card-stat-label select-none')
+                                    owned_label = ui.label(str(initial_owned_qty)) \
+                                        .classes('oy-single-card-stat-value oy-single-card-owned select-text')
+                                    owned_locations = ui.label(initial_owned_locations) \
+                                        .classes('oy-single-card-owned-locations select-text')
+                                owned_locations.set_visibility(bool(initial_owned_locations))
+
+                                if hide_header_stats:
+                                    owned_stat.set_visibility(False)
 
                                 lbl_set_name = info_label('Set Name', set_name or 'N/A')
                                 lbl_set_code = info_label('Set Code', set_code, 'yellow-500')
@@ -799,7 +824,7 @@ class SingleCardView:
                                     default_cm = f"€{card.card_prices[0].cardmarket_price}"
                                 lbl_cm.text = default_cm
 
-                            cur_owned, text = get_ownership_text(
+                            cur_owned, locations_text = get_ownership_text(
                                 input_state['set_base_code'],
                                 input_state['rarity'],
                                 input_state['image_id'],
@@ -808,8 +833,9 @@ class SingleCardView:
                                 input_state['first_edition']
                             )
 
-                            owned_label.text = text
-                            owned_label.set_visibility(cur_owned > 0)
+                            owned_label.text = str(cur_owned)
+                            owned_locations.text = locations_text
+                            owned_locations.set_visibility(bool(locations_text))
 
                             update_image()
                             render_chart()
@@ -980,40 +1006,7 @@ class SingleCardView:
                          with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6'):
                              ui.markdown(card.desc).classes('oy-single-card-effect select-text')
 
-                         with ui.element('section').classes('oy-single-card-panel oy-single-card-status w-full p-5 sm:p-6'):
-                             ui.label('Collection Status').classes('oy-seclabel mb-3 select-none')
-                             with ui.row().classes('gap-2 items-center flex-wrap'):
-                                 with ui.chip(icon='format_list_numbered'):
-                                     ui.label(f"Total: {owned_count}").classes('select-text')
-
-                                 if owned_breakdown:
-                                     # Start ensuring flags immediately
-                                     await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
-
-                                     for key, count_data in owned_breakdown.items():
-                                         if isinstance(count_data, dict):
-                                             total = count_data.get('total', 0)
-                                             locations = count_data.get('locations', {})
-                                         else:
-                                             total = count_data
-                                             locations = {}
-
-                                         flag_url = self._get_flag_url(key)
-                                         with ui.chip() as chip:
-                                             if flag_url:
-                                                 ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
-                                             else:
-                                                 ui.icon('layers').classes('oy-text-accent text-lg mr-1')
-                                             ui.label(f"{key}: {total}").classes('select-text')
-
-                                             if locations:
-                                                 with ui.tooltip().classes('border border-white/10 shadow-xl text-base p-3'):
-                                                     for loc, qty in locations.items():
-                                                         with ui.row().classes('gap-1 items-center'):
-                                                             ui.label(f"{loc}:").classes('font-semibold')
-                                                             ui.label(str(qty))
-                                 elif owned_count == 0:
-                                     ui.label('Not in collection').classes('oy-text-faint italic')
+                         await self._render_collection_status(owned_count, owned_breakdown)
 
                          # Add to Deck Section
                          with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6'):
