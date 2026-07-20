@@ -1053,7 +1053,7 @@ class DeckBuilderPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md'):
+        with ui.row().classes('oy-deck-builder-header w-full items-center gap-4 q-mb-md'):
             page_header('Deck Builder', 'Build decks straight from the cards you own.').classes('mr-2')
 
             deck_groups = list(self.state['available_deck_groups'] or ['main'])
@@ -2188,10 +2188,10 @@ class DeckBuilderPage:
             with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 oy-card flex flex-col deck-builder-search-results relative overflow-hidden'):
                 # HEADER (Search, Filters, etc.)
                 with ui.column().classes('w-full p-2 gap-2 border-b border-white/10 bg-white/[.03]'):
-                     with ui.row().classes('w-full items-center justify-between'):
+                     with ui.row().classes('deck-builder-library-header w-full items-center justify-between'):
                          ui.label('Library').classes('oy-display text-base font-semibold text-white px-2')
 
-                         with ui.row().classes('gap-1 items-center'):
+                         with ui.row().classes('deck-builder-library-controls gap-1 items-center'):
                              async def on_owned_toggle(e):
                                 self.state['only_owned'] = e.value
                                 persistence.save_ui_state({'deck_builder_only_owned': e.value})
