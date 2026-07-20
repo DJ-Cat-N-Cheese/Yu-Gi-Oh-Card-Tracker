@@ -25,6 +25,11 @@ COLLECTION_DESKTOP_PAGE_SIZE = 48
 COLLECTION_MOBILE_PAGE_SIZE = 12
 COLLECTION_MOBILE_BREAKPOINT = 639
 
+# Phone widths get 2 columns so a card stays legible (~170px wide at 390px viewport);
+# four columns squeezed each card down to ~70px. Tablet and up keep the denser grid.
+CARD_GRID_COLUMNS = ('grid-cols-2 sm:grid-cols-3 md:grid-cols-6 '
+                     'lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12')
+
 @dataclass
 class CardViewModel:
     api_card: ApiCard
@@ -1412,7 +1417,7 @@ class CollectionPage:
     # --- Renderers ---
 
     def render_consolidated_grid(self, items: List[CardViewModel]):
-        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for vm in items:
                 card = vm.api_card
                 opacity = "opacity-100" if vm.is_owned else "opacity-60 grayscale"
@@ -1529,7 +1534,7 @@ class CollectionPage:
 
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
-        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for item in items:
                 opacity = "opacity-100" if item.is_owned else "opacity-60 grayscale"
                 border = "border-accent" if item.is_owned else "border-gray-700"

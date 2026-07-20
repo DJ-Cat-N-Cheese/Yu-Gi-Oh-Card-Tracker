@@ -5,6 +5,7 @@ from src.core.config import config_manager
 from src.services.pricing_service import PricingService
 from src.ui.theme import CHART_COLORS, METRIC_VALUE_CLASSES, page_header
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 pricing_service = PricingService()
@@ -178,23 +179,42 @@ def render_metrics(stats):
         metric_card('Completion (Variants)', f"{stats['completion_variants_pct']:.1f}%", 'donut_large', 'info')
         metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'primary')
 
+MAX_PIE_SLICES = 8
+
+
+def pie_data(distribution):
+    """Largest slices first, with the long tail folded into a single 'Other'.
+
+    A rarity spread runs to ~20 categories; drawn in full the slivers are invisible
+    and the legend needs more room than the chart itself on a phone.
+    """
+    data = [{'value': v, 'name': k} for k, v in distribution.items()]
+    data.sort(key=lambda x: x['value'], reverse=True)
+
+    if len(data) <= MAX_PIE_SLICES + 1:
+        return data
+
+    head = data[:MAX_PIE_SLICES]
+    tail = data[MAX_PIE_SLICES:]
+    head.append({'value': sum(d['value'] for d in tail), 'name': f"Other ({len(tail)})"})
+    return head
+
+
 @ui.refreshable
 def render_charts_area(stats):
     if not stats: return
 
-    # Rarity Pie Chart
-    r_data = [{'value': v, 'name': k} for k, v in stats['rarity_dist'].items()]
-    r_data.sort(key=lambda x: x['value'], reverse=True)
-
-    # Condition Pie Chart
-    c_data = [{'value': v, 'name': k} for k, v in stats['condition_dist'].items()]
-    c_data.sort(key=lambda x: x['value'], reverse=True)
-
-    # Language Pie Chart
-    l_data = [{'value': v, 'name': k} for k, v in stats['language_dist'].items()]
-    l_data.sort(key=lambda x: x['value'], reverse=True)
+    r_data = pie_data(stats['rarity_dist'])
+    c_data = pie_data(stats['condition_dist'])
+    l_data = pie_data(stats['language_dist'])
 
     def pie_option(title, data, color_palette=None):
+        # The wrapped legend grows upwards from the bottom edge, so the more rows it
+        # needs the higher and smaller the donut has to sit to stay clear of it.
+        legend_rows = math.ceil(len(data) / 3) if data else 1
+        center_y, outer_r = {1: (46, 62), 2: (43, 58), 3: (39, 54)}.get(legend_rows, (36, 50))
+        inner_r = round(outer_r * 0.62)
+
         return {
             'backgroundColor': 'transparent',
             'color': color_palette or CHART_COLORS,
@@ -211,24 +231,29 @@ def render_charts_area(stats):
             },
             'tooltip': {
                 'trigger': 'item',
-                'formatter': '{b}: {c} ({d}%)'
+                'formatter': '{b}: {c} ({d}%)',
+                'confine': True
             },
+            # A left-hand vertical legend has no room next to the donut on a phone:
+            # long names ran straight across the chart. Wrap it along the bottom
+            # instead -- a scrolling legend paged three-at-a-time and clipped names.
             'legend': {
-                'type': 'scroll',
-                'orient': 'vertical',
-                'left': 'left',
-                'top': 40,
-                'bottom': 20,
-                'textStyle': {'color': '#8f89a3'},
-                'pageIconColor': '#cba6f7',
-                'pageTextStyle': {'color': '#c9c1de'}
+                'type': 'plain',
+                'orient': 'horizontal',
+                'left': 'center',
+                'bottom': 0,
+                'itemWidth': 11,
+                'itemHeight': 11,
+                'itemGap': 10,
+                'textStyle': {'color': '#8f89a3', 'fontSize': 11},
+                ':formatter': "name => name.length > 14 ? name.slice(0, 13) + '…' : name"
             },
             'series': [
                 {
                     'name': title,
                     'type': 'pie',
-                    'radius': ['40%', '70%'],
-                    'center': ['60%', '50%'],
+                    'radius': [f'{inner_r}%', f'{outer_r}%'],
+                    'center': ['50%', f'{center_y}%'],
                     'avoidLabelOverlap': False,
                     'itemStyle': {
                         'borderRadius': 10,
@@ -259,21 +284,21 @@ def render_charts_area(stats):
     # Use flex column on mobile, flex row on large screens
     with ui.element('div').classes('flex flex-col lg:flex-row w-full gap-6'):
         # Rarity
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
              if r_data:
                 ui.echart(pie_option('Rarity Distribution', r_data)).classes('w-full h-full min-h-[250px]')
              else:
                  ui.label('No Rarity Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Condition
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
             if c_data:
                 ui.echart(pie_option('Condition Distribution', c_data)).classes('w-full h-full min-h-[250px]')
             else:
                  ui.label('No Condition Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Language
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
             if l_data:
                 ui.echart(pie_option('Language Distribution', l_data)).classes('w-full h-full min-h-[250px]')
             else:
