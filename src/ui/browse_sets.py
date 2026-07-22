@@ -4,8 +4,8 @@ from src.services.image_manager import image_manager
 from src.core.constants import RARITY_RANKING
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
-from src.ui.theme import page_header
-from src.ui.collection import build_collector_rows, CollectorRow, CardViewModel
+from src.ui.theme import page_header, TILE_GRID_COLUMNS
+from src.ui.collection import build_collector_rows, CollectorRow, CardViewModel, CARD_GRID_COLUMNS
 from src.core.persistence import persistence
 from src.core.utils import transform_set_code, normalize_set_code
 import asyncio
@@ -858,8 +858,9 @@ class BrowseSetsPage:
         with ui.element('div').classes('oy-accent-border-hover q-card w-full p-0 overflow-hidden cursor-pointer hover:-translate-y-0.5 transition-all relative') \
                 .on('click', on_click):
 
-            # Image Area wrapper - h-[600px] as requested
-            with ui.element('div').classes('relative w-full h-[600px] bg-black/40 overflow-hidden'):
+            # The cover scales with the column count; a fixed 600px would leave a
+            # ~155px-wide phone tile absurdly tall.
+            with ui.element('div').classes('relative w-full h-[240px] sm:h-[320px] md:h-[420px] xl:h-[480px] 2xl:h-[600px] bg-black/40 overflow-hidden'):
                 # Content Container
                 content_container = ui.element('div').classes('w-full h-full')
                 self.render_set_visual(content_container, set_info['code'], set_info.get('image'))
@@ -1122,8 +1123,7 @@ class BrowseSetsPage:
         end = start + self.state['page_size']
         visible_sets = self.state['filtered_sets'][start:end]
 
-        # Increased grid size as requested (300px min)
-        with ui.grid(columns='repeat(auto-fill, minmax(300px, 1fr))').classes('w-full gap-4'):
+        with ui.element('div').classes(f'grid {TILE_GRID_COLUMNS} gap-4 w-full'):
             for s in visible_sets:
                 self.render_set_card(s)
 
@@ -1379,7 +1379,7 @@ class BrowseSetsPage:
 
         is_cons = self.state['view_scope'] == 'consolidated'
 
-        with ui.grid(columns='repeat(auto-fill, minmax(160px, 1fr))').classes('w-full gap-4'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for item in rows:
                 if is_cons:
                      # Consolidated Rendering

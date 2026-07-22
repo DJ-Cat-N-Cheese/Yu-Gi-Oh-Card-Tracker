@@ -8,7 +8,8 @@ from src.core.changelog_manager import changelog_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
-from src.ui.theme import page_header
+from src.ui.theme import page_header, TILE_GRID_COLUMNS
+from src.ui.collection import CARD_GRID_COLUMNS
 from src.core.utils import LANGUAGE_COUNTRY_MAP
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Callable
@@ -690,14 +691,14 @@ class StoragePage:
                 ui.button('New Storage', icon='add', on_click=self.open_new_storage_dialog).props('color=secondary')
 
         # Grid
-        with ui.grid(columns='repeat(auto-fill, minmax(250px, 1fr))').classes('w-full gap-6'):
+        with ui.element('div').classes(f'grid {TILE_GRID_COLUMNS} gap-4 sm:gap-6 w-full'):
             for s in self.state['storages']:
                 self.render_storage_card(s)
 
             self.render_add_storage_card()
 
     def render_add_storage_card(self):
-        with ui.element('div').classes('oy-add-storage w-full h-full min-h-[14rem] cursor-pointer rounded-[14px] border border-dashed border-white/20 bg-transparent flex items-center justify-center transition-colors group') \
+        with ui.element('div').classes('oy-add-storage w-full h-full min-h-[11rem] sm:min-h-[14rem] cursor-pointer rounded-[14px] border border-dashed border-white/20 bg-transparent flex items-center justify-center transition-colors group') \
                 .on('click', self.open_new_storage_dialog):
 
             with ui.column().classes('items-center gap-2'):
@@ -714,7 +715,7 @@ class StoragePage:
         with ui.card().classes('oy-accent-border-hover w-full p-0 overflow-hidden cursor-pointer hover:-translate-y-0.5 transition-all') \
                 .on('click', lambda s=storage: self.open_storage(s)):
 
-            with ui.element('div').classes('relative w-full h-48 bg-black/40 overflow-hidden'):
+            with ui.element('div').classes('relative w-full h-36 sm:h-48 bg-black/40 overflow-hidden'):
                 if storage.get('image_path'):
                     src = f"/storage/{storage['image_path']}"
                     ui.image(src).classes('w-full h-full object-cover')
@@ -830,7 +831,7 @@ class StoragePage:
         end = min(start + self.state['page_size'], len(rows))
         visible_rows = rows[start:end]
 
-        with ui.grid(columns='repeat(auto-fill, minmax(160px, 1fr))').classes('w-full gap-4'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for row in visible_rows:
                 self.render_card(row)
 

@@ -14,6 +14,15 @@ METRIC_VALUE_CLASSES = {
     'positive': 'oy-text-green',
 }
 
+# Column ladder for cover-art tiles (storage boxes, set tiles) — the bigger
+# siblings of the card grid in collection.py. Two columns on a phone keeps a
+# tile ~155px wide at 390px, matching the card grids.
+#
+# The counts past `lg` look sparse for the viewport because the nav drawer takes
+# 234px from every desktop width: at 1280px a tile still gets ~250px of content
+# width, which is what the old `repeat(auto-fill, minmax(250px, 1fr))` produced.
+TILE_GRID_COLUMNS = 'grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5'
+
 GLOBAL_CSS = """
 <style>
 :root {
