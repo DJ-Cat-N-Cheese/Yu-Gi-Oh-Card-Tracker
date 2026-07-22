@@ -18,3 +18,9 @@ venv/
 dist/
 build/
 *.spec
+
+# One-off visual verification artifacts
+/dashboard_mobile.png
+/dashboard_mobile_error.png
+/failed_test.png
+/verification/*.png
