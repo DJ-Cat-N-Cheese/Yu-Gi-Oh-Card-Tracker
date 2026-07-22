@@ -6,6 +6,8 @@ OpenYuGi is the ultimate, totally private collection manager and deck builder ma
 Whether you're organizing a few trade binders or managing a massive inventory of over 100,000 cards, OpenYuGi is designed to scale with you. It is packed with powerful tools built for real-world use: a smart AI webcam scanner for adding cards quickly, a professional deck builder that checks tournament banlists and links to your inventory, and a physical storage system so you never lose a card again. It’s everything you need to take control of your cardboard collection, built by players, for players.
 
 For easy setup: Give this README to you LLM of choice and ask it to explain or setup the app for you!
+
+Default login: admin    admin
 ---
 
 ## ✨ Key Features and Advantages

@@ -2,44 +2,61 @@ import asyncio
 import unittest
 from unittest.mock import MagicMock, patch, AsyncMock
 import sys
+from tests.mock_imports import import_with_module_mocks
 
 # Mock nicegui
 mock_ui = MagicMock()
-sys.modules['nicegui'] = mock_ui
-sys.modules['nicegui.ui'] = mock_ui
-sys.modules['nicegui.run'] = MagicMock()
+mock_run = MagicMock()
 
 # Mock dependencies before importing BulkAddPage
-sys.modules['src.core.persistence'] = MagicMock()
-sys.modules['src.core.changelog_manager'] = MagicMock()
-sys.modules['src.core.config'] = MagicMock()
-sys.modules['src.services.ygo_api'] = MagicMock()
-sys.modules['src.services.image_manager'] = MagicMock()
-sys.modules['src.services.collection_editor'] = MagicMock()
+persistence_module_mock = MagicMock()
+changelog_module_mock = MagicMock()
+config_module_mock = MagicMock()
+ygo_api_module_mock = MagicMock()
+image_manager_module_mock = MagicMock()
+collection_editor_module_mock = MagicMock()
 
-from src.ui.bulk_add import BulkAddPage, BulkCollectionEntry
 from src.core.models import ApiCard, ApiCardSet, Collection, CollectionCard, CollectionVariant, CollectionEntry
+bulk_add_module = import_with_module_mocks(
+    'src.ui.bulk_add',
+    {
+        'nicegui': mock_ui,
+        'nicegui.ui': mock_ui,
+        'nicegui.run': mock_run,
+        'src.core.persistence': persistence_module_mock,
+        'src.core.changelog_manager': changelog_module_mock,
+        'src.core.config': config_module_mock,
+        'src.services.ygo_api': ygo_api_module_mock,
+        'src.services.image_manager': image_manager_module_mock,
+        'src.services.collection_editor': collection_editor_module_mock,
+    },
+)
+BulkAddPage = bulk_add_module.BulkAddPage
+BulkCollectionEntry = bulk_add_module.BulkCollectionEntry
+LibraryEntry = bulk_add_module.LibraryEntry
 
 class TestBulkAddFiltering(unittest.TestCase):
     def setUp(self):
         # Setup mocks
-        self.persistence_mock = sys.modules['src.core.persistence'].persistence
+        self.persistence_mock = persistence_module_mock.persistence
         self.persistence_mock.list_collections.return_value = []
         self.persistence_mock.load_ui_state.return_value = {}
 
-        self.config_mock = sys.modules['src.core.config'].config_manager
+        self.config_mock = config_module_mock.config_manager
         self.config_mock.get_language.return_value = 'en'
         self.config_mock.get_bulk_add_page_size.return_value = 50
 
         # Initialize page
-        with patch('src.ui.bulk_add.SingleCardView'), \
-             patch('src.ui.bulk_add.StructureDeckDialog'), \
-             patch('src.ui.bulk_add.FilterPane'):
+        with patch.object(bulk_add_module, 'SingleCardView'), \
+             patch.object(bulk_add_module, 'StructureDeckDialog'), \
+             patch.object(bulk_add_module, 'FilterPane'):
             self.page = BulkAddPage()
 
         # Mock render methods
         self.page.render_collection_content = MagicMock()
         self.page.render_collection_content.refresh = MagicMock()
+        self.page.render_library_content = MagicMock()
+        self.page.render_library_content.refresh = MagicMock()
         self.page.collection_filter_pane = MagicMock()
 
     def test_filter_set_by_name(self):
@@ -86,10 +103,13 @@ class TestBulkAddFiltering(unittest.TestCase):
 
         # Setup run.io_bound to return the collection
         # We patch the 'io_bound' method on the 'run' object in src.ui.bulk_add
-        with patch('src.ui.bulk_add.run.io_bound', new_callable=AsyncMock) as mock_io:
-            mock_io.return_value = col
+        with patch.object(bulk_add_module.run, 'io_bound', new_callable=AsyncMock) as mock_io:
+            async def io_bound_side_effect(func, *args, **kwargs):
+                return func(*args, **kwargs)
+            mock_io.side_effect = io_bound_side_effect
 
             self.page.state['selected_collection'] = "Test Col"
+            self.persistence_mock.load_collection.return_value = col
 
             # Run load_collection_data
             asyncio.run(self.page.load_collection_data())
@@ -109,12 +129,59 @@ class TestBulkAddFiltering(unittest.TestCase):
                     ])
                 ])
             ])
-            mock_io.return_value = col2
+            self.persistence_mock.load_collection.return_value = col2
             asyncio.run(self.page.load_collection_data())
 
             entries = self.page.col_state['collection_cards']
             entry = entries[0]
             self.assertEqual(entry.set_name, "Unknown Set")
+
+    def test_library_entries_are_created_only_for_current_page(self):
+        cards = []
+        for card_id in range(120):
+            card = ApiCard(
+                id=card_id,
+                name=f"Card {card_id:03d}",
+                type="Monster",
+                frameType="normal",
+                desc="desc",
+                card_sets=[
+                    ApiCardSet(
+                        set_name="Test Set",
+                        set_code=f"TST-EN{card_id:03d}",
+                        set_rarity="Common",
+                    )
+                ],
+            )
+            cards.append(card)
+
+        self.page.state['library_cards'] = cards
+        self.page.state['library_page_size'] = 10
+
+        asyncio.run(self.page.apply_library_filters())
+
+        self.assertEqual(self.page.state['library_filtered_count'], 120)
+        self.assertEqual(len(self.page.state['library_filtered']), 10)
+        self.assertTrue(all(isinstance(entry, LibraryEntry) for entry in self.page.state['library_filtered']))
+        self.assertTrue(all(isinstance(card, ApiCard) for card in self.page.state['library_cards']))
+
+        self.page.state['library_page'] = 2
+        self.page._refresh_library_page_entries()
+        self.assertEqual(self.page.state['library_filtered'][0].api_card.name, "Card 010")
+
+    def test_clearable_search_and_rarity_filters_accept_none(self):
+        self.page.state['library_cards'] = []
+        self.page.state['library_search_text'] = None
+        self.page.state['filter_rarity'] = None
+        asyncio.run(self.page.apply_library_filters())
+
+        self.page.col_state['collection_cards'] = []
+        self.page.col_state['search_text'] = None
+        self.page.col_state['filter_rarity'] = None
+        asyncio.run(self.page.apply_collection_filters())
+
+        self.assertEqual(self.page.state['library_filtered'], [])
+        self.assertEqual(self.page.col_state['collection_filtered'], [])
 
 if __name__ == '__main__':
     unittest.main()

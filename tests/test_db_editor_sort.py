@@ -1,67 +1,51 @@
 import asyncio
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
-from dataclasses import dataclass
-from typing import List, Optional
+from src.core.models import ApiCard
+from tests.mock_imports import import_with_module_mocks
 
 # --- Mocks Setup ---
 
 # 1. NiceGUI
 mock_ui = MagicMock()
-sys.modules['nicegui'] = mock_ui
-sys.modules['nicegui.ui'] = mock_ui
-sys.modules['nicegui.run'] = MagicMock()
+mock_run = MagicMock()
 
 # 2. Persistence
 mock_persistence_module = MagicMock()
 mock_persistence_obj = MagicMock()
 mock_persistence_obj.load_ui_state.return_value = {}
 mock_persistence_module.persistence = mock_persistence_obj
-sys.modules['src.core.persistence'] = mock_persistence_module
 
 # 3. Other Services
-sys.modules['src.services.ygo_api'] = MagicMock()
-sys.modules['src.services.image_manager'] = MagicMock()
-sys.modules['src.core.config'] = MagicMock()
-
-# 4. Models
-mock_models = MagicMock()
-@dataclass
-class MockApiCard:
-    id: int
-    name: str
-    type: str = "Monster"
-    desc: str = ""
-    atk: int = 0
-    def_: int = 0
-    level: int = 0
-    race: str = ""
-    attribute: str = ""
-    archetype: str = ""
-    card_sets: list = None
-    card_images: list = None
-
-    def matches_category(self, cat): return True
-
-mock_models.ApiCard = MockApiCard
-sys.modules['src.core.models'] = mock_models
+ygo_api_mock = MagicMock()
+image_manager_mock = MagicMock()
+config_mock = MagicMock()
 
 # 5. FilterPane (used in db_editor)
-sys.modules['src.ui.components.filter_pane'] = MagicMock()
+filter_pane_mock = MagicMock()
 
 # 6. SingleCardView (used in db_editor)
 mock_single_card_view = MagicMock()
-sys.modules['src.ui.components.single_card_view'] = mock_single_card_view
 # It also imports STANDARD_RARITIES
 mock_single_card_view.STANDARD_RARITIES = ["Common", "Rare"]
 
 # --- Imports after Mocks ---
-try:
-    from src.ui.db_editor import DbEditorPage, DbEditorRow
-except ImportError as e:
-    print(f"Import Error: {e}")
-    raise e
+db_editor_module = import_with_module_mocks(
+    'src.ui.db_editor',
+    {
+        'nicegui': mock_ui,
+        'nicegui.ui': mock_ui,
+        'nicegui.run': mock_run,
+        'src.core.persistence': mock_persistence_module,
+        'src.services.ygo_api': ygo_api_mock,
+        'src.services.image_manager': image_manager_mock,
+        'src.core.config': config_mock,
+        'src.ui.components.filter_pane': filter_pane_mock,
+        'src.ui.components.single_card_view': mock_single_card_view,
+    },
+)
+DbEditorPage = db_editor_module.DbEditorPage
+DbEditorRow = db_editor_module.DbEditorRow
 
 # Helpers
 class AsyncMock(MagicMock):
@@ -71,7 +55,7 @@ class AsyncMock(MagicMock):
 class TestDbEditorSort(unittest.TestCase):
     def setUp(self):
         # We need to patch 'run' where it is used in db_editor
-        self.run_patcher = patch('src.ui.db_editor.run')
+        self.run_patcher = patch.object(db_editor_module, 'run')
         self.mock_run = self.run_patcher.start()
 
         # Configure io_bound to just return result
@@ -97,9 +81,9 @@ class TestDbEditorSort(unittest.TestCase):
 
     def test_sort_by_set_code(self):
         # Create test data
-        c1 = MockApiCard(id=1, name="Card A")
-        c2 = MockApiCard(id=2, name="Card B")
-        c3 = MockApiCard(id=3, name="Card C")
+        c1 = ApiCard(id=1, name="Card A", type="Monster", frameType="normal", desc="")
+        c2 = ApiCard(id=2, name="Card B", type="Monster", frameType="normal", desc="")
+        c3 = ApiCard(id=3, name="Card C", type="Monster", frameType="normal", desc="")
 
         row1 = DbEditorRow(
             api_card=c1,

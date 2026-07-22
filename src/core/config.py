@@ -1,13 +1,20 @@
 import json
 import os
+import stat
+import tempfile
+import threading
 from typing import Dict, Any
+
+from werkzeug.security import generate_password_hash
 
 CONFIG_FILE = "config.json"
 
 class ConfigManager:
     def __init__(self, config_file: str = CONFIG_FILE):
         self.config_file = config_file
+        self._lock = threading.RLock()
         self.config: Dict[str, Any] = self._load_config()
+        self._ensure_auth_config()
 
     def _load_config(self) -> Dict[str, Any]:
         if not os.path.exists(self.config_file):
@@ -35,8 +42,65 @@ class ConfigManager:
         }
 
     def save_config(self):
-        with open(self.config_file, 'w', encoding='utf-8') as f:
-            json.dump(self.config, f, indent=2)
+        """Persist config atomically and restrict it to the current OS user."""
+        with self._lock:
+            directory = os.path.dirname(os.path.abspath(self.config_file))
+            os.makedirs(directory, exist_ok=True)
+            fd, temporary_path = tempfile.mkstemp(prefix='.openyugi-config-', dir=directory)
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as file:
+                    json.dump(self.config, file, indent=2)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.chmod(temporary_path, stat.S_IRUSR | stat.S_IWUSR)
+                os.replace(temporary_path, self.config_file)
+            finally:
+                if os.path.exists(temporary_path):
+                    os.remove(temporary_path)
+
+    def _ensure_auth_config(self) -> None:
+        """Migrate existing configs to secure, hashed default credentials."""
+        changed = False
+        if not isinstance(self.config.get("auth_username"), str):
+            self.config["auth_username"] = "admin"
+            changed = True
+        if not isinstance(self.config.get("auth_password_hash"), str):
+            self.config["auth_password_hash"] = generate_password_hash("admin", method="scrypt")
+            changed = True
+        if changed:
+            self.save_config()
+        if os.path.exists(self.config_file):
+            os.chmod(self.config_file, stat.S_IRUSR | stat.S_IWUSR)
+
+    def get_auth_username(self) -> str:
+        env_username = os.environ.get("OPENYUGI_ADMIN_USERNAME")
+        if env_username:
+            return env_username
+        return self.config["auth_username"]
+
+    def get_auth_password_hash(self) -> str:
+        env_password_hash = os.environ.get("OPENYUGI_ADMIN_PASSWORD_HASH")
+        if env_password_hash:
+            return env_password_hash
+        return self.config["auth_password_hash"]
+
+    def set_auth_credentials(self, username: str, password_hash: str) -> None:
+        with self._lock:
+            self.config["auth_username"] = username
+            self.config["auth_password_hash"] = password_hash
+            self.save_config()
+
+    def set_application_settings(
+        self,
+        language: str,
+        deck_builder_page_size: int,
+        bulk_add_page_size: int,
+    ) -> None:
+        with self._lock:
+            self.config["language"] = language
+            self.config["deck_builder_page_size"] = deck_builder_page_size
+            self.config["bulk_add_page_size"] = bulk_add_page_size
+            self.save_config()
 
     def get_language(self) -> str:
         return self.config.get("language", "en")

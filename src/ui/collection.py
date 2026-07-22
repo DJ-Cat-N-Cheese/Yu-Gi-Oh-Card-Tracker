@@ -1,5 +1,5 @@
 from nicegui import ui, run
-from src.core.persistence import persistence
+from src.core.persistence import persistence, sanitize_collection_filename
 from src.core.changelog_manager import changelog_manager
 from src.core.models import Collection, CollectionCard, CollectionVariant, CollectionEntry, Card, CardMetadata
 from src.services.ygo_api import ygo_service, ApiCard
@@ -8,6 +8,7 @@ from src.core.config import config_manager
 from src.core.utils import transform_set_code, generate_variant_id, normalize_set_code, LANGUAGE_COUNTRY_MAP, REGION_TO_LANGUAGE_MAP, is_set_code_compatible, extract_language_code
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import METRIC_VALUE_CLASSES, page_header
 from src.services.collection_editor import CollectionEditor
 from src.services.pricing_service import pricing_service
 from dataclasses import dataclass, field, replace
@@ -19,6 +20,15 @@ import logging
 import os
 
 logger = logging.getLogger(__name__)
+
+COLLECTION_DESKTOP_PAGE_SIZE = 48
+COLLECTION_MOBILE_PAGE_SIZE = 12
+COLLECTION_MOBILE_BREAKPOINT = 639
+
+# Phone widths get 2 columns so a card stays legible (~170px wide at 390px viewport);
+# four columns squeezed each card down to ~70px. Tablet and up keep the denser grid.
+CARD_GRID_COLUMNS = ('grid-cols-2 sm:grid-cols-3 md:grid-cols-6 '
+                     'lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12')
 
 @dataclass
 class CardViewModel:
@@ -76,15 +86,39 @@ def build_consolidated_vms(api_cards: List[ApiCard], owned_details: Dict[int, Co
     return vms
 
 
-def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = None) -> float:
-    """Helper to get the daily cardmarket price for UI display, falling back to general cardmarket_price"""
+def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = None, set_code: Optional[str] = None, rarity: Optional[str] = None, image_id: Optional[int] = None) -> float:
+    """Helper to get the daily cardmarket price for UI display, falling back to set_price, and then general cardmarket_price"""
     price = 0.0
+    matched_variant_id = variant_id
+    default_image_id = card.card_images[0].id if card.card_images else None
+    effective_image_id = image_id if image_id is not None else default_image_id
+
+    # Find the matching ApiCardSet to use for variant_id resolution and set_price fallback
+    matched_set = None
+    if card.card_sets:
+        for s in card.card_sets:
+            # Match by variant_id if provided
+            if matched_variant_id and s.variant_id == matched_variant_id:
+                matched_set = s
+                break
+
+            # Match by characteristics if provided
+            if set_code and rarity:
+                s_img = s.image_id if s.image_id is not None else default_image_id
+                if s.set_code == set_code and s.set_rarity == rarity and s_img == effective_image_id:
+                    matched_set = s
+                    matched_variant_id = s.variant_id
+                    break
+
+    # If we couldn't find a variant ID but have attributes, generate one deterministically
+    if not matched_variant_id and set_code and rarity:
+        matched_variant_id = generate_variant_id(card.id, set_code, rarity, effective_image_id)
 
     # 1. Try daily pricing
-    if variant_id:
+    if matched_variant_id:
         try:
             c_id_str = str(card.id)
-            v_id_str = str(variant_id)
+            v_id_str = str(matched_variant_id)
             if c_id_str in pricing_service.daily_pricing and v_id_str in pricing_service.daily_pricing[c_id_str]:
                 cm_data = pricing_service.daily_pricing[c_id_str][v_id_str].get('cardmarket', {})
                 if cm_data:
@@ -93,7 +127,14 @@ def get_display_price_for_variant(card: ApiCard, variant_id: Optional[str] = Non
         except Exception:
             pass
 
-    # 2. Fallback to general cardmarket_price on card
+    # 2. Fallback to set_price from matching set
+    if matched_set and matched_set.set_price:
+        try:
+            return float(matched_set.set_price)
+        except Exception:
+            pass
+
+    # 3. Fallback to general cardmarket_price on card
     if card.card_prices and card.card_prices[0].cardmarket_price:
         try:
             return float(card.card_prices[0].cardmarket_price)
@@ -167,7 +208,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                             break
 
                     set_name = best_api_set.set_name
-                    price = get_display_price_for_variant(card, cv.variant_id)
+                    price = get_display_price_for_variant(card, cv.variant_id, cv.set_code, rarity, cv.image_id)
 
                     for (lang, cond, first), qty in groups.items():
                         group_entries = [e for e in cv.entries if e.language == lang and e.condition == cond and e.first_edition == first]
@@ -218,7 +259,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
 
                 set_name = representative.set_name
                 set_code = representative.set_code
-                price = get_display_price_for_variant(card, representative.variant_id)
+                price = get_display_price_for_variant(card, representative.variant_id, set_code, rarity, representative.image_id)
 
                 row_img_url = img_url
                 if representative.image_id:
@@ -278,7 +319,7 @@ def build_collector_rows(api_cards: List[ApiCard], owned_details: Dict[int, Coll
                         set_code=cv.set_code,
                         set_name="Custom / Unmatched",
                         rarity=cv.rarity,
-                        price=get_display_price_for_variant(card, cv.variant_id),
+                        price=get_display_price_for_variant(card, cv.variant_id, cv.set_code, cv.rarity, cv.image_id),
                         image_url=row_img_url,
                         owned_count=qty,
                         is_owned=True,
@@ -360,7 +401,7 @@ class CollectionPage:
             'view_scope': saved_state.get('collection_view_scope', 'consolidated'),
             'view_mode': saved_state.get('collection_view_mode', 'grid'),
             'page': 1,
-            'page_size': 48,
+            'page_size': COLLECTION_DESKTOP_PAGE_SIZE,
             'total_pages': 1,
         }
 
@@ -407,6 +448,8 @@ class CollectionPage:
     async def load_data(self, keep_page=False):
         logger.info(f"Loading data... (Language: {self.state['language']})")
 
+        await self._set_responsive_page_size()
+
         try:
             lang_code = self.state['language'].lower() if self.state['language'] else 'en'
             api_cards = await ygo_service.load_card_database(lang_code)
@@ -416,30 +459,7 @@ class CollectionPage:
             ui.notify(f"Error loading database: {e}", type='negative')
             return
 
-        sets = set()
-        m_races = set()
-        st_races = set()
-        archetypes = set()
-
-        for c in api_cards:
-            if c.card_sets:
-                for s in c.card_sets:
-                    parts = s.set_code.split('-')
-                    prefix = parts[0] if len(parts) > 0 else s.set_code
-                    sets.add(f"{s.set_name} | {prefix}")
-
-            if c.archetype:
-                archetypes.add(c.archetype)
-
-            if "Monster" in c.type:
-                m_races.add(c.race)
-            elif "Spell" in c.type or "Trap" in c.type:
-                if c.race: st_races.add(c.race)
-
-        self.state['available_sets'] = sorted([s for s in sets if s])
-        self.state['available_monster_races'] = sorted([r for r in m_races if r])
-        self.state['available_st_races'] = sorted([r for r in st_races if r])
-        self.state['available_archetypes'] = sorted([a for a in archetypes if a])
+        self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
         collection = None
         if self.state['selected_file']:
@@ -474,6 +494,24 @@ class CollectionPage:
         await self.apply_filters(reset_page=not keep_page)
         self.update_filter_ui()
         logger.info(f"Data loaded. Items: {len(self.state['cards_consolidated'])}")
+
+    async def _set_responsive_page_size(self):
+        """Use a smaller first page on phones without changing the desktop default."""
+        try:
+            viewport_width = await ui.run_javascript('window.innerWidth', timeout=2.0)
+            viewport_width = float(viewport_width)
+        except (TypeError, ValueError, TimeoutError, RuntimeError):
+            logger.debug("Could not detect viewport width; keeping desktop page size")
+            return
+
+        page_size = (
+            COLLECTION_MOBILE_PAGE_SIZE
+            if viewport_width <= COLLECTION_MOBILE_BREAKPOINT
+            else COLLECTION_DESKTOP_PAGE_SIZE
+        )
+        if self.state['page_size'] != page_size:
+            self.state['page_size'] = page_size
+            self.state['page'] = 1
 
     def update_filter_ui(self):
         if self.filter_pane:
@@ -858,7 +896,7 @@ class CollectionPage:
 
                                 if var_qty > 0:
                                     unique_variant_ids.add(v.variant_id)
-                                    price = get_display_price_for_variant(vm.api_card, v.variant_id)
+                                    price = get_display_price_for_variant(vm.api_card, v.variant_id, v.set_code, v.rarity, v.image_id)
                                     self.metrics['total_value'] += price * var_qty
         else:
             # Collectors view
@@ -1009,7 +1047,7 @@ class CollectionPage:
         else:
             if new_qty > 0:
                 set_name = "Unknown Set"
-                price = get_display_price_for_variant(api_card, variant_id)
+                price = get_display_price_for_variant(api_card, variant_id, set_code, rarity, image_id)
                 if api_card.card_sets:
                     for s in api_card.card_sets:
                         if s.set_code == set_code:
@@ -1063,7 +1101,7 @@ class CollectionPage:
 
                  if is_standard:
                      set_name = "Unknown Set"
-                     price = get_display_price_for_variant(api_card, None)
+                     price = get_display_price_for_variant(api_card, None, set_code, rarity, image_id)
                      if api_card.card_sets:
                         for s in api_card.card_sets:
                             if s.set_code == set_code:
@@ -1379,7 +1417,7 @@ class CollectionPage:
     # --- Renderers ---
 
     def render_consolidated_grid(self, items: List[CardViewModel]):
-        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for vm in items:
                 card = vm.api_card
                 opacity = "opacity-100" if vm.is_owned else "opacity-60 grayscale"
@@ -1496,7 +1534,7 @@ class CollectionPage:
 
         cond_map = {'Mint': 'MT', 'Near Mint': 'NM', 'Played': 'PL', 'Damaged': 'DM'}
 
-        with ui.element('div').classes('grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 2xl:grid-cols-12 gap-4 w-full'):
+        with ui.element('div').classes(f'grid {CARD_GRID_COLUMNS} gap-4 w-full'):
             for item in items:
                 opacity = "opacity-100" if item.is_owned else "opacity-60 grayscale"
                 border = "border-accent" if item.is_owned else "border-gray-700"
@@ -1569,6 +1607,12 @@ class CollectionPage:
                 if not name.endswith(('.json', '.yaml', '.yml')):
                     name += '.json'
 
+                try:
+                    name = sanitize_collection_filename(name)
+                except ValueError as e:
+                    ui.notify(str(e), type='negative')
+                    return
+
                 # Check if exists
                 existing = persistence.list_collections()
                 if name in existing:
@@ -1596,8 +1640,18 @@ class CollectionPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.element('div').classes('w-full flex flex-wrap items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Gallery').classes('text-h5')
+        with ui.element('div').classes('oy-collection-controls w-full flex flex-wrap items-center gap-4 q-mb-md'):
+            with ui.row().classes('oy-collection-title-row w-full items-end justify-between no-wrap'):
+                page_header('Collection', 'Browse, filter, and value every card you own.')
+
+                with ui.button_group().classes('oy-collection-view-toggle shrink-0'):
+                    is_cons = self.state['view_scope'] == 'consolidated'
+                    with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
+                        .props('unelevated color=secondary' if is_cons else 'outline color=grey-5'):
+                        ui.tooltip('View consolidated gameplay statistics (totals per card)')
+                    with ui.button('Collectors', on_click=lambda: self.switch_scope('collectors')) \
+                        .props('outline color=grey-5' if is_cons else 'unelevated color=secondary'):
+                        ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
 
             files = persistence.list_collections()
             # Transform file list to dict for cleaner display (hide .json/.yaml)
@@ -1682,21 +1736,12 @@ class CollectionPage:
             ui.separator().props('vertical').classes('hidden sm:block')
 
             with ui.button_group().classes('shrink-0'):
-                is_cons = self.state['view_scope'] == 'consolidated'
-                with ui.button('Consolidated', on_click=lambda: self.switch_scope('consolidated')) \
-                    .props(f'flat={not is_cons} color=accent'):
-                    ui.tooltip('View consolidated gameplay statistics (totals per card)')
-                with ui.button('Collectors', on_click=lambda: self.switch_scope('collectors')) \
-                    .props(f'flat={is_cons} color=accent'):
-                    ui.tooltip('View detailed market and collection data (separate entries per set/rarity)')
-
-            with ui.button_group().classes('shrink-0'):
                 is_grid = self.state['view_mode'] == 'grid'
                 with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')) \
-                    .props(f'flat={not is_grid} color=accent'):
+                    .props('unelevated color=secondary' if is_grid else 'outline color=grey-5'):
                     ui.tooltip('Show cards in a grid layout')
                 with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')) \
-                    .props(f'flat={is_grid} color=accent'):
+                    .props('outline color=grey-5' if is_grid else 'unelevated color=secondary'):
                     ui.tooltip('Show cards in a list layout')
 
             ui.space()
@@ -1717,7 +1762,7 @@ class CollectionPage:
             with ui.button(icon='settings', on_click=self.open_metrics_settings).props('flat color=white size=md'):
                 ui.tooltip('Header Metrics Settings')
 
-            with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg'):
+            with ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=secondary size=lg'):
                 ui.tooltip('Open advanced filters')
 
     def open_metrics_settings(self):
@@ -1756,7 +1801,7 @@ class CollectionPage:
                         on_change=lambda e: [on_setting_change('price_preview', e.value), getattr(self, 'render_card_display', type('Dummy', (), {'refresh': lambda: None})).refresh()]).props('dark')
 
             with ui.row().classes('w-full justify-end q-mt-md'):
-                ui.button('Close', on_click=d.close).props('flat color=primary')
+                ui.button('Close', on_click=d.close).props('flat color=secondary')
         d.open()
 
     @ui.refreshable
@@ -1768,14 +1813,11 @@ class CollectionPage:
             return
 
         def metric_card(label, value, icon, color='accent'):
-            with ui.card().classes('flex-1 bg-dark border border-gray-700 p-4 items-center flex-row gap-4 min-w-[200px] hover:border-gray-500 transition-colors shadow-none'):
-                with ui.element('div').classes(f'p-3 rounded-full bg-{color}/10'):
-                    ui.icon(icon, size='2rem').classes(f'text-{color}')
-                with ui.column().classes('gap-0'):
-                    ui.label(label).classes('text-grey-4 text-xs uppercase font-bold tracking-wider')
-                    ui.label(str(value)).classes(f"text-2xl font-bold text-white")
+            with ui.card().classes('oy-metric-card flex-1 p-5 gap-2 min-w-[180px] transition-colors'):
+                ui.label(label).classes('oy-label')
+                ui.label(str(value)).classes(f"oy-stat text-3xl {METRIC_VALUE_CLASSES.get(color, 'text-white')}")
 
-        with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
+        with ui.element('div').classes('w-full flex flex-col gap-4 q-mb-md'):
 
             with ui.element('div').classes('grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 w-full gap-4'):
                 if config['total_value']:
@@ -1792,22 +1834,22 @@ class CollectionPage:
 
             with ui.element('div').classes('grid grid-cols-1 md:grid-cols-2 w-full gap-4'):
                 if config['rarity_breakdown'] and self.metrics['rarity_dist']:
-                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
-                        ui.label('Rarity Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                    with ui.card().classes('w-full p-4'):
+                        ui.label('Rarity Breakdown').classes('oy-label q-mb-sm')
                         with ui.row().classes('w-full gap-2 flex-wrap'):
                             sorted_rarities = sorted(self.metrics['rarity_dist'].items(), key=lambda x: x[1], reverse=True)
                             for r_name, r_count in sorted_rarities:
-                                ui.label(f"{r_name}: {r_count}").classes('bg-gray-800 px-2 py-1 rounded text-xs text-white')
+                                ui.label(f"{r_name}: {r_count}").classes('bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-xs oy-text-body')
 
                 if config['language_breakdown'] and self.metrics['language_dist']:
-                    with ui.card().classes('w-full bg-dark border border-gray-700 p-4 shadow-none'):
-                        ui.label('Language Breakdown').classes('text-sm font-bold text-gray-400 uppercase tracking-wide q-mb-sm')
+                    with ui.card().classes('w-full p-4'):
+                        ui.label('Language Breakdown').classes('oy-label q-mb-sm')
                         with ui.row().classes('w-full gap-2 flex-wrap'):
                             sorted_langs = sorted(self.metrics['language_dist'].items(), key=lambda x: x[1], reverse=True)
                             for l_name, l_count in sorted_langs:
                                 l_code = l_name.strip().upper()
                                 country_code = LANGUAGE_COUNTRY_MAP.get(l_code)
-                                with ui.row().classes('items-center bg-gray-800 px-2 py-1 rounded gap-1'):
+                                with ui.row().classes('items-center bg-white/5 border border-white/10 px-2.5 py-1 rounded-full gap-1'):
                                     if country_code:
                                         flag_url = image_manager.get_flag_image_url(country_code)
                                         if flag_url:
@@ -1837,7 +1879,7 @@ class CollectionPage:
 
     def content_area(self):
         # Pagination controls - static
-        with ui.row().classes('w-full items-center justify-between q-mb-sm px-4'):
+        with ui.row().classes('oy-collection-pagination w-full items-center justify-between q-mb-sm px-4'):
             self.pagination_showing_label = ui.label("Loading...").classes('text-grey')
 
             with ui.row().classes('items-center gap-2'):

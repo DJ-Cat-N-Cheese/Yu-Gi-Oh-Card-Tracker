@@ -9,6 +9,7 @@ from src.services.image_manager import image_manager
 from src.core.config import config_manager
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Set
 import logging
@@ -83,6 +84,7 @@ class DeckBuilderPage:
         # Load persisted UI state
         ui_state = persistence.load_ui_state()
         last_deck = ui_state.get('deck_builder_last_deck')
+        last_deck_group = ui_state.get('deck_builder_last_deck_group', 'main')
         last_col = ui_state.get('deck_builder_last_collection')
 
         last_sort_by = ui_state.get('deck_builder_sort_by', 'Name')
@@ -124,11 +126,13 @@ class DeckBuilderPage:
 
             'current_deck': None, # Deck object
             'current_deck_name': last_deck, # Initialize from session
+            'current_deck_group': last_deck_group,
             'reference_collection': None, # Collection object for ownership check
             'reference_collection_name': last_col, # Track filename
             'reference_storage': None, # None = All, '__UNASSIGNED__' = None location, else specific string
 
             'available_decks': [],
+            'available_deck_groups': [],
             'available_collections': [],
 
             'available_banlists': [],
@@ -449,7 +453,7 @@ class DeckBuilderPage:
         self.state['loading'] = True
         try:
             # Load API Data
-            lang = config_manager.get_language()
+            lang = (config_manager.get_language() or 'en').lower()
             api_cards = await ygo_service.load_card_database(lang)
             self.state['all_api_cards'] = api_cards
             self.api_card_map = {c.id: c for c in api_cards}
@@ -502,33 +506,16 @@ class DeckBuilderPage:
                  self.state['current_banlist_map'] = {}
                  self.state['current_banlist_type'] = 'classical'
 
-            # Setup Filters Metadata
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            for i, c in enumerate(api_cards):
-                if i % 1000 == 0:
-                    await asyncio.sleep(0) # Yield control back to the event loop occasionally
-                if c.card_sets:
-                    for s in c.card_sets:
-                        parts = s.set_code.split('-')
-                        prefix = parts[0] if len(parts) > 0 else s.set_code
-                        sets.add(f"{s.set_name} | {prefix}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.state['available_sets'] = sorted([s for s in sets if s])
-            self.state['available_monster_races'] = sorted([r for r in m_races if r])
-            self.state['available_st_races'] = sorted([r for r in st_races if r])
-            self.state['available_archetypes'] = sorted([a for a in archetypes if a])
-            self.state['available_card_types'] = ['Monster', 'Spell', 'Trap', 'Skill']
+            self.state.update(await ygo_service.get_filter_metadata(lang))
 
             # Load Decks List
-            self.state['available_decks'] = persistence.list_decks()
+            self.state['available_deck_groups'] = persistence.list_deck_groups()
+
+            # Ensure the saved group exists or fallback to main
+            if self.state['current_deck_group'] not in self.state['available_deck_groups']:
+                self.state['current_deck_group'] = 'main'
+
+            self.state['available_decks'] = persistence.list_decks(self.state['current_deck_group'])
 
             # Load Collections List (for reference)
             cols = persistence.list_collections()
@@ -565,7 +552,8 @@ class DeckBuilderPage:
 
     async def load_deck(self, filename):
         try:
-            deck = await run.io_bound(persistence.load_deck, filename)
+            group = self.state['current_deck_group']
+            deck = await run.io_bound(persistence.load_deck, filename, group)
             self.state['current_deck'] = deck
             name = filename.replace('.ydk', '')
             self.state['current_deck_name'] = name
@@ -597,9 +585,10 @@ class DeckBuilderPage:
             return
         try:
             filename = f"{self.state['current_deck_name']}.ydk"
-            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename)
+            group = self.state['current_deck_group']
+            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename, group)
             ui.notify('Deck saved.', type='positive')
-            self.state['available_decks'] = persistence.list_decks()
+            self.state['available_decks'] = persistence.list_decks(group)
             self.render_header.refresh()
         except Exception as e:
             logger.error(f"Error saving deck: {e}")
@@ -609,6 +598,71 @@ class DeckBuilderPage:
         filename = f"{name}.ydk"
         existing_lower = {f.lower() for f in self.state['available_decks']}
         return filename.lower() in existing_lower
+
+    def open_move_deck_dialog(self):
+        """Open a picker for transferring the selected deck to another deck group."""
+        if not self.state['current_deck'] or not self.state['current_deck_name']:
+            ui.notify("No deck selected.", type='warning')
+            return
+
+        source_group = self.state['current_deck_group']
+        destination_groups = [
+            group for group in self.state['available_deck_groups']
+            if group != source_group
+        ]
+        if not destination_groups:
+            ui.notify("Create another deck group before moving this deck.", type='warning')
+            return
+
+        with ui.dialog() as d, ui.card().classes('w-[420px] max-w-full'):
+            ui.label(f"Move '{self.state['current_deck_name']}'").classes('text-h6')
+            ui.label(f"From deck group: {source_group}").classes('text-sm text-grey')
+            destination_input = ui.select(
+                {group: group for group in destination_groups},
+                value=destination_groups[0],
+                label='Destination Deck Group',
+            ).classes('w-full')
+
+            async def move():
+                destination_group = destination_input.value
+                if not destination_group:
+                    ui.notify("Choose a destination deck group.", type='warning')
+                    return
+
+                filename = f"{self.state['current_deck_name']}.ydk"
+                try:
+                    await run.io_bound(
+                        persistence.move_deck,
+                        filename,
+                        source_group,
+                        destination_group,
+                    )
+                    self.state['current_deck_group'] = destination_group
+                    self.state['available_deck_groups'] = await run.io_bound(persistence.list_deck_groups)
+                    self.state['available_decks'] = await run.io_bound(
+                        persistence.list_decks,
+                        destination_group,
+                    )
+                    persistence.save_ui_state({
+                        'deck_builder_last_deck_group': destination_group,
+                        'deck_builder_last_deck': self.state['current_deck_name'],
+                    })
+                    await self.load_deck(filename)
+                    d.close()
+                    ui.notify(f"Moved deck to {destination_group}.", type='positive')
+                except FileExistsError:
+                    ui.notify(
+                        f"A deck named '{self.state['current_deck_name']}' already exists in {destination_group}.",
+                        type='negative',
+                    )
+                except Exception as e:
+                    logger.error("Error moving deck: %s", e, exc_info=True)
+                    ui.notify(f"Error moving deck: {e}", type='negative')
+
+            with ui.row().classes('w-full justify-end gap-2 q-mt-md'):
+                ui.button('Cancel', on_click=d.close).props('flat')
+                ui.button('Move', on_click=move).props('color=secondary')
+        d.open()
 
     async def create_new_deck(self, name):
         if not name: return
@@ -628,7 +682,8 @@ class DeckBuilderPage:
     def _log_change(self, action: str, card_id: int, quantity: int, target_zone: str, from_zone: str = None):
         if not self.state['current_deck_name']: return
 
-        filename = f"{self.state['current_deck_name']}.ydk"
+        group = self.state['current_deck_group']
+        filename = f"{group}_{self.state['current_deck_name']}.ydk"
 
         card_data = {
             'card_id': card_id,
@@ -688,148 +743,146 @@ class DeckBuilderPage:
 
     async def apply_filters(self):
         source = self.state['all_api_cards']
-        res = list(source)
-
-        # Helpers for sorting/filtering
         ref_col = self.state['reference_collection']
-        owned_map = {}
-        if ref_col:
-            owned_map = {c.card_id: c for c in ref_col.cards}
+        owned_map = {card.card_id: card for card in ref_col.cards} if ref_col else {}
+        state = self.state
+        text = (state['search_text'] or '').lower()
+        card_types = state['filter_card_type']
+        if isinstance(card_types, str):
+            card_types = [card_types]
+        set_target = (state['filter_set'] or '').split('|')[0].strip().lower()
+        rarity_target = (state['filter_rarity'] or '').lower()
+        categories = state['filter_monster_category']
+        level = int(state['filter_level']) if state['filter_level'] is not None else None
+        atk_min, atk_max = state['filter_atk_min'], state['filter_atk_max']
+        def_min, def_max = state['filter_def_min'], state['filter_def_max']
+        own_min, own_max = state['filter_ownership_min'], state['filter_ownership_max']
+        price_min, price_max = state['filter_price_min'], state['filter_price_max']
+        conditions = set(state['filter_condition']) if ref_col else set()
+        owned_language = state['filter_owned_lang'] if ref_col else ''
+        atk_active = atk_min > 0 or atk_max < 5000
+        def_active = def_min > 0 or def_max < 5000
+        ownership_active = own_min > 0 or own_max < 100
+        price_active = price_min > 0 or price_max < 1000
+        result = []
 
-        def get_qty(c):
-             if not ref_col: return 0
-             found = owned_map.get(c.id)
-             return found.total_quantity if found else 0
+        for card in source:
+            # Search first because it normally eliminates nearly all cards.
+            if text and not (
+                text in card.name.lower()
+                or text in card.type.lower()
+                or text in card.desc.lower()
+                or any(text in card_set.set_code.lower() for card_set in card.card_sets)
+            ):
+                continue
+            if card_types and not any(card_type in card.type for card_type in card_types):
+                continue
+            if state['filter_attr'] and card.attribute != state['filter_attr']:
+                continue
+            if state['filter_monster_race'] and (
+                "Monster" not in card.type or card.race != state['filter_monster_race']
+            ):
+                continue
+            if state['filter_st_race'] and (
+                ("Spell" not in card.type and "Trap" not in card.type)
+                or card.race != state['filter_st_race']
+            ):
+                continue
+            if state['filter_archetype'] and card.archetype != state['filter_archetype']:
+                continue
+            if set_target and not any(
+                set_target in (card_set.set_name or '').lower()
+                or set_target in (card_set.set_code or '').lower()
+                for card_set in card.card_sets
+            ):
+                continue
+            if rarity_target and not any(
+                rarity_target == (card_set.set_rarity or '').lower()
+                for card_set in card.card_sets
+            ):
+                continue
+            if categories and not any(card.matches_category(category) for category in categories):
+                continue
+            if level is not None and card.level != level:
+                continue
+            if atk_active and (card.atk is None or not atk_min <= int(card.atk) <= atk_max):
+                continue
+            if def_active and (card.def_ is None or not def_min <= int(card.def_) <= def_max):
+                continue
 
-        def get_price(c):
-             if not c.card_prices: return 0.0
-             try:
-                 return float(c.card_prices[0].tcgplayer_price or 0)
-             except: return 0.0
+            owned_card = owned_map.get(card.id)
+            owned_quantity = owned_card.total_quantity if owned_card else 0
+            if state['only_owned'] and ref_col and not owned_card:
+                continue
+            if ownership_active and not own_min <= owned_quantity <= own_max:
+                continue
 
-        await asyncio.sleep(0) # Yield before heavy list comprehensions
+            if conditions or owned_language:
+                condition_match = not conditions
+                language_match = not owned_language
+                if owned_card:
+                    for variant in owned_card.variants:
+                        for entry in variant.entries:
+                            if entry.quantity <= 0:
+                                continue
+                            if conditions and entry.condition in conditions:
+                                condition_match = True
+                            if owned_language and entry.language == owned_language:
+                                language_match = True
+                            if condition_match and language_match:
+                                break
+                        if condition_match and language_match:
+                            break
+                if not condition_match or not language_match:
+                    continue
 
-        txt = self.state['search_text'].lower()
-        if txt:
-             def matches(c):
-                 if txt in c.name.lower() or txt in c.type.lower() or txt in c.desc.lower():
-                     return True
-                 if c.card_sets:
-                     for s in c.card_sets:
-                         if txt in s.set_code.lower():
-                             return True
-                 return False
-             res = [c for c in res if matches(c)]
+            if price_active:
+                try:
+                    price = float(card.card_prices[0].tcgplayer_price or 0) if card.card_prices else 0.0
+                except (TypeError, ValueError):
+                    price = 0.0
+                if not price_min <= price <= price_max:
+                    continue
 
-        if self.state['filter_card_type']:
-             ctypes = self.state['filter_card_type']
-             if isinstance(ctypes, str): ctypes = [ctypes]
-             res = [c for c in res if any(t in c.type for t in ctypes)]
+            result.append(card)
 
-        if self.state['filter_attr']:
-             res = [c for c in res if c.attribute == self.state['filter_attr']]
+        def get_quantity(card):
+            owned_card = owned_map.get(card.id)
+            return owned_card.total_quantity if owned_card else 0
 
-        if self.state['filter_monster_race']:
-             res = [c for c in res if "Monster" in c.type and c.race == self.state['filter_monster_race']]
-        if self.state['filter_st_race']:
-             res = [c for c in res if ("Spell" in c.type or "Trap" in c.type) and c.race == self.state['filter_st_race']]
-        if self.state['filter_archetype']:
-             res = [c for c in res if c.archetype == self.state['filter_archetype']]
+        def get_price(card):
+            if not card.card_prices:
+                return 0.0
+            try:
+                return float(card.card_prices[0].tcgplayer_price or 0)
+            except (TypeError, ValueError):
+                return 0.0
 
-        if self.state['filter_set']:
-             # Format: "Set Name | Code"
-             target = self.state['filter_set'].split('|')[0].strip().lower()
-             res = [c for c in res if any(target in (s.set_name or '').lower() or target in (s.set_code or '').lower() for s in c.card_sets)]
-
-        if self.state['filter_rarity']:
-             target = self.state['filter_rarity'].lower()
-             res = [c for c in res if any(target == (s.set_rarity or '').lower() for s in c.card_sets)]
-
-        if self.state['filter_monster_category']:
-             # Check if card matches ANY of the selected categories
-             cats = self.state['filter_monster_category']
-             res = [c for c in res if any(c.matches_category(cat) for cat in cats)]
-
-        if self.state['filter_level'] is not None:
-             res = [c for c in res if c.level == int(self.state['filter_level'])]
-
-        atk_min, atk_max = self.state['filter_atk_min'], self.state['filter_atk_max']
-        if atk_min > 0 or atk_max < 5000:
-             res = [c for c in res if c.atk is not None and atk_min <= int(c.atk) <= atk_max]
-
-        def_min, def_max = self.state['filter_def_min'], self.state['filter_def_max']
-        if def_min > 0 or def_max < 5000:
-             res = [c for c in res if c.def_ is not None and def_min <= int(c.def_) <= def_max]
-
-        # Ownership Filters - (Helper map already created at top)
-
-        # Quantity Range
-        own_min, own_max = self.state['filter_ownership_min'], self.state['filter_ownership_max']
-        if own_min > 0 or own_max < 100:
-             res = [c for c in res if own_min <= get_qty(c) <= own_max]
-
-        # Condition
-        if self.state['filter_condition'] and ref_col:
-             conds = set(self.state['filter_condition'])
-             def has_condition(c):
-                 found = owned_map.get(c.id)
-                 if not found: return False
-                 for v in found.variants:
-                     for e in v.entries:
-                         if e.condition in conds and e.quantity > 0:
-                             return True
-                 return False
-             res = [c for c in res if has_condition(c)]
-
-        # Owned Language
-        if self.state['filter_owned_lang'] and ref_col:
-             lang = self.state['filter_owned_lang']
-             def has_lang(c):
-                 found = owned_map.get(c.id)
-                 if not found: return False
-                 for v in found.variants:
-                     for e in v.entries:
-                         if e.language == lang and e.quantity > 0:
-                             return True
-                 return False
-             res = [c for c in res if has_lang(c)]
-
-        # Price Range
-        p_min, p_max = self.state['filter_price_min'], self.state['filter_price_max']
-        if p_min > 0 or p_max < 1000:
-             res = [c for c in res if p_min <= get_price(c) <= p_max]
-
-        await asyncio.sleep(0) # Yield before final sorting
-
-        key = self.state['sort_by']
-        reverse = self.state['sort_descending']
+        key = state['sort_by']
+        reverse = state['sort_descending']
 
         if key == 'Name':
-            res.sort(key=lambda x: x.name, reverse=reverse)
+            result.sort(key=lambda card: card.name, reverse=reverse)
         elif key == 'ATK':
-            res.sort(key=lambda x: (x.atk or -1), reverse=reverse)
+            result.sort(key=lambda card: card.atk or -1, reverse=reverse)
         elif key == 'DEF':
-            res.sort(key=lambda x: (getattr(x, 'def_', None) or -1), reverse=reverse)
+            result.sort(key=lambda card: card.def_ or -1, reverse=reverse)
         elif key == 'Level':
-            res.sort(key=lambda x: (x.level or -1), reverse=reverse)
+            result.sort(key=lambda card: card.level or -1, reverse=reverse)
         elif key == 'Newest':
-            res.sort(key=lambda x: x.id, reverse=reverse)
+            result.sort(key=lambda card: card.id, reverse=reverse)
         elif key == 'Price':
-             res.sort(key=lambda x: get_price(x), reverse=reverse)
+            result.sort(key=get_price, reverse=reverse)
         elif key == 'Quantity':
-             res.sort(key=lambda x: get_qty(x), reverse=reverse)
+            result.sort(key=get_quantity, reverse=reverse)
         elif key == 'Set Code':
-             def get_set_code(x):
-                 if x.card_sets: return x.card_sets[0].set_code
-                 return ""
-             res.sort(key=get_set_code, reverse=reverse)
+            result.sort(
+                key=lambda card: card.card_sets[0].set_code if card.card_sets else "",
+                reverse=reverse,
+            )
 
-        if self.state['only_owned'] and self.state['reference_collection']:
-             owned_ids = set(c.card_id for c in self.state['reference_collection'].cards)
-             res = [c for c in res if c.id in owned_ids]
-
-        self.state['filtered_items'] = res
-        self.state['page'] = 1
+        state['filtered_items'] = result
+        state['page'] = 1
         self.update_pagination()
         await self.prepare_current_page_images()
         self.refresh_search_results()
@@ -875,6 +928,42 @@ class DeckBuilderPage:
         if self.filter_pane: self.filter_pane.reset_ui_elements()
         await self.apply_filters()
 
+    def open_new_group_dialog(self):
+        with ui.dialog() as d, ui.card():
+            ui.label('Create New Deck Group').classes('text-h6')
+            name_input = ui.input('Group Name')
+
+            async def create():
+                try:
+                    name = persistence.normalize_deck_group(name_input.value)
+                except ValueError:
+                    ui.notify("Invalid group name.", type='warning')
+                    return
+
+                # Check duplicates (case-insensitive) after sanitizing, so "Group/1" and "Group1" collide.
+                existing = {g.lower() for g in self.state['available_deck_groups']}
+                if name.lower() in existing:
+                    ui.notify("Group already exists!", type='warning')
+                    return
+
+                name = persistence.create_deck_group(name)
+
+                self.state['available_deck_groups'] = persistence.list_deck_groups()
+                self.state['current_deck_group'] = name
+                persistence.save_ui_state({'deck_builder_last_deck_group': name})
+                self.state['available_decks'] = []
+                self.state['current_deck'] = None
+                self.state['current_deck_name'] = None
+                persistence.save_ui_state({'deck_builder_last_deck': None})
+
+                self.refresh_deck_area()
+                self.render_header.refresh()
+                d.close()
+                ui.notify(f"Created group: {name}", type='positive')
+
+            ui.button('Create', on_click=create).props('color=positive')
+        d.open()
+
     def open_new_deck_dialog(self):
         with ui.dialog() as d, ui.card().classes('w-[600px] max-w-full'):
              ui.label('Create New Deck').classes('text-h6')
@@ -909,8 +998,9 @@ class DeckBuilderPage:
 
                              name = os.path.basename(raw_name).replace('.ydk', '')
                              filename = f"{name}.ydk"
-                             filepath = f"data/decks/{filename}"
-                             with open(filepath, 'w', encoding='utf-8') as f: f.write(content)
+                             group = self.state['current_deck_group']
+                             await run.io_bound(persistence.save_deck_content, content, filename, group)
+                             self.state['available_decks'] = persistence.list_decks(group)
                              await self.load_deck(filename)
                              d.close()
                              ui.notify(f"Imported deck: {name}", type='positive')
@@ -940,10 +1030,11 @@ class DeckBuilderPage:
 
                                  deck.name = name
                                  filename = f"{name}.ydk"
-                                 await run.io_bound(persistence.save_deck, deck, filename)
+                                 group = self.state['current_deck_group']
+                                 await run.io_bound(persistence.save_deck, deck, filename, group)
 
                                  # Refresh deck list and load
-                                 self.state['available_decks'] = persistence.list_decks()
+                                 self.state['available_decks'] = persistence.list_decks(group)
                                  await self.load_deck(filename)
 
                                  n.dismiss()
@@ -962,16 +1053,39 @@ class DeckBuilderPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Deck Builder').classes('text-h5')
+        with ui.row().classes('oy-deck-builder-header w-full items-center gap-4 q-mb-md'):
+            page_header('Deck Builder', 'Build decks straight from the cards you own.').classes('mr-2')
+
+            deck_groups = list(self.state['available_deck_groups'] or ['main'])
+            if self.state['current_deck_group'] not in deck_groups:
+                deck_groups.append(self.state['current_deck_group'])
+            group_options = {g: g for g in deck_groups}
+
+            async def on_group_change(e):
+                if e.value:
+                    self.state['current_deck_group'] = e.value
+                    persistence.save_ui_state({'deck_builder_last_deck_group': e.value})
+                    self.state['available_decks'] = persistence.list_decks(e.value)
+
+                    # Auto-select the first deck in the new group, or None
+                    if self.state['available_decks']:
+                        next_deck = self.state['available_decks'][0]
+                        await self.load_deck(next_deck)
+                    else:
+                        self.state['current_deck'] = None
+                        self.state['current_deck_name'] = None
+                        persistence.save_ui_state({'deck_builder_last_deck': None})
+                        self.refresh_deck_area()
+                        self.render_header.refresh()
+
+            selected_group = self.state['current_deck_group']
+            ui.select(group_options, value=selected_group, label='Deck Group', on_change=on_group_change).classes('min-w-[150px]')
+            ui.button(icon='create_new_folder', on_click=self.open_new_group_dialog).props('flat round color=white').tooltip('Create New Deck Group')
 
             deck_options = {f: f.replace('.ydk', '') for f in self.state['available_decks']}
-            deck_options['__NEW__'] = '+ New Deck'
 
             async def on_deck_change(e):
-                if e.value == '__NEW__':
-                    self.open_new_deck_dialog()
-                elif e.value:
+                if e.value:
                     await self.load_deck(e.value)
 
             selected = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
@@ -988,23 +1102,45 @@ class DeckBuilderPage:
                 with ui.dialog() as d, ui.card():
                     ui.label('Save Deck As').classes('text-h6')
                     name_input = ui.input('New Name', value=self.state['current_deck_name'])
+                    group_input = ui.select(
+                        {group: group for group in self.state['available_deck_groups']},
+                        value=self.state['current_deck_group'],
+                        label='Deck Group',
+                    ).classes('w-full')
                     async def save():
                         name = name_input.value
                         if not name: return
 
-                        if self._is_duplicate_deck(name):
+                        group = group_input.value
+                        if not group:
+                            ui.notify("Choose a deck group.", type='warning')
+                            return
+
+                        if group == self.state['current_deck_group']:
+                            duplicate = self._is_duplicate_deck(name)
+                        else:
+                            destination_decks = await run.io_bound(persistence.list_decks, group)
+                            duplicate = f"{name}.ydk".lower() in {
+                                deck.lower() for deck in destination_decks
+                            }
+                        if duplicate:
                              ui.notify(f"Deck '{name}' already exists!", type='negative')
                              return
 
                         try:
                             filename = f"{name}.ydk"
                             # Save current deck content to new file
-                            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename)
+                            await run.io_bound(persistence.save_deck, self.state['current_deck'], filename, group)
 
                             # Switch to new deck
+                            self.state['current_deck_group'] = group
                             self.state['current_deck_name'] = name
-                            self.state['available_decks'] = persistence.list_decks()
-                            persistence.save_ui_state({'deck_builder_last_deck': name})
+                            self.state['current_deck'].name = name
+                            self.state['available_decks'] = await run.io_bound(persistence.list_decks, group)
+                            persistence.save_ui_state({
+                                'deck_builder_last_deck_group': group,
+                                'deck_builder_last_deck': name,
+                            })
 
                             self.render_header.refresh()
                             d.close()
@@ -1013,10 +1149,12 @@ class DeckBuilderPage:
                             logger.error(f"Error saving deck: {e}")
                             ui.notify(f"Error saving: {e}", type='negative')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_deck_as).props('flat round color=white').tooltip('Save Deck As')
+
+            ui.button(icon='drive_file_move', on_click=self.open_move_deck_dialog).props('flat round color=white').tooltip('Move Deck to Another Group')
 
             ui.button(icon='delete', on_click=self.delete_current_deck).props('flat round color=red-400').tooltip('Delete Deck')
 
@@ -1136,14 +1274,15 @@ class DeckBuilderPage:
                         d.close()
                         ui.notify(f"Saved banlist: {name_input.value}", type='positive')
 
-                    ui.button('Save', on_click=save).props('color=primary')
+                    ui.button('Save', on_click=save).props('color=secondary')
                 d.open()
 
             ui.button(icon='save_as', on_click=save_banlist_as).props('flat round color=white').tooltip('Save Banlist As')
 
             # Undo Button
             has_history = False
-            deck_filename = f"{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
+            group = self.state['current_deck_group']
+            deck_filename = f"{group}_{self.state['current_deck_name']}.ydk" if self.state['current_deck_name'] else None
             if deck_filename:
                  last = self.deck_changelog_manager.get_last_change(deck_filename)
                  has_history = last is not None
@@ -1218,8 +1357,37 @@ class DeckBuilderPage:
         if "Trap" in type_str: return "change_history"
         return "help_outline"
 
+    def _get_card_storage_locations(self, card_id: int) -> List[tuple[str, str, int]]:
+        """Return owned quantities grouped by printing and storage for the hover overlay."""
+        collection = self.state.get('reference_collection')
+        if not collection:
+            return []
+
+        for collection_card in collection.cards:
+            if collection_card.card_id != card_id:
+                continue
+
+            locations: Dict[tuple[str, str], int] = {}
+            for variant in collection_card.variants:
+                variant_name = f"{variant.set_code} ({variant.rarity})"
+                for entry in variant.entries:
+                    if entry.quantity <= 0:
+                        continue
+                    location = entry.storage_location or 'Unsorted'
+                    key = (variant_name, location)
+                    locations[key] = locations.get(key, 0) + entry.quantity
+
+            return [
+                (variant_name, location, quantity)
+                for (variant_name, location), quantity in sorted(locations.items())
+            ]
+
+        return []
+
     def _setup_card_tooltip(self, card: ApiCard, specific_image_id: int = None):
         if not card: return
+
+        storage_locations = self._get_card_storage_locations(card.id)
 
         if specific_image_id:
             img_id = specific_image_id
@@ -1245,7 +1413,8 @@ class DeckBuilderPage:
         with ui.tooltip().classes('bg-transparent shadow-none border-none p-0 overflow-visible z-[9999] max-w-none') \
                          .props('style="max-width: none" delay=10') as tooltip:
 
-            with ui.row().classes('w-[600px] bg-gray-900 border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start'):
+            with ui.row().classes('w-[600px] border border-gray-700 p-3 shadow-2xl rounded-lg gap-4 items-start') \
+                    .style('background: var(--oy-ink);'):
                 # Left Column: Image
                 with ui.column().classes('w-[180px] shrink-0'):
                      ui.image(initial_src).classes('w-full rounded shadow-md')
@@ -1312,6 +1481,17 @@ class DeckBuilderPage:
                     # Let's limit height and ellipsis if needed, or just let it grow (but max height).
                     with ui.scroll_area().classes('w-full h-[150px] pr-2'):
                          ui.markdown(card.desc).classes('text-xs text-gray-300 leading-relaxed whitespace-pre-wrap')
+
+                    if storage_locations:
+                        ui.separator().classes('my-2 bg-gray-700')
+                        with ui.column().classes('w-full gap-1'):
+                            with ui.row().classes('items-center gap-1'):
+                                ui.icon('inventory_2').classes('text-sm oy-text-accent')
+                                ui.label('Storage').classes('text-xs font-bold oy-text-accent')
+                            for variant_name, location, quantity in storage_locations:
+                                with ui.row().classes('w-full justify-between gap-2 text-xs'):
+                                    ui.label(variant_name).classes('text-gray-300')
+                                    ui.label(f'{quantity} × {location}').classes('oy-text-muted text-right')
 
                     ui.separator().classes('my-2 bg-gray-700')
 
@@ -1561,10 +1741,10 @@ class DeckBuilderPage:
 
     def setup_header(self, title, target):
         with ui.row().classes('w-full items-center justify-between q-mb-sm'):
-            with ui.row().classes('gap-1 items-center'):
-                ui.label(title).classes('font-bold text-white text-xs uppercase tracking-wider')
+            with ui.row().classes('gap-2 items-center'):
+                ui.label(title).classes('oy-display font-semibold text-white text-[13px] uppercase tracking-wider')
                 # Initialize label with placeholder
-                lbl = ui.label('(0)').classes('font-bold text-white text-xs uppercase tracking-wider')
+                lbl = ui.label('(0)').classes('text-[13px] oy-text-faint')
                 if not hasattr(self, 'header_count_labels'): self.header_count_labels = {}
                 self.header_count_labels[target] = lbl
 
@@ -1616,7 +1796,7 @@ class DeckBuilderPage:
     def setup_zone(self, title, target):
         # Zones expand dynamically based on content
         height_class = 'h-auto min-h-[220px]'
-        with ui.column().classes(f'w-full {height_class} bg-dark border border-gray-700 p-2 rounded flex flex-col relative'):
+        with ui.column().classes(f'w-full {height_class} oy-card p-3 flex flex-col relative'):
             self.setup_header(title, target)
 
             # The container handles drops on empty space (appending)
@@ -1674,13 +1854,14 @@ class DeckBuilderPage:
             async def confirm():
                 try:
                     filename = f"{self.state['current_deck_name']}.ydk"
+                    group = self.state['current_deck_group']
                     # Use run.io_bound to keep UI responsive
-                    await run.io_bound(persistence.delete_deck, filename)
+                    await run.io_bound(persistence.delete_deck, filename, group)
 
                     ui.notify(f"Deleted deck: {self.state['current_deck_name']}", type='positive')
 
                     # Refresh list
-                    self.state['available_decks'] = persistence.list_decks()
+                    self.state['available_decks'] = persistence.list_decks(group)
 
                     # Load next deck or reset
                     if self.state['available_decks']:
@@ -1920,7 +2101,8 @@ class DeckBuilderPage:
 
     async def undo_last_action(self):
         if not self.state['current_deck_name']: return
-        filename = f"{self.state['current_deck_name']}.ydk"
+        group = self.state['current_deck_group']
+        filename = f"{group}_{self.state['current_deck_name']}.ydk"
 
         last_change = self.deck_changelog_manager.undo_last_change(filename)
         if not last_change:
@@ -2003,13 +2185,13 @@ class DeckBuilderPage:
             .on('deck_change', self.handle_deck_change):
 
             # Gallery is sticky so it stays visible while scrolling decks
-            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 bg-dark border border-gray-800 rounded flex flex-col deck-builder-search-results relative overflow-hidden'):
+            with ui.column().classes('w-1/4 h-[calc(100vh-140px)] sticky top-4 oy-card flex flex-col deck-builder-search-results relative overflow-hidden'):
                 # HEADER (Search, Filters, etc.)
-                with ui.column().classes('w-full p-2 gap-2 border-b border-gray-800 bg-gray-900'):
-                     with ui.row().classes('w-full items-center justify-between'):
-                         ui.label('Library').classes('text-h6 text-white font-bold')
+                with ui.column().classes('w-full p-2 gap-2 border-b border-white/10 bg-white/[.03]'):
+                     with ui.row().classes('deck-builder-library-header w-full items-center justify-between'):
+                         ui.label('Library').classes('oy-display text-base font-semibold text-white px-2')
 
-                         with ui.row().classes('gap-1 items-center'):
+                         with ui.row().classes('deck-builder-library-controls gap-1 items-center'):
                              async def on_owned_toggle(e):
                                 self.state['only_owned'] = e.value
                                 persistence.save_ui_state({'deck_builder_only_owned': e.value})

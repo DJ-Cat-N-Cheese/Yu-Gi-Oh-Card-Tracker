@@ -2,29 +2,28 @@ import unittest
 from unittest.mock import MagicMock, AsyncMock, patch
 import sys
 import os
+from tests.mock_imports import import_with_module_mocks
 
 sys.path.append(os.getcwd())
 
 # Mock modules globally before import
-sys.modules['nicegui'] = MagicMock()
-sys.modules['yaml'] = MagicMock()
-sys.modules['requests'] = MagicMock()
-sys.modules['aiohttp'] = MagicMock()
-sys.modules['PIL'] = MagicMock()
-sys.modules['cv2'] = MagicMock()
-sys.modules['ultralytics'] = MagicMock()
-sys.modules['numpy'] = MagicMock()
-sys.modules['orjson'] = MagicMock()
+nicegui_mock = MagicMock()
 
 # Now import the class under test
-from src.ui.deck_builder import DeckBuilderPage
+deck_builder_module = import_with_module_mocks(
+    'src.ui.deck_builder',
+    {
+        'nicegui': nicegui_mock,
+    },
+)
+DeckBuilderPage = deck_builder_module.DeckBuilderPage
 from src.core.models import Collection, CollectionCard, CollectionVariant
 
 class TestDeckBuilderBreakdown(unittest.IsolatedAsyncioTestCase):
     async def test_open_deck_builder_wrapper_breakdown(self):
         # Mock dependencies used in __init__
-        with patch('src.ui.deck_builder.persistence') as mock_persistence, \
-             patch('src.ui.deck_builder.SingleCardView') as MockSingleCardView:
+        with patch.object(deck_builder_module, 'persistence') as mock_persistence, \
+             patch.object(deck_builder_module, 'SingleCardView') as MockSingleCardView:
 
             # Setup mock persistence
             mock_persistence.load_ui_state.return_value = {}

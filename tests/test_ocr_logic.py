@@ -2,26 +2,29 @@ import unittest
 import sys
 import os
 from unittest.mock import MagicMock, patch
+from tests.mock_imports import import_with_module_mocks
 
 # Ensure src is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Mocking modules that might be missing or heavy
-sys.modules['cv2'] = MagicMock()
-sys.modules['numpy'] = MagicMock()
-sys.modules['torch'] = MagicMock()
-sys.modules['ultralytics'] = MagicMock()
-sys.modules['langdetect'] = MagicMock()
-sys.modules['easyocr'] = MagicMock()
-sys.modules['keras_ocr'] = MagicMock()
-sys.modules['doctr'] = MagicMock()
-sys.modules['doctr.io'] = MagicMock()
-sys.modules['doctr.models'] = MagicMock()
-sys.modules['mmocr'] = MagicMock()
-sys.modules['mmocr.apis'] = MagicMock()
+module_mocks = {
+    'cv2': MagicMock(),
+    'torch': MagicMock(),
+    'ultralytics': MagicMock(),
+    'langdetect': MagicMock(),
+    'easyocr': MagicMock(),
+    'keras_ocr': MagicMock(),
+    'doctr': MagicMock(),
+    'doctr.io': MagicMock(),
+    'doctr.models': MagicMock(),
+    'mmocr': MagicMock(),
+    'mmocr.apis': MagicMock(),
+}
 
 # Now import the class to test
-from src.services.scanner.pipeline import CardScanner
+pipeline_module = import_with_module_mocks('src.services.scanner.pipeline', module_mocks)
+CardScanner = pipeline_module.CardScanner
 
 # Mock Helper Classes for DocTR
 class MockWord:

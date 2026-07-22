@@ -32,8 +32,63 @@ def parse_cards_data(data: List[dict]) -> List[ApiCard]:
 class YugiohService:
     def __init__(self):
         self._cards_cache: Dict[str, List[ApiCard]] = {}
+        self._cards_by_id: Dict[str, Dict[int, ApiCard]] = {}
+        self._cards_by_name: Dict[str, Dict[str, ApiCard]] = {}
+        self._set_card_counts: Dict[str, Dict[str, int]] = {}
+        self._filter_metadata: Dict[str, Dict[str, List[str]]] = {}
         self._sets_cache: Dict[str, Dict[str, Any]] = {} # set_code_prefix -> {name, code, image, date, count}
         self._migrate_old_db_files()
+
+    def _rebuild_card_lookups(self, language: str, cards: List[ApiCard]) -> None:
+        """Build lightweight indexes which reference the cached card objects."""
+        # Match the former linear-search behavior: when duplicate IDs or names
+        # are present, the first card in the cached order is the lookup result.
+        cards_by_id: Dict[int, ApiCard] = {}
+        cards_by_name: Dict[str, ApiCard] = {}
+        for card in cards:
+            cards_by_id.setdefault(card.id, card)
+            cards_by_name.setdefault(card.name.lower(), card)
+
+        self._cards_by_id[language] = cards_by_id
+        self._cards_by_name[language] = cards_by_name
+
+    def _rebuild_card_metadata(self, language: str, cards: List[ApiCard]) -> None:
+        """Compile lightweight set counts and filter options in one database pass."""
+        counts: Dict[str, int] = {}
+        sets = set()
+        monster_races = set()
+        spell_trap_races = set()
+        archetypes = set()
+
+        for card in cards:
+            prefixes = set()
+            for card_set in card.card_sets:
+                if not card_set.set_code:
+                    continue
+                prefix = card_set.set_code.split('-', 1)[0]
+                prefixes.add(prefix.upper())
+                sets.add(f"{card_set.set_name} | {prefix}")
+
+            for prefix in prefixes:
+                counts[prefix] = counts.get(prefix, 0) + 1
+
+            if card.archetype:
+                archetypes.add(card.archetype)
+            if "Monster" in card.type:
+                if card.race:
+                    monster_races.add(card.race)
+            elif "Spell" in card.type or "Trap" in card.type:
+                if card.race:
+                    spell_trap_races.add(card.race)
+
+        self._set_card_counts[language] = counts
+        self._filter_metadata[language] = {
+            "available_sets": sorted(sets),
+            "available_monster_races": sorted(monster_races),
+            "available_st_races": sorted(spell_trap_races),
+            "available_archetypes": sorted(archetypes),
+            "available_card_types": ["Monster", "Spell", "Trap", "Skill"],
+        }
 
     def _migrate_old_db_files(self):
         """Moves existing database files from data/ to data/db/."""
@@ -236,6 +291,8 @@ class YugiohService:
     async def save_card_database(self, cards: List[ApiCard], language: str = "en"):
         """Saves the card database to disk."""
         self._cards_cache[language] = cards
+        self._rebuild_card_lookups(language, cards)
+        self._rebuild_card_metadata(language, cards)
 
         if not cards:
             return
@@ -498,6 +555,28 @@ class YugiohService:
         logger.info(f"Deleted variant {variant_id} from card {card_id}")
         return True
 
+    async def get_database_counts(self, language: str = "en") -> Tuple[int, int]:
+        if language in self._cards_cache:
+            cards = self._cards_cache[language]
+            return len(cards), sum(len(c.card_sets) for c in cards)
+
+        db_file = self._get_db_file(language)
+
+        if not os.path.exists(db_file):
+            logger.info(f"Database file not found: {db_file}. Fetching from API.")
+            await self.fetch_card_database(language)
+
+        if os.path.exists(db_file):
+            try:
+                data = await run.io_bound(self._read_db_file, language)
+            except RuntimeError:
+                data = await asyncio.to_thread(self._read_db_file, language)
+            if isinstance(data, list):
+                unique = len(data)
+                variants = sum(len(c.get('card_sets', [])) for c in data if isinstance(c, dict))
+                return unique, variants
+        return 0, 0
+
     async def load_card_database(self, language: str = "en") -> List[ApiCard]:
         """Loads the database from disk. If missing, fetches it."""
         if language in self._cards_cache:
@@ -520,6 +599,8 @@ class YugiohService:
                  parsed_cards = parse_cards_data(data)
 
              self._cards_cache[language] = parsed_cards
+             self._rebuild_card_lookups(language, parsed_cards)
+             self._rebuild_card_metadata(language, parsed_cards)
              logger.info(f"Loaded {len(parsed_cards)} cards.")
 
         return self._cards_cache.get(language, [])
@@ -548,18 +629,27 @@ class YugiohService:
                 json.dump(data, f, separators=(',', ':'))
 
     def get_card(self, card_id: int, language: str = "en") -> Optional[ApiCard]:
-        cards = self._cards_cache.get(language, [])
-        for c in cards:
-            if c.id == card_id:
-                return c
-        return None
+        if language not in self._cards_by_id and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_id.get(language, {}).get(card_id)
+
+    def get_card_index(self, language: str = "en") -> Dict[int, ApiCard]:
+        """Return the shared read-only-by-convention ID index for a loaded language."""
+        if language not in self._cards_by_id and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_id.get(language, {})
 
     def search_by_name(self, name: str, language: str = "en") -> Optional[ApiCard]:
-        cards = self._cards_cache.get(language, [])
-        for c in cards:
-            if c.name.lower() == name.lower():
-                return c
-        return None
+        if language not in self._cards_by_name and language in self._cards_cache:
+            self._rebuild_card_lookups(language, self._cards_cache[language])
+        return self._cards_by_name.get(language, {}).get(name.lower())
+
+    async def get_filter_metadata(self, language: str = "en") -> Dict[str, List[str]]:
+        """Return pre-compiled dropdown options for the loaded card database."""
+        cards = await self.load_card_database(language)
+        if language not in self._filter_metadata:
+            self._rebuild_card_metadata(language, cards)
+        return self._filter_metadata[language]
 
     # Forwarding image manager calls
     async def get_image_path(self, card_id: int, language: str = "en", high_res: bool = False) -> Optional[str]:
@@ -863,29 +953,12 @@ class YugiohService:
 
     async def get_real_set_counts(self, language: str = "en") -> Dict[str, int]:
         """
-        Calculates the real number of unique cards per set based on the local card database.
-        Returns a dict mapping set_code_prefix -> unique card count.
+        Returns cached unique card counts by set-code prefix.
         """
         cards = await self.load_card_database(language)
-        counts = {}
-
-        for card in cards:
-            if not card.card_sets:
-                continue
-
-            # Identify unique sets this card belongs to
-            seen_prefixes = set()
-            for cs in card.card_sets:
-                # Normalize prefix
-                parts = cs.set_code.split('-')
-                if not parts: continue
-                prefix = parts[0].upper() # Normalize to Upper for matching
-
-                if prefix not in seen_prefixes:
-                    seen_prefixes.add(prefix)
-                    counts[prefix] = counts.get(prefix, 0) + 1
-
-        return counts
+        if language not in self._set_card_counts:
+            self._rebuild_card_metadata(language, cards)
+        return self._set_card_counts[language]
 
     async def bulk_update_set_prefix(self, old_prefix: str, new_prefix: str, language: str = "en") -> int:
         """

@@ -7,6 +7,7 @@ from src.core.config import config_manager
 from src.core.utils import generate_variant_id, normalize_set_code
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView, STANDARD_RARITIES
+from src.ui.theme import page_header
 from dataclasses import dataclass
 from typing import List, Optional
 import logging
@@ -136,25 +137,7 @@ class DbEditorPage:
             ui.notify(f"Error loading database: {e}", type='negative')
             return
 
-        sets = set()
-        m_races = set()
-        st_races = set()
-        archetypes = set()
-
-        for c in api_cards:
-            if c.card_sets:
-                for s in c.card_sets:
-                    parts = s.set_code.split('-')
-                    prefix = parts[0] if len(parts) > 0 else s.set_code
-                    sets.add(f"{s.set_name} | {prefix}")
-            if c.archetype: archetypes.add(c.archetype)
-            if "Monster" in c.type: m_races.add(c.race)
-            elif ("Spell" in c.type or "Trap" in c.type) and c.race: st_races.add(c.race)
-
-        self.state['available_sets'] = sorted([s for s in sets if s])
-        self.state['available_monster_races'] = sorted([r for r in list(m_races) if r])
-        self.state['available_st_races'] = sorted([r for r in list(st_races) if r])
-        self.state['available_archetypes'] = sorted([a for a in list(archetypes) if a])
+        self.state.update(await ygo_service.get_filter_metadata(lang_code))
 
         self.state['cards_rows'] = await run.io_bound(build_db_rows, api_cards)
         await self.apply_filters()
@@ -662,22 +645,26 @@ class DbEditorPage:
         info = next((s for s in self.state['set_gallery_items'] if s['code'] == code), None)
         name = info['name'] if info else "Unknown Set"
 
+        def go_back():
+            self.state['main_view'] = 'sets'
+            self.render_content.refresh()
+            self.render_header.refresh()
+
+        # Back link
+        ui.label('← Back to Sets') \
+            .classes('oy-interactive-muted text-xs font-medium cursor-pointer mb-3 transition-colors') \
+            .on('click', go_back)
+
         # Header
-        with ui.row().classes('w-full items-start gap-6 mb-6 p-6 bg-gray-900 rounded-lg border border-gray-800'):
+        with ui.row().classes('w-full items-start gap-6 mb-6'):
             # Image
             if info and info.get('image'):
-                ui.image(info['image']).classes('w-32 h-auto object-contain')
+                with ui.element('div').classes('rounded-xl border border-white/10 overflow-hidden flex-none'):
+                    ui.image(info['image']).classes('w-32 h-auto object-contain')
 
-            with ui.column().classes('gap-2'):
-                ui.label(name).classes('text-h4 font-bold text-white')
-                ui.label(code).classes('text-xl font-mono text-yellow-500')
-
-                def go_back():
-                    self.state['main_view'] = 'sets'
-                    self.render_content.refresh()
-                    self.render_header.refresh()
-
-                ui.button('Back to Sets', icon='arrow_back', on_click=go_back).props('flat color=white')
+            with ui.column().classes('gap-1'):
+                ui.label(name).classes('oy-h1')
+                ui.label(code).classes('oy-mono text-sm oy-text-gold font-semibold')
 
         # Bulk Operations
         with ui.card().classes('w-full bg-gray-800 p-4 mb-4 gap-4'):
@@ -699,7 +686,7 @@ class DbEditorPage:
                      await self.load_set_detail_data(new)
                      self.render_content.refresh()
 
-                 ui.button('Save Changes', on_click=save_prefix).props('color=primary')
+                 ui.button('Save Changes', on_click=save_prefix).props('color=secondary')
 
                  ui.separator().props('vertical')
 
@@ -753,35 +740,34 @@ class DbEditorPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center gap-4 q-mb-md p-4 bg-gray-900 rounded-lg border border-gray-800'):
-            ui.label('Card Database Editor').classes('text-h5')
+        # View Toggle
+        def switch_main_view(mode):
+            self.state['main_view'] = mode
+            if mode == 'sets':
+                self.load_sets_data()
+            elif mode == 'cards':
+                self.state['selected_set_code'] = None
+                self.update_pagination()
+                self.update_pagination_labels()
 
-            # View Toggle
-            def switch_main_view(mode):
-                self.state['main_view'] = mode
-                if mode == 'sets':
-                    self.load_sets_data()
-                elif mode == 'cards':
-                    self.state['selected_set_code'] = None
-                    self.update_pagination()
-                    self.update_pagination_labels()
+            if hasattr(self, 'pagination_row'):
+                self.pagination_row.set_visibility(mode in ['cards', 'sets', 'set_detail', 'consolidated'])
 
-                if hasattr(self, 'pagination_row'):
-                    self.pagination_row.set_visibility(mode in ['cards', 'sets', 'set_detail', 'consolidated'])
+            self.render_content.refresh()
+            self.render_header.refresh()
 
-                self.render_content.refresh()
-                self.render_header.refresh()
+        with ui.row().classes('w-full items-end justify-between q-mb-md'):
+            page_header('Database Editor', 'Fix data, add custom cards, manage sets directly.')
 
             with ui.button_group():
                 is_cards = self.state['main_view'] == 'cards'
                 is_consolidated = self.state['main_view'] == 'consolidated'
                 is_sets = self.state['main_view'] in ['sets', 'set_detail']
-                ui.button('Cards', on_click=lambda: switch_main_view('cards')).props(f'flat={not is_cards} color=accent')
-                ui.button('Consolidated', on_click=lambda: switch_main_view('consolidated')).props(f'flat={not is_consolidated} color=accent')
-                ui.button('Sets', on_click=lambda: switch_main_view('sets')).props(f'flat={not is_sets} color=accent')
+                ui.button('Cards', on_click=lambda: switch_main_view('cards')).props('unelevated color=secondary' if is_cards else 'outline color=grey-5')
+                ui.button('Consolidated', on_click=lambda: switch_main_view('consolidated')).props('unelevated color=secondary' if is_consolidated else 'outline color=grey-5')
+                ui.button('Sets', on_click=lambda: switch_main_view('sets')).props('unelevated color=secondary' if is_sets else 'outline color=grey-5')
 
-            ui.separator().props('vertical')
-
+        with ui.row().classes('w-full items-center gap-4 q-mb-md'):
             if self.state['main_view'] in ['cards', 'consolidated']:
                 async def on_search(e):
                     self.state['search_text'] = e.value
@@ -817,14 +803,14 @@ class DbEditorPage:
 
                 with ui.button_group():
                     is_grid = self.state['view_mode'] == 'grid'
-                    with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')).props(f'flat={not is_grid} color=accent'): pass
-                    with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')).props(f'flat={is_grid} color=accent'): pass
+                    with ui.button(icon='grid_view', on_click=lambda: self.switch_view_mode('grid')).props('unelevated color=secondary' if is_grid else 'outline color=grey-5'): pass
+                    with ui.button(icon='list', on_click=lambda: self.switch_view_mode('list')).props('outline color=grey-5' if is_grid else 'unelevated color=secondary'): pass
 
                 ui.space()
                 ui.button('+ New Card Info', on_click=self.show_yugipedia_import_dialog).props('color=green icon=add')
                 ui.button('Import Pricing Info', on_click=self.show_pricing_import_dialog).props('color=purple icon=euro')
                 ui.button('Update Prices', on_click=self.auto_update_prices).props('color=blue icon=sync')
-                ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=primary size=lg')
+                ui.button(icon='filter_list', on_click=self.filter_dialog.open).props('color=secondary size=lg')
 
             else:
                 # Sets View Header Controls
@@ -1176,7 +1162,7 @@ class DbEditorPage:
                                  ui.label(s['set_name']).classes('truncate')
                                  ui.label(s['set_rarity']).classes('text-gray-400')
 
-            ui.button("Preview", on_click=fetch_preview).props('color=primary').classes('w-full')
+            ui.button("Preview", on_click=fetch_preview).props('color=secondary').classes('w-full')
 
             with preview_container:
                  pass # Placeholder for initial render
@@ -1238,7 +1224,7 @@ class DbEditorPage:
             # Use an html element for fast updating of many lines without re-creating ui elements
             results_html = ui.html('<div class="text-gray-400">Waiting to start...</div>').classes('w-full h-64 overflow-y-auto bg-gray-800 p-2 rounded text-sm')
 
-            close_btn = ui.button('Close', on_click=dialog.close).props('color=primary').classes('mt-4 w-full')
+            close_btn = ui.button('Close', on_click=dialog.close).props('color=secondary').classes('mt-4 w-full')
             close_btn.set_visibility(False)
 
         dialog.open()

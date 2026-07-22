@@ -2,6 +2,7 @@ import sys
 import os
 import multiprocessing
 from nicegui import ui, app
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 # Ensure src is in the python path
@@ -20,6 +21,28 @@ from src.ui.bulk_add import bulk_add_page
 from src.ui.scan import scan_page
 from src.ui.db_editor import db_editor_page
 from src.ui.storage import storage_page
+from src.ui.auth import complete_login_callback, login_page
+from src.ui.settings import settings_page
+from src.ui.theme import install_global_styles
+from src.api.routes import router as api_router
+from src.services.auth_middleware import AuthenticationMiddleware
+from src.services.auth_service import get_storage_secret
+
+app.include_router(api_router)
+app.add_middleware(AuthenticationMiddleware)
+install_global_styles()
+
+@ui.page('/login')
+def login(request: Request):
+    login_page(request.query_params.get('next'))
+
+
+@ui.page('/login/callback')
+async def login_callback(request: Request):
+    destination = await complete_login_callback(
+        request.query_params.get('token'), request.query_params.get('next')
+    )
+    ui.navigate.to(destination or '/login')
 
 @ui.page('/')
 def home():
@@ -57,6 +80,10 @@ def scan():
 def db_editor():
     create_layout(db_editor_page)
 
+@ui.page('/settings')
+def settings():
+    create_layout(settings_page)
+
 # Serve images
 os.makedirs('data/images', exist_ok=True)
 os.makedirs('data/img', exist_ok=True)
@@ -67,7 +94,8 @@ app.add_static_files('/data/img', 'data/img') # Serve data/img for Art Match if 
 app.add_static_files('/sets', 'data/sets')
 app.add_static_files('/storage', 'data/collections/storage')
 app.add_static_files('/flags', 'data/flags')
-app.add_static_files('/debug', 'debug')
+if os.environ.get('OPENYUGI_ENABLE_DEBUG_STATIC', '').lower() in {'1', 'true', 'yes'}:
+    app.add_static_files('/debug', 'debug')
 
 # Handle Chrome DevTools probe to prevent 404 warnings
 @app.get('/.well-known/appspecific/com.chrome.devtools.json')
@@ -77,4 +105,13 @@ def chrome_devtools_probe():
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     # Disable reload to prevent restart loops when writing to data/ directory (images, db)
-    ui.run(title='OpenYuGi', favicon='🃏', reload=False)
+    ui.run(
+        title='OpenYuGi',
+        favicon='🃏',
+        reload=False,
+        storage_secret=get_storage_secret(),
+        session_middleware_kwargs={
+            'same_site': 'lax',
+            'https_only': os.environ.get('OPENYUGI_SECURE_COOKIES', '').lower() in {'1', 'true', 'yes'},
+        },
+    )

@@ -1,4 +1,4 @@
-nicegui
+nicegui==3.13.0
 pydantic
 pyyaml
 requests
@@ -14,3 +14,4 @@ python-doctr[torch]
 numpy<2
 orjson
 beautifulsoup4
+werkzeug>=3.1,<4

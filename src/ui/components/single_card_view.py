@@ -26,6 +26,15 @@ STANDARD_RARITIES = [
 ]
 
 class SingleCardView:
+    @staticmethod
+    def _render_close_button(dialog):
+        """Render a close control that does not depend on an icon font."""
+        return (
+            ui.button('×', on_click=dialog.close)
+            .props('flat round aria-label="Close" title="Close"')
+            .classes('oy-single-card-close absolute top-3 right-3 z-50')
+        )
+
     def _setup_high_res_image_logic(self, img_id: int, high_res_remote_url: str, low_res_url: str, image_element: ui.image, current_id_check: Callable[[], bool] = None):
         """
         Sets the source of the image element.
@@ -127,7 +136,7 @@ class SingleCardView:
             'language': input_state['language']
         }
 
-        with ui.card().classes('w-full bg-transparent p-4 gap-4'):
+        with ui.card().classes('oy-single-card-panel oy-single-card-inventory w-full p-4 sm:p-5 gap-5'):
             # Determine initial rarity options based on the current set code
             current_base_code = input_state['set_base_code']
             if rarity_map and current_base_code in rarity_map:
@@ -139,14 +148,14 @@ class SingleCardView:
             if input_state['rarity'] not in rarity_options:
                 rarity_options.append(input_state['rarity'])
 
-            with ui.grid(columns=12).classes('w-full gap-2 items-center'):
+            with ui.grid(columns=12).classes('w-full gap-3 items-center'):
                 lang_select = ui.select(SUPPORTED_LANGUAGES, label='Language', value=input_state['language'],
-                            on_change=lambda e: [input_state.update({'language': e.value}), on_change_callback()]).classes('col-span-2').props('dense options-dense dark')
+                            on_change=lambda e: [input_state.update({'language': e.value}), on_change_callback()]).classes('col-span-12 sm:col-span-2').props('dense options-dense dark')
 
-                set_select = ui.select(set_options, label='Set Name', value=input_state['set_base_code']).classes('col-span-6').props('dense options-dense dark')
+                set_select = ui.select(set_options, label='Set Name', value=input_state['set_base_code']).classes('col-span-12 sm:col-span-6').props('dense options-dense dark')
 
                 rarity_select = ui.select(rarity_options, label='Rarity', value=input_state['rarity'],
-                            on_change=lambda e: [input_state.update({'rarity': e.value}), on_change_callback()]).classes('col-span-4').props('dense options-dense dark')
+                            on_change=lambda e: [input_state.update({'rarity': e.value}), on_change_callback()]).classes('col-span-12 sm:col-span-4').props('dense options-dense dark')
 
                 def on_set_change(e):
                     new_code = e.value
@@ -187,7 +196,7 @@ class SingleCardView:
                 set_select.on_value_change(on_set_change)
 
                 ui.select(CARD_CONDITIONS, label='Condition', value=input_state['condition'],
-                            on_change=lambda e: [input_state.update({'condition': e.value}), on_change_callback()]).classes('col-span-3').props('dense options-dense dark')
+                            on_change=lambda e: [input_state.update({'condition': e.value}), on_change_callback()]).classes('col-span-6 sm:col-span-3').props('dense options-dense dark')
 
                 # Storage Dropdown
                 storage_opts = {None: 'None'}
@@ -198,13 +207,13 @@ class SingleCardView:
                          storage_opts[s.name] = s.name
 
                 ui.select(storage_opts, label='Storage', value=input_state.get('storage_location'),
-                          on_change=lambda e: input_state.update({'storage_location': e.value})).classes('col-span-5').props('dense options-dense dark')
+                          on_change=lambda e: input_state.update({'storage_location': e.value})).classes('col-span-6 sm:col-span-5').props('dense options-dense dark')
 
                 ui.checkbox('1st Edition', value=input_state['first_edition'],
-                            on_change=lambda e: [input_state.update({'first_edition': e.value}), on_change_callback()]).classes('col-span-2 my-auto').props('dense dark')
+                            on_change=lambda e: [input_state.update({'first_edition': e.value}), on_change_callback()]).classes('col-span-6 sm:col-span-2 my-auto').props('dense dark')
 
                 ui.number('Quantity', min=0, value=input_state['quantity'],
-                            on_change=lambda e: input_state.update({'quantity': int(e.value or 0)})).classes('col-span-2').props('dense dark')
+                            on_change=lambda e: input_state.update({'quantity': int(e.value or 0)})).classes('col-span-6 sm:col-span-2').props('dense dark')
 
                 # Build Artwork Options
                 art_options = {}
@@ -233,7 +242,7 @@ class SingleCardView:
                     ui.select(art_options, label='Artwork', value=current_img_id,
                                 on_change=lambda e: [input_state.update({'image_id': e.value}), on_change_callback()]).classes('col-span-12').props('dense options-dense dark')
 
-            with ui.row().classes('w-full gap-4 justify-end q-mt-md'):
+            with ui.row().classes('w-full gap-2 sm:gap-3 justify-end pt-2 border-t border-white/10'):
                 async def handle_update(mode, quantity_override: int = None):
                     base_code = input_state['set_base_code']
                     sel_rarity = input_state['rarity']
@@ -302,7 +311,7 @@ class SingleCardView:
                                          d.close()
                                          # Proceed with MOVE
                                          await on_save_callback(mode, matched_variant_id, quantity_override=quantity_override, storage_location=input_state.get('storage_location'))
-                                     ui.button('Merge', on_click=do_merge).props('color=primary')
+                                     ui.button('Merge', on_click=do_merge).props('color=secondary')
                              d.open()
                              return
 
@@ -345,33 +354,91 @@ class SingleCardView:
                     with ui.button('REMOVE', on_click=confirm_remove).props('color=negative'):
                          ui.tooltip('Remove this entry from your collection').classes('bg-black text-white')
 
+    def _render_storage_breakdown(self, chip, locations: Dict[str, int]):
+        """Expose a variant's storage locations on hover *and* on tap.
+
+        A bare tooltip is unreachable on a touch screen, so the chip also anchors a
+        menu that opens on tap. The tooltip is suppressed on touch devices (see
+        `.oy-storage-tip` in theme.py) so the two never fire together.
+        """
+        chip.props('clickable')
+        chip.classes('oy-storage-chip cursor-pointer')
+
+        def location_rows():
+            for loc, qty in locations.items():
+                with ui.row().classes('gap-6 items-baseline justify-between w-full flex-nowrap'):
+                    ui.label(f"{loc}:").classes('font-semibold whitespace-nowrap')
+                    ui.label(str(qty)).classes('oy-text-accent font-semibold')
+
+        ui.icon('expand_more').classes('oy-storage-chip-caret text-base ml-1')
+
+        with ui.tooltip().classes('oy-storage-tip border border-white/10 shadow-xl text-base p-3'):
+            location_rows()
+
+        with ui.menu().props('anchor="bottom middle" self="top middle"').classes('oy-storage-menu'):
+            with ui.column().classes('gap-1 px-4 py-3'):
+                ui.label('Storage').classes('oy-seclabel select-none')
+                location_rows()
+
+    async def _render_collection_status(self, total_owned: int, owned_breakdown: Dict[str, Dict[str, Any]]):
+        """Collection Status panel shared by the consolidated and deck-builder views."""
+        with ui.element('section').classes('oy-single-card-panel oy-single-card-status w-full p-5 sm:p-6 mb-5'):
+            ui.label('Collection Status').classes('oy-seclabel mb-3 select-none')
+            with ui.row().classes('gap-2 items-center flex-wrap'):
+                with ui.chip(icon='format_list_numbered'):
+                    ui.label(f"Total: {total_owned}").classes('select-text')
+
+                if owned_breakdown:
+                    # Start ensuring flags immediately
+                    await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
+
+                    for key, count_data in owned_breakdown.items():
+                        if isinstance(count_data, dict):
+                            total = count_data.get('total', 0)
+                            locations = count_data.get('locations', {})
+                        else:
+                            total = count_data
+                            locations = {}
+
+                        flag_url = self._get_flag_url(key)
+                        with ui.chip() as chip:
+                            if flag_url:
+                                ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
+                            else:
+                                ui.icon('layers').classes('oy-text-accent text-lg mr-1')
+                            ui.label(f"{key}: {total}").classes('select-text')
+
+                            if locations:
+                                self._render_storage_breakdown(chip, locations)
+                elif total_owned == 0:
+                    ui.label('Not in collection').classes('oy-text-faint italic')
+
     def _render_available_sets(self, card: ApiCard):
-        ui.separator().classes('q-my-md')
-        ui.label('Available Sets').classes('text-h6 q-mb-sm select-none text-accent')
+        ui.label('Available Sets').classes('oy-seclabel mt-2 select-none')
 
         if card.card_sets:
-            with ui.grid(columns=4).classes('w-full gap-2 text-sm'):
-                # Header
-                ui.label('Set Code').classes('font-bold text-gray-400')
-                ui.label('Set Name').classes('font-bold text-gray-400')
-                ui.label('Rarity').classes('font-bold text-gray-400')
-                ui.label('Price').classes('font-bold text-gray-400')
-
+            with ui.element('div').classes('oy-single-card-panel oy-single-card-set-list w-full'):
+                with ui.grid(columns=4).classes('oy-single-card-set-header w-full gap-3 px-4 py-3'):
+                    ui.label('Set Code')
+                    ui.label('Set Name')
+                    ui.label('Rarity')
+                    ui.label('Price')
                 for s in card.card_sets:
-                    ui.label(s.set_code).classes('font-mono font-bold text-yellow-500')
-                    ui.label(s.set_name).classes('truncate')
-                    ui.label(s.set_rarity)
-                    price = s.set_price
-                    if price:
-                        try:
-                            price_str = f"${float(price):.2f}"
-                        except:
-                            price_str = str(price)
-                    else:
-                        price_str = "-"
-                    ui.label(price_str).classes('text-green-400')
+                    with ui.grid(columns=4).classes('oy-single-card-set-row w-full gap-3 px-4 py-3 text-sm items-center'):
+                        ui.label(s.set_code).classes('oy-mono oy-text-gold font-semibold')
+                        ui.label(s.set_name).classes('truncate')
+                        ui.label(s.set_rarity).classes('oy-text-soft')
+                        price = s.set_price
+                        if price:
+                            try:
+                                price_str = f"${float(price):.2f}"
+                            except:
+                                price_str = str(price)
+                        else:
+                            price_str = "-"
+                        ui.label(price_str).classes('oy-text-green font-semibold')
         else:
-            ui.label('No set information available.').classes('text-gray-500 italic')
+            ui.label('No set information available.').classes('oy-single-card-panel w-full p-4 oy-text-faint italic')
 
     async def open_consolidated(
         self,
@@ -383,18 +450,18 @@ class SingleCardView:
         storage_options: Dict[str, str] = None
     ):
         try:
-            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white bg-black/50').classes('absolute top-2 right-2 z-50')
+                self._render_close_button(d)
 
-                with ui.element('div').classes('flex flex-col sm:flex-row w-full h-full gap-0'):
+                with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column
-                    with ui.column().classes('w-full sm:w-1/3 sm:min-w-[300px] h-[40vh] sm:h-full bg-black items-center justify-center p-4 sm:p-8 shrink-0 relative'):
+                    with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
                         img_id = card.get_best_image_id()
                         high_res_url = card.card_images[0].image_url if card.card_images else None
                         low_res_url = card.card_images[0].image_url_small if card.card_images else None
 
-                        image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                        image_element = ui.image().classes('oy-single-card-image max-h-full max-w-full object-contain')
 
                         # Initial image setup
                         self._setup_high_res_image_logic(img_id, high_res_url, low_res_url, image_element)
@@ -415,17 +482,15 @@ class SingleCardView:
                             self._setup_high_res_image_logic(new_img_id, h_res, l_res, image_element, current_id_check=lambda: True)
 
 
-                    with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
-                        with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
+                    with ui.element('div').classes('oy-single-card-content flex-1 h-full p-5 sm:p-8 lg:p-10 overflow-y-auto'):
+                        with ui.column().classes('w-full gap-2 pr-12 mb-6'):
+                            ui.label(card.name).classes('oy-single-card-title text-3xl sm:text-4xl select-text')
 
-                        ui.separator().classes('q-my-md bg-gray-700')
-
-                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm sm:text-lg w-full'):
+                        with ui.element('div').classes('grid grid-cols-2 lg:grid-cols-4 gap-3 w-full mb-6'):
                             def stat(label, value):
-                                with ui.column():
-                                    ui.label(label).classes('text-gray-400 text-sm uppercase select-none font-bold')
-                                    ui.label(str(value) if value is not None else '-').classes('font-bold select-text text-xl')
+                                with ui.column().classes('oy-single-card-stat'):
+                                    ui.label(label).classes('oy-single-card-stat-label select-none')
+                                    ui.label(str(value) if value is not None else '-').classes('oy-single-card-stat-value select-text')
 
                             stat('Card Type', card.type)
                             if 'Monster' in card.type:
@@ -449,46 +514,13 @@ class SingleCardView:
                                 stat('Archetype', card.archetype or '-')
 
                         if card.typeline:
-                                ui.label(' / '.join(card.typeline)).classes('text-gray-400 text-sm mt-2 select-text')
+                                ui.label(' / '.join(card.typeline)).classes('oy-mono oy-text-muted text-xs mb-6 select-text')
 
-                        ui.separator().classes('q-my-md')
-                        ui.label('Effect').classes('text-h6 q-mb-sm select-none text-accent')
-                        ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg select-text')
-                        ui.separator().classes('q-my-md')
+                        with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6 mb-5'):
+                            ui.label('Effect').classes('oy-seclabel mb-3 select-none')
+                            ui.markdown(card.desc).classes('oy-single-card-effect select-text')
 
-                        ui.label('Collection Status').classes('text-h6 q-mb-sm select-none text-accent')
-                        with ui.row().classes('gap-2 items-center'):
-                            with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
-                                ui.label(f"Total: {total_owned}").classes('select-text')
-
-                            if owned_breakdown:
-                                # Start ensuring flags immediately
-                                await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
-
-                                for key, count_data in owned_breakdown.items():
-                                    if isinstance(count_data, dict):
-                                        total = count_data.get('total', 0)
-                                        locations = count_data.get('locations', {})
-                                    else:
-                                        total = count_data
-                                        locations = {}
-
-                                    flag_url = self._get_flag_url(key)
-                                    with ui.chip().props('color=secondary text-color=white') as chip:
-                                        if flag_url:
-                                            ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
-                                        else:
-                                            ui.icon('layers', color='white').classes('text-lg mr-1')
-                                        ui.label(f"{key}: {total}").classes('select-text')
-
-                                        if locations:
-                                            with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
-                                                for loc, qty in locations.items():
-                                                    with ui.row().classes('gap-1 items-center'):
-                                                        ui.label(f"{loc}:").classes('font-bold')
-                                                        ui.label(str(qty))
-                            elif total_owned == 0:
-                                ui.label('Not in collection').classes('text-gray-500 italic')
+                        await self._render_collection_status(total_owned, owned_breakdown)
 
                         self._render_available_sets(card)
 
@@ -613,23 +645,21 @@ class SingleCardView:
                                     # break
                             break
 
-                text = str(cur_owned)
+                locations_text = ''
                 if cur_owned > 0 and storage_breakdown:
-                    parts = []
-                    for loc, qty in sorted(storage_breakdown.items()):
-                        parts.append(f"[{loc}]: {qty}")
-                    text += f" | Locations {', '.join(parts)}"
-                return cur_owned, text
+                    parts = [f"{loc}: {qty}" for loc, qty in sorted(storage_breakdown.items())]
+                    locations_text = ' · '.join(parts)
+                return cur_owned, locations_text
 
-            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.on('close', lambda e: [t.cancel() for t in active_timers])
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white bg-black/50').classes('absolute top-2 right-2 z-50')
+                self._render_close_button(d)
 
-                with ui.element('div').classes('flex flex-col sm:flex-row w-full h-full gap-0'):
-                    with ui.column().classes('w-full sm:w-1/3 sm:min-w-[300px] h-[40vh] sm:h-full bg-black items-center justify-center p-4 sm:p-8 shrink-0 relative'):
+                with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
+                    with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
 
-                        image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                        image_element = ui.image().classes('oy-single-card-image max-h-full max-w-full object-contain')
 
                         def update_image():
                             img_id = input_state['image_id']
@@ -656,11 +686,11 @@ class SingleCardView:
 
                         update_image()
 
-                    with ui.element('div').classes('flex-1 h-full bg-gray-900 text-white p-4 sm:p-8 overflow-y-auto'):
-                        with ui.row().classes('w-full items-center justify-between'):
-                            ui.label(card.name).classes('text-2xl sm:text-4xl font-bold text-white select-text')
+                    with ui.element('div').classes('oy-single-card-content flex-1 h-full p-5 sm:p-8 lg:p-10 overflow-y-auto'):
+                        with ui.column().classes('w-full gap-2 pr-12 mb-5'):
+                            ui.label(card.name).classes('oy-single-card-title text-3xl sm:text-4xl select-text')
 
-                        initial_owned_qty, initial_owned_text = get_ownership_text(
+                        initial_owned_qty, initial_owned_locations = get_ownership_text(
                             initial_base_code, rarity, image_id, language, condition, first_edition
                         )
                         # Fallback to passed owned_count if calculation fails (e.g. mismatch), though calculation is preferred for breakdown
@@ -668,30 +698,29 @@ class SingleCardView:
                              # This happens if there's a mismatch in finding the variant/entries by properties
                              # We use the simple count but lose the breakdown
                              initial_owned_qty = owned_count
-                             initial_owned_text = str(owned_count)
-
-                        with ui.row().classes('items-center gap-2'):
-                             ui.label('Total Owned:').classes('text-lg text-gray-400 font-bold')
-                             owned_label = ui.label(initial_owned_text).classes('text-2xl font-bold text-accent')
-                             with owned_label:
-                                ui.tooltip('Owned Count')
-
-                        if initial_owned_qty == 0:
-                            owned_label.set_visibility(False)
-
-                        if hide_header_stats:
-                            # Hide total owned section if requested (or just the count, prompt says 'no Total owned')
-                            owned_label.parent_slot.parent.set_visibility(False)
-
-                        ui.separator().classes('q-my-md bg-gray-700')
+                             initial_owned_locations = ''
 
                         # Card Details Grid
-                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm sm:text-lg w-full'):
+                        with ui.element('div').classes('grid grid-cols-2 lg:grid-cols-3 gap-3 w-full mb-5'):
                                 def info_label(title, initial_value, color='white'):
-                                    with ui.column().classes('gap-0'):
-                                        ui.label(title).classes('text-gray-400 text-xs uppercase font-bold select-none')
-                                        l = ui.label(str(initial_value)).classes(f'text-{color} font-bold select-text text-lg')
+                                    with ui.column().classes('oy-single-card-stat'):
+                                        ui.label(title).classes('oy-single-card-stat-label select-none')
+                                        l = ui.label(str(initial_value)).classes(f'oy-single-card-stat-value text-{color} select-text')
                                     return l
+
+                                # Total Owned is one of the card's fields, so it belongs in this
+                                # grid -- as its own banner above it, it rendered as an empty
+                                # box whenever the count was zero.
+                                with ui.column().classes('oy-single-card-stat oy-single-card-owned-stat') as owned_stat:
+                                    ui.label('Total Owned').classes('oy-single-card-stat-label select-none')
+                                    owned_label = ui.label(str(initial_owned_qty)) \
+                                        .classes('oy-single-card-stat-value oy-single-card-owned select-text')
+                                    owned_locations = ui.label(initial_owned_locations) \
+                                        .classes('oy-single-card-owned-locations select-text')
+                                owned_locations.set_visibility(bool(initial_owned_locations))
+
+                                if hide_header_stats:
+                                    owned_stat.set_visibility(False)
 
                                 lbl_set_name = info_label('Set Name', set_name or 'N/A')
                                 lbl_set_code = info_label('Set Code', set_code, 'yellow-500')
@@ -713,11 +742,10 @@ class SingleCardView:
                                     lbl_edition = info_label('Edition', "1st Edition" if first_edition else "Unlimited")
                                     lbl_edition.parent_slot.parent.set_visibility(False)
 
-                        ui.separator().classes('q-my-md bg-gray-700')
-
                         # Market Prices
-                        ui.label('Market Prices').classes('text-h6 q-mb-sm select-none text-accent')
-                        with ui.element('div').classes('grid grid-cols-2 sm:grid-cols-4 gap-4 w-full'):
+                        with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6 mb-5'):
+                            ui.label('Market Prices').classes('oy-seclabel mb-3 select-none')
+                            with ui.element('div').classes('grid grid-cols-2 lg:grid-cols-4 gap-3 w-full'):
                                 tcg_price = '-'
                                 cm_price = '-'
                                 csi_price = '-'
@@ -796,7 +824,7 @@ class SingleCardView:
                                     default_cm = f"€{card.card_prices[0].cardmarket_price}"
                                 lbl_cm.text = default_cm
 
-                            cur_owned, text = get_ownership_text(
+                            cur_owned, locations_text = get_ownership_text(
                                 input_state['set_base_code'],
                                 input_state['rarity'],
                                 input_state['image_id'],
@@ -805,13 +833,14 @@ class SingleCardView:
                                 input_state['first_edition']
                             )
 
-                            owned_label.text = text
-                            owned_label.set_visibility(cur_owned > 0)
+                            owned_label.text = str(cur_owned)
+                            owned_locations.text = locations_text
+                            owned_locations.set_visibility(bool(locations_text))
 
                             update_image()
                             render_chart()
 
-                        chart_container = ui.element('div').classes('w-full mt-4')
+                        chart_container = ui.element('div').classes('oy-single-card-chart w-full mb-5')
 
                         def calculate_daily_averages(card_id: str, var_id: str) -> List[Dict[str, float]]:
                             if not card_id or not var_id:
@@ -876,7 +905,7 @@ class SingleCardView:
                                     chart_options = {
                                         'title': {
                                             'text': 'Price History',
-                                            'textStyle': {'color': '#9CA3AF', 'fontSize': 14}
+                                            'textStyle': {'color': '#a79fc0', 'fontSize': 14}
                                         },
                                         'tooltip': {
                                             'trigger': 'axis',
@@ -885,28 +914,29 @@ class SingleCardView:
                                         'xAxis': {
                                             'type': 'category',
                                             'data': dates,
-                                            'axisLabel': {'color': '#9CA3AF'},
-                                            'axisLine': {'lineStyle': {'color': '#4B5563'}}
+                                            'axisLabel': {'color': '#8f89a3'},
+                                            'axisLine': {'lineStyle': {'color': 'rgba(255,255,255,.12)'}}
                                         },
                                         'yAxis': {
                                             'type': 'value',
-                                            'axisLabel': {'color': '#9CA3AF', 'formatter': '{value} €'},
-                                            'splitLine': {'lineStyle': {'color': '#374151'}},
+                                            'axisLabel': {'color': '#8f89a3', 'formatter': '{value} €'},
+                                            'splitLine': {'lineStyle': {'color': 'rgba(255,255,255,.07)'}},
                                             'min': 'dataMin'
                                         },
                                         'series': [{
                                             'data': prices,
                                             'type': 'line',
                                             'smooth': True,
-                                            'itemStyle': {'color': '#60A5FA'},
+                                            'itemStyle': {'color': '#cba6f7'},
+                                            'lineStyle': {'color': '#cba6f7', 'width': 2},
                                             'areaStyle': {
                                                 'color': {
                                                     'type': 'linear',
                                                     'x': 0, 'y': 0, 'x2': 0, 'y2': 1,
                                                     'colorStops': [{
-                                                        'offset': 0, 'color': 'rgba(96, 165, 250, 0.5)'
+                                                        'offset': 0, 'color': 'rgba(203, 166, 247, 0.34)'
                                                     }, {
-                                                        'offset': 1, 'color': 'rgba(96, 165, 250, 0)'
+                                                        'offset': 1, 'color': 'rgba(203, 166, 247, 0)'
                                                     }]
                                                 }
                                             }
@@ -919,7 +949,7 @@ class SingleCardView:
                                         }
                                     }
 
-                                    ui.echart(chart_options).classes('w-full min-h-[250px]')
+                                    ui.echart(chart_options).classes('w-full min-h-[250px] p-2')
 
                         # Initial render
                         render_chart()
@@ -937,29 +967,29 @@ class SingleCardView:
         owned_breakdown: Dict[str, Dict[str, Any]] = None
     ):
         try:
-             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+             with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+                self._render_close_button(d)
 
-                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column (Simplified, just use default/first image)
-                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
+                    with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
                          img_id = card.get_best_image_id()
                          url = card.card_images[0].image_url if card.card_images else None
                          small_url = card.card_images[0].image_url_small if card.card_images else None
-                         image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                         image_element = ui.image().classes('oy-single-card-image max-h-full max-w-full object-contain')
                          self._setup_high_res_image_logic(img_id, url, small_url, image_element)
 
-                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                    with ui.column().classes('oy-single-card-content flex-1 h-full p-5 sm:p-8 lg:p-10 overflow-y-auto gap-5'):
                          # Basic Info
-                         with ui.row().classes('w-full items-center justify-between'):
-                             ui.label(card.name).classes('text-4xl font-bold text-white')
+                         with ui.column().classes('w-full gap-2 pr-12'):
+                             ui.label(card.name).classes('oy-single-card-title text-3xl sm:text-4xl select-text')
 
-                         with ui.grid(columns=4).classes('w-full gap-4 text-lg q-my-md'):
+                         with ui.element('div').classes('grid grid-cols-2 lg:grid-cols-4 gap-3 w-full'):
                              def stat(label, value):
-                                 with ui.column():
-                                     ui.label(label).classes('text-gray-400 text-sm uppercase font-bold')
-                                     ui.label(str(value) if value is not None else '-').classes('font-bold text-xl')
+                                 with ui.column().classes('oy-single-card-stat'):
+                                     ui.label(label).classes('oy-single-card-stat-label')
+                                     ui.label(str(value) if value is not None else '-').classes('oy-single-card-stat-value')
 
                              stat('Type', card.type)
                              if 'Monster' in card.type:
@@ -973,67 +1003,34 @@ class SingleCardView:
                                  stat('Race', card.race)
                                  stat('Archetype', card.archetype or '-')
 
-                         ui.markdown(card.desc).classes('text-gray-300 leading-relaxed text-lg q-mb-md')
+                         with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6'):
+                             ui.markdown(card.desc).classes('oy-single-card-effect select-text')
 
-                         ui.separator().classes('q-my-md bg-gray-700')
-                         ui.label('Collection Status').classes('text-h6 q-mb-sm select-none text-accent')
-                         with ui.row().classes('gap-2 items-center'):
-                             with ui.chip(icon='format_list_numbered').props('color=primary text-color=white'):
-                                 ui.label(f"Total: {owned_count}").classes('select-text')
-
-                             if owned_breakdown:
-                                 # Start ensuring flags immediately
-                                 await self._ensure_breakdown_flags(list(owned_breakdown.keys()))
-
-                                 for key, count_data in owned_breakdown.items():
-                                     if isinstance(count_data, dict):
-                                         total = count_data.get('total', 0)
-                                         locations = count_data.get('locations', {})
-                                     else:
-                                         total = count_data
-                                         locations = {}
-
-                                     flag_url = self._get_flag_url(key)
-                                     with ui.chip().props('color=secondary text-color=white') as chip:
-                                         if flag_url:
-                                             ui.image(flag_url).classes('w-6 h-4 shadow-sm rounded-[2px] object-cover mr-1')
-                                         else:
-                                             ui.icon('layers', color='white').classes('text-lg mr-1')
-                                         ui.label(f"{key}: {total}").classes('select-text')
-
-                                         if locations:
-                                             with ui.tooltip().classes('bg-gray-800 text-white border border-gray-600 shadow-xl text-lg p-3'):
-                                                 for loc, qty in locations.items():
-                                                     with ui.row().classes('gap-1 items-center'):
-                                                         ui.label(f"{loc}:").classes('font-bold')
-                                                         ui.label(str(qty))
-                             elif owned_count == 0:
-                                 ui.label('Not in collection').classes('text-gray-500 italic')
-
-                         ui.separator().classes('q-my-md bg-gray-700')
+                         await self._render_collection_status(owned_count, owned_breakdown)
 
                          # Add to Deck Section
-                         ui.label('Add to Deck').classes('text-h6 q-mb-sm text-accent')
+                         with ui.element('section').classes('oy-single-card-panel w-full p-5 sm:p-6'):
+                             ui.label('Add to Deck').classes('oy-seclabel mb-3')
 
-                         qty_input = ui.number('Quantity', value=1, min=1, max=3).classes('w-32').props('dark')
+                             qty_input = ui.number('Quantity', value=1, min=1, max=3).classes('w-32').props('dark')
 
-                         with ui.row().classes('gap-4 q-mt-md'):
-                             async def add(target):
-                                 qty = int(qty_input.value or 1)
-                                 await on_add_callback(card.id, qty, target)
-                                 d.close()
+                             with ui.row().classes('gap-3 mt-4 flex-wrap'):
+                                 async def add(target):
+                                     qty = int(qty_input.value or 1)
+                                     await on_add_callback(card.id, qty, target)
+                                     d.close()
 
-                             async def add_main(): await add('main')
-                             async def add_side(): await add('side')
-                             async def add_extra(): await add('extra')
+                                 async def add_main(): await add('main')
+                                 async def add_side(): await add('side')
+                                 async def add_extra(): await add('extra')
 
-                             if not card.is_extra_deck:
-                                 ui.button('Add to Main', on_click=add_main).props('color=positive icon=add')
+                                 if not card.is_extra_deck:
+                                     ui.button('Add to Main', on_click=add_main).props('color=positive icon=add')
 
-                             ui.button('Add to Side', on_click=add_side).props('color=warning text-color=dark icon=add')
+                                 ui.button('Add to Side', on_click=add_side).props('color=warning text-color=dark icon=add')
 
-                             if card.is_extra_deck:
-                                 ui.button('Add to Extra', on_click=add_extra).props('color=purple icon=add')
+                                 if card.is_extra_deck:
+                                     ui.button('Add to Extra', on_click=add_extra).props('color=purple icon=add')
 
                          self._render_available_sets(card)
 
@@ -1053,15 +1050,15 @@ class SingleCardView:
             'high_res': None
         }
 
-        with ui.dialog() as new_art_d, ui.card().classes('w-[90vw] max-w-5xl bg-gray-900 border border-gray-700'):
+        with ui.dialog() as new_art_d, ui.card().classes('oy-single-card-dialog w-[90vw] max-w-5xl p-6 sm:p-8'):
 
             def on_close():
                 on_cancel()
 
             new_art_d.on('close', on_close)
 
-            ui.label('Add New Artstyle').classes('text-h5 text-white q-mb-md')
-            ui.label('Both Low Resolution (Standard) and High Resolution images are required.').classes('text-gray-400 q-mb-lg')
+            ui.label('Add New Artstyle').classes('oy-single-card-title text-2xl sm:text-3xl mt-1')
+            ui.label('Both Low Resolution (Standard) and High Resolution images are required.').classes('oy-text-muted mb-4')
 
             def update_preview(key, content: bytes):
                 if not content: return
@@ -1092,16 +1089,16 @@ class SingleCardView:
                     ui.notify(f"Invalid image data: {e}", type='negative')
 
             def render_input_column(key, title):
-                with ui.column().classes('w-full flex-1 p-4 bg-gray-800 rounded border border-gray-700'):
-                    ui.label(title).classes('text-lg font-bold text-white mb-2')
+                with ui.column().classes('oy-single-card-panel w-full flex-1 p-4 sm:p-5'):
+                    ui.label(title).classes('text-lg font-semibold text-white mb-2')
 
                     # Preview Area
-                    with ui.element('div').classes('w-full aspect-[2/3] bg-black mb-4 flex items-center justify-center overflow-hidden rounded relative'):
+                    with ui.element('div').classes('oy-single-card-art w-full aspect-[2/3] mb-4 flex items-center justify-center overflow-hidden rounded-xl relative border border-white/10'):
                         previews[key] = ui.image().classes('w-full h-full object-contain')
-                        ui.label('No Image').classes('absolute text-gray-500 text-sm')
+                        ui.label('No Image').classes('absolute oy-text-faint text-sm')
 
                     # Inputs
-                    ui.label('Input Method (New input overwrites existing)').classes('text-xs text-gray-400 mb-1')
+                    ui.label('Input Method (New input overwrites existing)').classes('oy-label mb-1')
 
                     # 1. URL
                     url_input = ui.input('Image URL').props('dark dense').classes('w-full')
@@ -1182,11 +1179,11 @@ class SingleCardView:
                     ui.upload(on_upload=handle_upload, auto_upload=True).props('accept=".jpg,.jpeg,.png,.webp" dark dense flat').classes('w-full')
 
             # Layout
-            with ui.row().classes('w-full gap-4'):
+            with ui.row().classes('w-full gap-4 flex-col sm:flex-row'):
                 render_input_column('low_res', 'Low Resolution (Standard)')
                 render_input_column('high_res', 'High Resolution')
 
-            ui.separator().classes('my-4 bg-gray-600')
+            ui.separator().classes('my-4')
 
             # Footer Actions
             with ui.row().classes('w-full justify-end gap-4'):
@@ -1262,14 +1259,14 @@ class SingleCardView:
                 'cardmarket_url': cm_url
             }
 
-            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+                self._render_close_button(d)
 
-                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # Image Column
-                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
-                        image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                    with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
+                        image_element = ui.image().classes('oy-single-card-image max-h-full max-w-full object-contain')
 
                         def update_image():
                             img_id = input_state['image_id']
@@ -1296,15 +1293,16 @@ class SingleCardView:
 
                         update_image()
 
-                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                    with ui.column().classes('oy-single-card-content flex-1 h-full p-5 sm:p-8 lg:p-10 overflow-y-auto gap-5'):
                         # Header
-                        ui.label(f"Edit Database Entry: {card.name}").classes('text-2xl font-bold text-accent q-mb-md')
-                        ui.label(f"Card ID: {card.id}").classes('text-xs text-gray-500 font-mono')
-                        ui.label(f"Variant ID: {variant_id}").classes('text-xs text-gray-500 font-mono q-mb-xl')
+                        with ui.column().classes('w-full gap-1 pr-12'):
+                            ui.label(f"Edit Database Entry: {card.name}").classes('oy-single-card-title text-2xl sm:text-3xl')
+                            ui.label(f"Card ID: {card.id}").classes('oy-single-card-meta')
+                            ui.label(f"Variant ID: {variant_id}").classes('oy-single-card-meta')
 
                         # Form
-                        with ui.card().classes('w-full bg-gray-800 p-6 gap-6'):
-                            ui.label('Edit Variant Details').classes('text-h6 text-white')
+                        with ui.card().classes('oy-single-card-panel w-full p-5 sm:p-6 gap-5'):
+                            ui.label('Edit Variant Details').classes('text-h6')
 
                             # Set Code Input
                             ui.input('Set Code', value=input_state['set_code'],
@@ -1372,10 +1370,10 @@ class SingleCardView:
                             ui.input('Cardmarket URL', value=input_state['cardmarket_url'],
                                      on_change=lambda e: input_state.update({'cardmarket_url': e.value})).classes('w-full').props('dark')
 
-                            ui.separator().classes('q-my-md bg-gray-600')
+                            ui.separator().classes('q-my-md')
 
                             # Actions
-                            with ui.row().classes('w-full justify-between gap-4'):
+                            with ui.row().classes('w-full justify-between gap-4 flex-wrap'):
                                 with ui.row().classes('items-center gap-2'):
                                     if on_delete_callback:
                                         async def confirm_delete():
@@ -1448,14 +1446,14 @@ class SingleCardView:
                 'all_selected': False
             }
 
-            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('w-full h-full p-0 no-shadow'):
+            with ui.dialog().props('maximized transition-show=slide-up transition-hide=slide-down') as d, ui.card().classes('oy-single-card-dialog w-full h-full p-0 no-shadow'):
                 d.open()
-                ui.button(icon='close', on_click=d.close).props('flat round color=white').classes('absolute top-2 right-2 z-50')
+                self._render_close_button(d)
 
-                with ui.row().classes('w-full h-full no-wrap gap-0'):
+                with ui.element('div').classes('oy-single-card-shell flex flex-col sm:flex-row w-full h-full gap-0'):
                     # --- Left Column: Image Preview ---
-                    with ui.column().classes('w-1/3 min-w-[300px] h-full bg-black items-center justify-center p-8 shrink-0'):
-                        image_element = ui.image().classes('max-h-full max-w-full object-contain shadow-2xl')
+                    with ui.column().classes('oy-single-card-art w-full sm:w-[38%] sm:min-w-[300px] h-[42vh] sm:h-full items-center justify-center p-6 sm:p-10 shrink-0 relative'):
+                        image_element = ui.image().classes('oy-single-card-image max-h-full max-w-full object-contain')
 
                         def update_preview_image():
                             img_id = state['selected_image_id']
@@ -1484,16 +1482,17 @@ class SingleCardView:
                         update_preview_image()
 
                     # --- Right Column: List & Controls ---
-                    with ui.column().classes('col h-full bg-gray-900 text-white p-8 scroll-y-auto'):
+                    with ui.column().classes('oy-single-card-content flex-1 h-full p-5 sm:p-8 lg:p-10 overflow-y-auto gap-5'):
                         # Header
-                        ui.label(f"Consolidated View: {card.name}").classes('text-3xl font-bold text-white q-mb-md')
-                        ui.label(f"Card ID: {card.id}").classes('text-xs text-gray-500 font-mono q-mb-xs')
-                        ui.label(f"Total Variants: {len(sorted_variants)}").classes('text-gray-400 q-mb-lg')
+                        with ui.column().classes('w-full gap-1 pr-12'):
+                            ui.label(f"Consolidated View: {card.name}").classes('oy-single-card-title text-2xl sm:text-3xl')
+                            ui.label(f"Card ID: {card.id}").classes('oy-single-card-meta')
+                            ui.label(f"Total Variants: {len(sorted_variants)}").classes('oy-text-muted text-sm')
 
                         # --- Variant List ---
-                        with ui.card().classes('w-full bg-gray-800 p-0 flex-grow overflow-hidden flex flex-col'):
+                        with ui.card().classes('oy-single-card-panel w-full p-0 flex-grow overflow-hidden flex flex-col'):
                             # Table Header
-                            with ui.grid(columns=12).classes('w-full bg-gray-700 p-2 items-center text-gray-300 font-bold text-sm gap-2'):
+                            with ui.grid(columns=12).classes('oy-single-card-table-header w-full px-3 py-3 items-center oy-label gap-2'):
                                 # Select All Checkbox
                                 select_all_cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
                                 ui.label('Set Code').classes('col-span-4')
@@ -1506,7 +1505,7 @@ class SingleCardView:
                                 updating_batch = [False]  # Mutable flag for closure
 
                                 for v in sorted_variants:
-                                    with ui.grid(columns=12).classes('w-full p-2 items-center hover:bg-gray-700 rounded transition border-b border-gray-700 gap-2'):
+                                    with ui.grid(columns=12).classes('oy-single-card-table-row w-full px-3 py-3 items-center gap-2'):
                                         cb = ui.checkbox(value=False).props('dense dark').classes('col-span-1 flex justify-center')
                                         checkboxes[v.variant_id] = cb
 
@@ -1530,7 +1529,7 @@ class SingleCardView:
                                         # Row Content
                                         ui.label(v.set_code).classes('col-span-4 font-mono text-yellow-500 font-bold')
                                         ui.label(v.rarity).classes('col-span-4 truncate')
-                                        ui.label(str(v.image_id)).classes('col-span-3 text-gray-400 text-right font-mono')
+                                        ui.label(str(v.image_id)).classes('col-span-3 oy-text-muted text-right font-mono')
 
                                 # Select All Logic
                                 def toggle_select_all(e):
@@ -1556,8 +1555,8 @@ class SingleCardView:
 
 
                         # --- Controls Panel ---
-                        with ui.card().classes('w-full bg-gray-800 p-4 mt-4 border-t border-gray-600'):
-                            ui.label('Batch Actions').classes('text-h6 text-white mb-2')
+                        with ui.card().classes('oy-single-card-panel w-full p-5'):
+                            ui.label('Batch Actions').classes('text-h6 mb-2')
 
                             with ui.row().classes('w-full items-end gap-4'):
                                 # Art Style Selector
@@ -1628,7 +1627,7 @@ class SingleCardView:
                                     await on_add_variant(selected_objs, state['selected_image_id'])
                                     d.close()
 
-                                ui.button('Apply Art', on_click=do_apply).props('color=primary icon=brush')
+                                ui.button('Apply Art', on_click=do_apply).props('color=secondary icon=brush')
                                 ui.button('Add as New Variant', on_click=do_add).props('color=secondary icon=add_circle')
 
         except Exception as e:

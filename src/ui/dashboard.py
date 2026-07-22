@@ -3,7 +3,9 @@ from src.core.persistence import persistence
 from src.services.ygo_api import ygo_service
 from src.core.config import config_manager
 from src.services.pricing_service import PricingService
+from src.ui.theme import CHART_COLORS, METRIC_VALUE_CLASSES, page_header
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 pricing_service = PricingService()
@@ -19,11 +21,7 @@ async def load_dashboard_data(filename=None):
     try:
         # 1. Load Database Size
         lang = config_manager.get_language()
-        db_cards = await ygo_service.load_card_database(lang)
-        total_db_unique = len(db_cards) if db_cards else 0
-        total_db_variants = 0
-        if db_cards:
-            total_db_variants = sum(len(c.card_sets) for c in db_cards)
+        total_db_unique, total_db_variants = await ygo_service.get_database_counts(lang)
 
         # 2. Determine Collection to load
         files = persistence.list_collections()
@@ -135,25 +133,21 @@ async def load_dashboard_data(filename=None):
         return None, [], None
 
 def metric_card(label, value, icon, color='accent', sub_text=None):
-    with ui.card().classes('flex-1 bg-dark border border-gray-700 p-4 items-center flex-row gap-4 min-w-[200px] hover:border-gray-500 transition-colors'):
-        with ui.element('div').classes(f'p-3 rounded-full bg-{color}/10'):
-            ui.icon(icon, size='2rem').classes(f'text-{color}')
-
-        with ui.column().classes('gap-0'):
-            ui.label(label).classes('text-grey-4 text-xs uppercase font-bold tracking-wider')
-            ui.label(str(value)).classes(f"text-2xl font-bold text-white")
-            if sub_text:
-                ui.label(sub_text).classes('text-xs text-grey-600')
+    with ui.card().classes('oy-metric-card flex-1 p-5 gap-2 min-w-[180px] transition-colors'):
+        ui.label(label).classes('oy-label')
+        ui.label(str(value)).classes(f"oy-stat {METRIC_VALUE_CLASSES.get(color, 'text-white')}")
+        if sub_text:
+            ui.label(sub_text).classes('text-xs oy-text-faint')
 
 def nav_card(title, description, icon, target_url, color_class='text-accent', is_large=False):
-    with ui.card().classes('group relative overflow-hidden bg-gray-900 border border-gray-800 p-6 cursor-pointer hover:border-gray-600 hover:bg-gray-800 transition-all duration-300') \
+    with ui.card().classes('oy-nav-card group relative overflow-hidden p-6 cursor-pointer hover:bg-white/[.05] transition-all duration-300') \
             .on('click', lambda: ui.navigate.to(target_url)):
 
         # Hover glow effect
-        ui.element('div').classes('absolute -right-6 -top-6 w-24 h-24 bg-white/5 rounded-full blur-xl group-hover:bg-white/10 transition-all')
+        ui.element('div').classes('oy-nav-glow absolute -right-6 -top-6 w-24 h-24 rounded-full blur-xl transition-all')
 
         with ui.row().classes('w-full items-start justify-between q-mb-md'):
-            with ui.element('div').classes('p-3 rounded-lg bg-gray-800 group-hover:bg-gray-700 transition-colors'):
+            with ui.element('div').classes('p-3 rounded-lg bg-white/5 group-hover:bg-white/10 transition-colors'):
                 ui.icon(icon, size='2rem').classes(color_class)
 
             ui.icon('arrow_forward', size='1.2rem').classes('text-gray-600 group-hover:text-white transition-colors opacity-0 group-hover:opacity-100 transform translate-x-[-10px] group-hover:translate-x-0 transition-all duration-300')
@@ -161,7 +155,7 @@ def nav_card(title, description, icon, target_url, color_class='text-accent', is
         title_size = 'text-2xl' if is_large else 'text-xl'
         desc_size = 'text-base' if is_large else 'text-sm'
 
-        ui.label(title).classes(f'{title_size} font-bold text-white q-mb-sm group-hover:text-accent transition-colors')
+        ui.label(title).classes(f'oy-nav-card-title oy-display {title_size} font-bold text-white q-mb-sm transition-colors')
         ui.label(description).classes(f'{desc_size} text-gray-400 leading-relaxed')
 
 @ui.refreshable
@@ -177,62 +171,93 @@ def render_metrics(stats):
         metric_card('Unique Cards (Owned)', f"{stats['unique_owned']:,}", 'style', 'primary')
         metric_card('Total DB Cards', f"{stats['total_db_unique']:,}", 'dns', 'primary')
         metric_card('Completion (Unique)', f"{stats['completion_unique_pct']:.1f}%", 'pie_chart', 'info')
-        metric_card('Total Value', f"€{stats['total_value']:,.2f}", 'euro', 'positive')
+        metric_card('Total Value', f"€{stats['total_value']:,.2f}", 'euro', 'secondary')
 
         # Row 2: Variant Focus
-        metric_card('Unique Variants (Owned)', f"{stats['unique_variants_owned']:,}", 'style', 'secondary')
-        metric_card('Total DB Variants', f"{stats['total_db_variants']:,}", 'layers', 'secondary')
+        metric_card('Unique Variants (Owned)', f"{stats['unique_variants_owned']:,}", 'style', 'primary')
+        metric_card('Total DB Variants', f"{stats['total_db_variants']:,}", 'layers', 'primary')
         metric_card('Completion (Variants)', f"{stats['completion_variants_pct']:.1f}%", 'donut_large', 'info')
-        metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'secondary')
+        metric_card('Total Quantity', f"{stats['total_qty']:,}", 'format_list_numbered', 'primary')
+
+MAX_PIE_SLICES = 8
+
+
+def pie_data(distribution):
+    """Largest slices first, with the long tail folded into a single 'Other'.
+
+    A rarity spread runs to ~20 categories; drawn in full the slivers are invisible
+    and the legend needs more room than the chart itself on a phone.
+    """
+    data = [{'value': v, 'name': k} for k, v in distribution.items()]
+    data.sort(key=lambda x: x['value'], reverse=True)
+
+    if len(data) <= MAX_PIE_SLICES + 1:
+        return data
+
+    head = data[:MAX_PIE_SLICES]
+    tail = data[MAX_PIE_SLICES:]
+    head.append({'value': sum(d['value'] for d in tail), 'name': f"Other ({len(tail)})"})
+    return head
+
 
 @ui.refreshable
 def render_charts_area(stats):
     if not stats: return
 
-    # Rarity Pie Chart
-    r_data = [{'value': v, 'name': k} for k, v in stats['rarity_dist'].items()]
-    r_data.sort(key=lambda x: x['value'], reverse=True)
-
-    # Condition Pie Chart
-    c_data = [{'value': v, 'name': k} for k, v in stats['condition_dist'].items()]
-    c_data.sort(key=lambda x: x['value'], reverse=True)
-
-    # Language Pie Chart
-    l_data = [{'value': v, 'name': k} for k, v in stats['language_dist'].items()]
-    l_data.sort(key=lambda x: x['value'], reverse=True)
+    r_data = pie_data(stats['rarity_dist'])
+    c_data = pie_data(stats['condition_dist'])
+    l_data = pie_data(stats['language_dist'])
 
     def pie_option(title, data, color_palette=None):
+        # The wrapped legend grows upwards from the bottom edge, so the more rows it
+        # needs the higher and smaller the donut has to sit to stay clear of it.
+        legend_rows = math.ceil(len(data) / 3) if data else 1
+        center_y, outer_r = {1: (46, 62), 2: (43, 58), 3: (39, 54)}.get(legend_rows, (36, 50))
+        inner_r = round(outer_r * 0.62)
+
         return {
             'backgroundColor': 'transparent',
+            'color': color_palette or CHART_COLORS,
+            'textStyle': {'fontFamily': 'Inter, sans-serif'},
             'title': {
                 'text': title,
                 'left': 'center',
-                'textStyle': {'color': '#ccc'}
+                'textStyle': {
+                    'color': '#c9c1de',
+                    'fontFamily': "'Space Grotesk', Inter, sans-serif",
+                    'fontWeight': 600,
+                    'fontSize': 15,
+                }
             },
             'tooltip': {
                 'trigger': 'item',
-                'formatter': '{b}: {c} ({d}%)'
+                'formatter': '{b}: {c} ({d}%)',
+                'confine': True
             },
+            # A left-hand vertical legend has no room next to the donut on a phone:
+            # long names ran straight across the chart. Wrap it along the bottom
+            # instead -- a scrolling legend paged three-at-a-time and clipped names.
             'legend': {
-                'type': 'scroll',
-                'orient': 'vertical',
-                'left': 'left',
-                'top': 40,
-                'bottom': 20,
-                'textStyle': {'color': '#999'},
-                'pageIconColor': '#fff',
-                'pageTextStyle': {'color': '#fff'}
+                'type': 'plain',
+                'orient': 'horizontal',
+                'left': 'center',
+                'bottom': 0,
+                'itemWidth': 11,
+                'itemHeight': 11,
+                'itemGap': 10,
+                'textStyle': {'color': '#8f89a3', 'fontSize': 11},
+                ':formatter': "name => name.length > 14 ? name.slice(0, 13) + '…' : name"
             },
             'series': [
                 {
                     'name': title,
                     'type': 'pie',
-                    'radius': ['40%', '70%'],
-                    'center': ['60%', '50%'],
+                    'radius': [f'{inner_r}%', f'{outer_r}%'],
+                    'center': ['50%', f'{center_y}%'],
                     'avoidLabelOverlap': False,
                     'itemStyle': {
                         'borderRadius': 10,
-                        'borderColor': '#11111b', # matches bg-dark
+                        'borderColor': '#12101a', # matches surface background
                         'borderWidth': 2
                     },
                     'label': {
@@ -259,21 +284,21 @@ def render_charts_area(stats):
     # Use flex column on mobile, flex row on large screens
     with ui.element('div').classes('flex flex-col lg:flex-row w-full gap-6'):
         # Rarity
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
              if r_data:
                 ui.echart(pie_option('Rarity Distribution', r_data)).classes('w-full h-full min-h-[250px]')
              else:
                  ui.label('No Rarity Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Condition
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
             if c_data:
                 ui.echart(pie_option('Condition Distribution', c_data)).classes('w-full h-full min-h-[250px]')
             else:
                  ui.label('No Condition Data').classes('w-full h-full flex items-center justify-center text-grey')
 
         # Language
-        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-80 p-4 min-w-[250px] w-full'):
+        with ui.card().classes('flex-1 bg-dark border border-gray-700 h-96 p-4 min-w-[250px] w-full'):
             if l_data:
                 ui.echart(pie_option('Language Distribution', l_data)).classes('w-full h-full min-h-[250px]')
             else:
@@ -297,9 +322,7 @@ def dashboard_page():
 
             # --- Header & Dropdown ---
             with ui.element('div').classes('flex flex-col md:flex-row w-full items-start md:items-center justify-between gap-4'):
-                with ui.column().classes('gap-1'):
-                    ui.label('Dashboard').classes('text-3xl font-bold text-white')
-                    ui.label('Welcome back! Here is an overview of your collection.').classes('text-gray-400')
+                page_header('Dashboard', "Welcome back — here's your collection at a glance.")
 
                 with ui.element('div').classes('flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full md:w-auto'):
                     # Collection Dropdown
@@ -328,7 +351,7 @@ def dashboard_page():
 
             # --- Navigation (Middle) ---
             ui.separator().classes('bg-gray-800 q-my-sm')
-            ui.label('Quick Navigation').classes('text-xl font-bold text-white')
+            ui.label('Quick Navigation').classes('oy-display text-xl font-bold text-white')
 
             # Main Functions (2 Rows, 2 Cols responsive)
             with ui.element('div').classes('grid grid-cols-1 lg:grid-cols-2 w-full gap-6'):
@@ -368,7 +391,7 @@ def dashboard_page():
 
             # --- Charts (Bottom) ---
             ui.separator().classes('bg-gray-800 q-my-sm')
-            ui.label('Analytics').classes('text-xl font-bold text-white')
+            ui.label('Analytics').classes('oy-display text-xl font-bold text-white')
             render_charts_area(stats)
 
     # Trigger load

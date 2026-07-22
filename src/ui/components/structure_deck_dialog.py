@@ -48,7 +48,7 @@ class StructureDeckDialog:
                 # 3. Actions
                 with ui.row().classes('w-full justify-end mt-4'):
                     ui.button('Cancel', on_click=self.dialog.close).props('flat')
-                    self.add_btn = ui.button('Add Deck', on_click=self._on_confirm).props('color=primary')
+                    self.add_btn = ui.button('Add Deck', on_click=self._on_confirm).props('color=secondary')
                     self.add_btn.disable()
 
         # Start loading decks

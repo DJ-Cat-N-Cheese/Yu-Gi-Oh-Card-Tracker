@@ -26,6 +26,7 @@ from src.services.image_manager import image_manager
 from src.ui.components.ambiguity_dialog import AmbiguityDialog
 from src.ui.components.filter_pane import FilterPane
 from src.ui.components.single_card_view import SingleCardView
+from src.ui.theme import page_header
 from src.core import config_manager
 from src.core.config import config_manager as app_config
 from src.core.changelog_manager import changelog_manager
@@ -354,6 +355,22 @@ document.addEventListener('keydown', (e) => {
 </script>
 """
 
+JS_IDLE_REDIRECT_CODE = """
+<script>
+let idleTime = 0;
+const idleInterval = setInterval(() => {
+    idleTime++;
+    if (idleTime >= 60) {
+        window.location.href = '/';
+    }
+}, 60000);
+const resetTimer = () => { idleTime = 0; };
+['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(evt => {
+    document.addEventListener(evt, resetTimer);
+});
+</script>
+"""
+
 class ScanPage:
     def __init__(self):
         # ScanPage manages the scanning session
@@ -403,6 +420,7 @@ class ScanPage:
         self.debug_loading = False
         self.latest_capture_src = None
         self.watchdog_counter = 0
+        self.consumer_timer = None
 
         # UI State Persistence
         self.expansion_states = {}
@@ -466,12 +484,12 @@ class ScanPage:
 
     @ui.refreshable
     def render_header(self):
-        with ui.row().classes('w-full items-center justify-between p-2 bg-gray-900 border-b border-gray-800 gap-4'):
+        with ui.row().classes('w-full items-center justify-between p-2 gap-4'):
              # Left: Collection Select
              if self.collections:
                  async def on_col_change(e):
                      self.target_collection_file = e.value
-                     persistence.save_ui_state({'scan_target_collection': e.value})
+                     await run.io_bound(persistence.save_ui_state, {'scan_target_collection': e.value})
                      self.check_undo_add_all_availability()
                      await self.load_target_collection_storage()
 
@@ -481,8 +499,8 @@ class ScanPage:
              ui.space()
 
              # Center: Defaults
-             with ui.row().classes('items-center gap-2 bg-gray-800 p-1 rounded border border-gray-700'):
-                 ui.label('DEFAULTS:').classes('text-accent font-bold text-xs mr-2')
+             with ui.row().classes('items-center gap-2'):
+                 ui.label('DEFAULTS').classes('oy-label mr-2')
                  ui.select(['EN', 'DE', 'FR', 'IT', 'ES', 'PT', 'JP', 'KR'], label='Lang',
                            value=self.default_language,
                            on_change=lambda e: [setattr(self, 'default_language', e.value), persistence.save_ui_state({'scan_default_lang': e.value})]).props('dense options-dense borderless').classes('w-16')
@@ -510,7 +528,7 @@ class ScanPage:
 
         try:
             # We need to load the collection to get storage definitions
-            col = persistence.load_collection(self.target_collection_file)
+            col = await run.io_bound(persistence.load_collection, self.target_collection_file)
             opts = {None: 'None'}
             for s in col.storage_definitions:
                 opts[s.name] = s.name
@@ -526,8 +544,8 @@ class ScanPage:
 
     @ui.refreshable
     def render_recent_scans_header(self):
-        with ui.row().classes('w-full p-2 bg-gray-900 border-b border-gray-800 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
-            ui.label('Recent Scans').classes('text-h6 font-bold whitespace-nowrap')
+        with ui.row().classes('w-full p-2 bg-white/[.03] border-b border-white/10 items-center justify-between gap-2 flex-nowrap overflow-x-auto'):
+            ui.label('Recent Scans').classes('oy-display text-base font-semibold text-white whitespace-nowrap px-2')
 
             with ui.row().classes('items-center gap-1 flex-nowrap'):
                 # Undo
@@ -598,25 +616,7 @@ class ScanPage:
             api_cards = await ygo_service.load_card_database(lang_code)
             self.api_card_map = {c.id: c for c in api_cards}
 
-            # Populate Metadata for Filters
-            sets = set()
-            m_races = set()
-            st_races = set()
-            archetypes = set()
-
-            for c in api_cards:
-                if c.card_sets:
-                    for s in c.card_sets:
-                        sets.add(f"{s.set_name} | {s.set_code.split('-')[0] if '-' in s.set_code else s.set_code}")
-                if c.archetype: archetypes.add(c.archetype)
-                if "Monster" in c.type: m_races.add(c.race)
-                elif "Spell" in c.type or "Trap" in c.type:
-                    if c.race: st_races.add(c.race)
-
-            self.col_state['available_sets'] = sorted([s for s in sets if s])
-            self.col_state['available_monster_races'] = sorted([r for r in m_races if r])
-            self.col_state['available_st_races'] = sorted([r for r in st_races if r])
-            self.col_state['available_archetypes'] = sorted([a for a in archetypes if a])
+            self.col_state.update(await ygo_service.get_filter_metadata(lang_code))
 
             # Initial Data Load (Recent Scans -> View Model)
             await self.load_data()
@@ -1078,11 +1078,11 @@ class ScanPage:
         last_change = changelog_manager.undo_last_change(self.target_collection_file)
 
         try:
-            target_collection = persistence.load_collection(self.target_collection_file)
+            target_collection = await run.io_bound(persistence.load_collection, self.target_collection_file)
 
             # Revert on Target (Remove cards)
             UndoService.apply_inverse(target_collection, last_change)
-            persistence.save_collection(target_collection, self.target_collection_file)
+            await run.io_bound(persistence.save_collection, target_collection, self.target_collection_file)
 
             # Add cards back to Recent Scans
             changes = last_change.get('changes', [])
@@ -1425,6 +1425,13 @@ class ScanPage:
 
                 self.refresh_debug_ui() # Ensure final result is shown
 
+            if scanner_service.scanner_manager.is_idle() and self.event_queue.empty():
+                if self.consumer_timer:
+                    self.consumer_timer.cancel()
+                    if self.consumer_timer in self._timers:
+                        self._timers.remove(self.consumer_timer)
+                    self.consumer_timer = None
+
         except Exception as e:
             logger.error(f"Error in event_consumer: {e}")
 
@@ -1599,7 +1606,7 @@ class ScanPage:
             return
 
         try:
-            target_collection = persistence.load_collection(self.target_collection_file)
+            target_collection = await run.io_bound(persistence.load_collection, self.target_collection_file)
 
             # Prepare batch changes for logging
             batch_changes = []
@@ -1658,7 +1665,7 @@ class ScanPage:
                 batch_changes
             )
 
-            persistence.save_collection(target_collection, self.target_collection_file)
+            await run.io_bound(persistence.save_collection, target_collection, self.target_collection_file)
 
             ui.notify(f"Added {count} cards to {target_collection.name}", type='positive')
 
@@ -1701,6 +1708,9 @@ class ScanPage:
             fname = f"scan_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Live Scan", filename=fname)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify("Captured to Queue", type='positive')
         except Exception as e:
             ui.notify(f"Capture failed: {e}", type='negative')
@@ -1740,6 +1750,9 @@ class ScanPage:
             }
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Image Upload", filename=filename)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify(f"Queued: {filename}", type='positive')
         except Exception as err:
             ui.notify(f"Upload failed: {err}", type='negative')
@@ -1799,6 +1812,9 @@ class ScanPage:
             fname = f"capture_{int(time.time())}_{uuid.uuid4().hex[:6]}.jpg"
             # Use dynamic import access
             scanner_service.scanner_manager.submit_scan(content, options, label="Camera Capture", filename=fname)
+            if not self.consumer_timer:
+                self.consumer_timer = ui.timer(0.1, self.event_consumer)
+                self._timers.append(self.consumer_timer)
             ui.notify("Capture queued", type='positive')
 
         except Exception as err:
@@ -1899,7 +1915,7 @@ class ScanPage:
 
         # Header Stats
         with ui.row().classes('w-full items-center justify-between mb-2'):
-            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-primary')
+            ui.label("3. OCR & Match Results").classes('text-2xl font-bold text-secondary')
 
             # Show Detected Features prominently
             with ui.row().classes('gap-4'):
@@ -1980,7 +1996,7 @@ class ScanPage:
 
         with ui.card().classes('w-full border border-gray-600 rounded p-0'):
              with ui.row().classes('w-full bg-gray-800 p-2 items-center'):
-                 ui.icon('list', color='primary')
+                 ui.icon('list', color='secondary')
                  ui.label(f"Scan Queue ({len(queue_items)})").classes('font-bold')
 
              if not queue_items:
@@ -2050,7 +2066,7 @@ class ScanPage:
 
             # --- CARD 1: CONTROLS & INPUT ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-primary')
+                ui.label("1. Configuration & Input").classes('text-2xl font-bold text-secondary')
                 self.render_status_controls()
 
                 # Configuration Section
@@ -2121,7 +2137,7 @@ class ScanPage:
 
             # --- CARD 2: VISUAL ---
             with ui.card().classes('w-full p-4 flex flex-col gap-4 shadow-lg bg-gray-900 border border-gray-700'):
-                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-primary')
+                ui.label("2. Visual Analysis").classes('text-2xl font-bold text-secondary')
                 self.render_debug_analysis()
 
             # --- CARD 3: RESULTS ---
@@ -2141,6 +2157,7 @@ def scan_page():
     # Initialize event queue for this page instance
     page.event_queue = queue.Queue()
     page._timers = []
+    page.consumer_timer = None
 
     def cleanup():
         # Unregister listener
@@ -2148,8 +2165,9 @@ def scan_page():
         page.is_active = False
         for t in page._timers:
             t.cancel()
+        page.consumer_timer = None
 
-    app.on_disconnect(cleanup)
+    ui.context.client.on_disconnect(cleanup)
 
     # Register listener
     scanner_service.scanner_manager.register_listener(page.on_scanner_event)
@@ -2159,11 +2177,18 @@ def scan_page():
     scanner_service.scanner_manager.start()
     page.is_active = True
 
+    # A newly opened page must consume events from scans that were already
+    # submitted by another page before this connection was established.
+    if not scanner_service.scanner_manager.is_idle():
+        page.consumer_timer = ui.timer(0.1, page.event_consumer)
+        page._timers.append(page.consumer_timer)
+
     if not SCANNER_AVAILABLE:
         ui.label("Scanner dependencies not found.").classes('text-red-500 text-xl font-bold')
         return
 
     ui.add_head_html(JS_CAMERA_CODE)
+    ui.add_head_html(JS_IDLE_REDIRECT_CODE)
 
     def handle_tab_change(e):
         if e.value == 'Live Scan':
@@ -2173,6 +2198,9 @@ def scan_page():
 
         # Re-apply rotation on tab change to ensure video element has correct style
         ui.run_javascript(f'setRotation({page.rotation})')
+
+    with ui.row().classes('w-full items-end justify-between q-mb-sm'):
+        page_header('Scan Cards', 'Local AI webcam scanner · zero cloud uploads.')
 
     with ui.tabs(on_change=handle_tab_change).classes('w-full') as tabs:
         live_tab = ui.tab('Live Scan')
@@ -2211,7 +2239,7 @@ def scan_page():
                         ui.html('<img id="scan-overlay" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; display: none; pointer-events: none; transition: opacity 0.2s ease-out;">', sanitize=False)
 
                     # Capture Button
-                    ui.button('CAPTURE & SCAN', on_click=page.trigger_live_scan).props('icon=camera color=accent text-color=black size=lg id=btn-live-scan').classes('w-full font-bold')
+                    ui.button('Capture & Scan', on_click=page.trigger_live_scan).props('icon=camera color=secondary size=lg id=btn-live-scan').classes('w-full font-bold')
 
                 # RIGHT PANEL: Recent Scans Gallery
                 with ui.column().classes('w-1/2 h-full bg-dark border-l border-gray-800 flex flex-col overflow-hidden'):
@@ -2230,9 +2258,6 @@ def scan_page():
 
     page._timers.append(ui.timer(1.0, page.init_cameras, once=True))
     page._timers.append(ui.timer(0.1, page.init_data, once=True))
-
-    # Use fast consumer loop instead of slow polling
-    page._timers.append(ui.timer(0.1, page.event_consumer))
 
     # Initialize from current state immediately
     page.debug_report = scanner_service.scanner_manager.get_debug_snapshot()

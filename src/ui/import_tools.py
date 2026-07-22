@@ -1,4 +1,4 @@
-from nicegui import ui, events
+from nicegui import ui, events, run
 import json
 import logging
 import asyncio
@@ -8,13 +8,14 @@ from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 
 import re
-from src.core.persistence import persistence
+from src.core.persistence import persistence, sanitize_collection_filename
 from src.core.models import Collection, ApiCard, ApiCardSet
 from src.core.utils import LANGUAGE_TO_LEGACY_REGION_MAP, normalize_set_code, is_set_code_compatible, get_legacy_code
 from src.core.constants import RARITY_ABBREVIATIONS
 from src.services.ygo_api import ygo_service
 from src.services.collection_editor import CollectionEditor
 from src.services.cardmarket_parser import CardmarketParser, ParsedRow
+from src.ui.theme import page_header
 
 logger = logging.getLogger(__name__)
 
@@ -79,17 +80,23 @@ class UnifiedImportController:
             self.collection_select.update()
 
     async def create_new_collection(self, name: str):
-        if not name:
+        clean_name = name.strip()
+        if not clean_name:
             ui.notify("Collection name cannot be empty", type='warning')
             return
 
-        filename = f"{name}.json"
+        try:
+            filename = sanitize_collection_filename(f"{clean_name}.json")
+        except ValueError as e:
+            ui.notify(str(e), type='negative')
+            return
+
         if filename in self.collections:
              ui.notify("Collection already exists", type='negative')
              return
 
-        new_collection = Collection(name=name)
-        persistence.save_collection(new_collection, filename)
+        new_collection = Collection(name=clean_name)
+        await run.io_bound(persistence.save_collection, new_collection, filename)
 
         self.refresh_collections()
         self.selected_collection = filename
@@ -97,7 +104,7 @@ class UnifiedImportController:
             self.collection_select.value = filename
             self.collection_select.update()
 
-        ui.notify(f"Created collection: {name}", type='positive')
+        ui.notify(f"Created collection: {clean_name}", type='positive')
 
     async def handle_upload(self, e: events.UploadEventArguments):
         ui.notify("Processing file...", type='info')
@@ -170,7 +177,7 @@ class UnifiedImportController:
             ui.notify(f"Invalid JSON: {ex}", type='negative')
             return
 
-        target_collection = persistence.load_collection(self.selected_collection)
+        target_collection = await run.io_bound(persistence.load_collection, self.selected_collection)
         target_storages = {s.name for s in target_collection.storage_definitions}
 
         import_storages = set()
@@ -784,7 +791,7 @@ class UnifiedImportController:
             return
 
         try:
-            collection = persistence.load_collection(self.selected_collection)
+            collection = await run.io_bound(persistence.load_collection, self.selected_collection)
         except Exception as e:
             ui.notify(f"Error loading collection: {e}", type='negative')
             return
@@ -860,7 +867,12 @@ class UnifiedImportController:
 
         if changes > 0 or (changes == 0 and self.import_mode == 'ADD'):
             # Note: 0 changes might happen if subtract removes non-existent cards, but we still save/notify
-            persistence.save_collection(collection, self.selected_collection)
+            try:
+                await run.io_bound(persistence.save_collection, collection, self.selected_collection)
+            except ValueError as e:
+                logger.error(f"Import save rejected for {self.selected_collection!r}: {e}")
+                ui.notify(f"Could not save collection: {e}", type='negative')
+                return
 
             # Log Batch to Changelog
             from src.core.changelog_manager import changelog_manager
@@ -900,7 +912,7 @@ class UnifiedImportController:
         else:
             ui.notify("No changes were necessary (e.g. subtracting from empty).", type='info')
 
-    def undo_last(self):
+    async def undo_last(self):
         if not self.undo_stack: return
 
         state = self.undo_stack.pop()
@@ -909,7 +921,7 @@ class UnifiedImportController:
 
         try:
             collection = Collection(**data)
-            persistence.save_collection(collection, filename)
+            await run.io_bound(persistence.save_collection, collection, filename)
             ui.notify(f"Undid last import for {filename}", type='positive')
 
             if not self.undo_stack and self.undo_btn:
@@ -1177,7 +1189,7 @@ class UnifiedImportController:
                     self.refresh_status_ui()
                     dialog.close()
 
-                ui.button("Confirm Resolution", on_click=confirm).classes('bg-primary text-white')
+                ui.button("Confirm Resolution", on_click=confirm).classes('bg-secondary text-black')
 
         dialog.open()
 
@@ -1262,7 +1274,7 @@ class UnifiedImportController:
                     self.refresh_status_ui()
                     dialog.close()
 
-                ui.button("Update Selection", on_click=confirm).classes('bg-primary text-white')
+                ui.button("Update Selection", on_click=confirm).classes('bg-secondary text-black')
 
         dialog.open()
 
@@ -1326,16 +1338,24 @@ class MergeController:
             ui.notify("Enter a new collection name.", type='warning')
             return
 
-        new_filename = f"{self.new_name.strip()}.json"
+        clean_name = self.new_name.strip()
+        try:
+            new_filename = sanitize_collection_filename(f"{clean_name}.json")
+        except ValueError as e:
+            ui.notify(str(e), type='negative')
+            return
+
         if new_filename in self.collections:
             ui.notify("Collection exists.", type='negative')
             return
 
         ui.notify("Merging...", type='info')
         try:
-            coll_a_obj = persistence.load_collection(self.coll_a)
-            coll_b_obj = persistence.load_collection(self.coll_b)
-            new_collection = Collection(name=self.new_name.strip())
+            coll_a_obj, coll_b_obj = await asyncio.gather(
+                run.io_bound(persistence.load_collection, self.coll_a),
+                run.io_bound(persistence.load_collection, self.coll_b),
+            )
+            new_collection = Collection(name=clean_name)
 
             await ygo_service.load_card_database()
 
@@ -1361,7 +1381,7 @@ class MergeController:
             await merge_into(coll_a_obj)
             await merge_into(coll_b_obj)
 
-            persistence.save_collection(new_collection, new_filename)
+            await run.io_bound(persistence.save_collection, new_collection, new_filename)
             ui.notify(f"Created '{self.new_name}'", type='positive')
             self.refresh_collections()
             self.new_name = ""
@@ -1375,11 +1395,14 @@ def import_tools_page():
     merge_controller = MergeController()
 
     with ui.column().classes('w-full q-pa-md gap-6'):
-        ui.label('Import Tools').classes('text-h4')
+        page_header(
+            'Import Tools',
+            'Bring in a JSON backup, a Cardmarket export, or merge two collections.',
+        )
 
         # --- UNIFIED IMPORT CARD ---
-        with ui.card().classes('w-full bg-dark border border-gray-700 p-6'):
-            ui.label('Import Manager').classes('text-xl font-bold q-mb-md')
+        with ui.card().classes('w-full p-6'):
+            ui.label('Import Manager').classes('oy-display text-xl font-semibold text-white q-mb-md')
 
             # Row 1: Target Collection
             with ui.row().classes('items-center gap-4 w-full'):
@@ -1419,7 +1442,7 @@ def import_tools_page():
                     ui.toggle({
                         'ADD': 'Add to Collection',
                         'SUBTRACT': 'Remove from Collection'
-                    }, value='ADD', on_change=lambda e: [setattr(controller, 'import_mode', e.value), controller.refresh_status_ui()]).props('dark color=red')
+                    }, value='ADD', on_change=lambda e: [setattr(controller, 'import_mode', e.value), controller.refresh_status_ui()]).props('dark')
 
             # Row 4: Upload Area
             # Note: We can't easily change props of ui.upload after creation dynamically in a clean way
@@ -1438,7 +1461,7 @@ def import_tools_page():
             # Row 6: Actions
             with ui.row().classes('w-full justify-between items-center q-mt-lg'):
                 controller.undo_btn = ui.button('Undo Last Import', on_click=controller.undo_last, icon='undo') \
-                    .classes('bg-red-500 text-white').props('flat')
+                    .props('flat color=negative')
                 controller.undo_btn.visible = False
 
                 with ui.row().classes('gap-4 items-center'):
@@ -1446,12 +1469,12 @@ def import_tools_page():
                         .props('outline color=warning')
 
                     controller.import_btn = ui.button('Import', on_click=controller.apply_import) \
-                        .classes('bg-primary text-white text-lg px-8')
+                        .props('color=secondary rounded unelevated').classes('text-lg px-8')
                     controller.import_btn.enabled = False
 
         # --- MERGE CARD ---
-        with ui.card().classes('w-full bg-dark border border-gray-700 p-6'):
-            ui.label('Merge Collections').classes('text-xl font-bold q-mb-md')
+        with ui.card().classes('w-full p-6'):
+            ui.label('Merge Collections').classes('oy-display text-xl font-semibold text-white q-mb-md')
             with ui.grid().classes('grid-cols-1 md:grid-cols-3 gap-4 w-full'):
                 ui.select(merge_controller.collections, label='Collection A',
                           on_change=lambda e: setattr(merge_controller, 'coll_a', e.value)).props('dark')
@@ -1460,4 +1483,4 @@ def import_tools_page():
                 ui.input(label='New Name', on_change=lambda e: setattr(merge_controller, 'new_name', e.value)).props('dark')
 
             with ui.row().classes('w-full justify-end q-mt-md'):
-                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').classes('bg-primary text-white')
+                ui.button('Merge', on_click=merge_controller.handle_merge, icon='merge_type').props('color=secondary rounded unelevated')

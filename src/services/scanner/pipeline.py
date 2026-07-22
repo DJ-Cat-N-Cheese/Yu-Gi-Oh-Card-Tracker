@@ -108,7 +108,9 @@ class CardScanner:
             'B': '8', 'G': '6', 'Q': '0', 'D': '0'
         }
 
-        self._load_validation_data()
+    def ensure_validation_data(self):
+        if not self.valid_set_codes:
+            self._load_validation_data()
 
     def _normalize_card_name(self, text: str) -> str:
         """
@@ -653,6 +655,7 @@ class CardScanner:
 
     def _parse_card_name(self, raw_result: Any, engine: str, scope: str = 'full') -> Optional[str]:
         """Extracts card name from OCR result using Robust Database Matching."""
+        self.ensure_validation_data()
         if engine != 'doctr':
              return None
 
@@ -727,6 +730,7 @@ class CardScanner:
 
     def _parse_set_id(self, texts: List[str], confs: List[float], full_text: str = "") -> Tuple[Optional[str], float, str]:
         """Extracts Set ID and Language from text lines."""
+        self.ensure_validation_data()
         # Groups: 1=Prefix, 2=Region(Optional), 3=Number
         # Allow letters in Number group for typo detection (S, O, Z, etc.)
         pattern = re.compile(r'([A-Z0-9]{3,4})[- ]?([A-Z0-9]{0,2})?[-]?([A-Z0-9]{3})')
