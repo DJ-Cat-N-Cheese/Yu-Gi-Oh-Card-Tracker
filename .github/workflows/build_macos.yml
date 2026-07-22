@@ -33,6 +33,9 @@ jobs:
         run: |
           python build.py
 
+      - name: Ad-hoc code sign executable
+        run: codesign --force --deep -s - dist/OpenYuGi/OpenYuGi
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:

@@ -33,6 +33,9 @@ jobs:
         run: |
           python build.py
 
+      - name: Preserve executable permissions
+        run: chmod +x dist/OpenYuGi/OpenYuGi
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
