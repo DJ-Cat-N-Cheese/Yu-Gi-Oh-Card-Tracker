@@ -1,5 +1,6 @@
 import sys
 import os
+import multiprocessing
 from nicegui import ui, app
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -101,7 +102,8 @@ if os.environ.get('OPENYUGI_ENABLE_DEBUG_STATIC', '').lower() in {'1', 'true', '
 def chrome_devtools_probe():
     return JSONResponse(content={})
 
-if __name__ in {"__main__", "__mp_main__"}:
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
     # Disable reload to prevent restart loops when writing to data/ directory (images, db)
     ui.run(
         title='OpenYuGi',

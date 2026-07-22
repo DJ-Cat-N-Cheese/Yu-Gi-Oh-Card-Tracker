@@ -15,3 +15,6 @@ __pycache__/
 .redesign-files/
 .reference-files/
 venv/
+dist/
+build/
+*.spec
