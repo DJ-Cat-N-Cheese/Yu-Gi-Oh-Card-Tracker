@@ -21,6 +21,9 @@ Welcome to the OpenYuGi Wiki! This documentation covers every aspect of the appl
 - **[Configuration](Settings.md)**: Application settings and database management.
 - **[FAQ & Troubleshooting](FAQ_Troubleshooting.md)**: Common issues, scanner setup, and performance tips.
 
+### Under the Hood
+- **[Architecture & Data Model](Architecture.md)**: Technology stack, implementation rules, transaction flow, the authenticated API, and the on-disk collection data model.
+
 ---
 
 *Navigate using the links above to explore specific sections.*
