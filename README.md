@@ -1,49 +1,51 @@
-# OpenYuGi
+# 🎴 OpenYuGi
 
-OpenYuGi is a local-first Yu-Gi-Oh! collection manager, deck builder, and card-scanning application. It runs as a NiceGUI web application on your computer and stores your collection in readable files under `data/`; no hosted account or external database is required.
+**OpenYuGi is a local-first Yu-Gi-Oh! collection manager, deck builder, and card-scanning application.** It runs as a NiceGUI web app on your own computer and stores your collection in readable files under `data/` — no hosted account, no external database, no cloud service holding your inventory hostage.
 
-It is designed for both players and collectors. Player-oriented views consolidate alternate printings so you can answer “do I own three copies?”, while collector-oriented views preserve the exact set, rarity, artwork, condition, language, edition, value, and physical storage location of each copy.
+It is built for both **players** and **collectors**. Player-oriented views consolidate alternate printings so you can instantly answer *"do I own three copies?"*, while collector-oriented views preserve the exact set, rarity, artwork, condition, language, edition, value, and physical storage location of every single copy. 🗃️
 
-> **Default login:** `admin` / `admin`
-> Change these credentials in **Settings → Account security** immediately after the first login, especially if OpenYuGi is reachable by another device.
+> 🔐 **Default login:** `admin` / `admin`
+> Change these credentials in **Settings → Account security** immediately after your first login — especially if OpenYuGi is reachable by any other device on your network.
 
 ![OpenYuGi dashboard](docs/images/dashboard.png)
 
 ## Contents
 
-- [What OpenYuGi provides](#what-openyugi-provides)
-- [Quick start](#quick-start)
-- [First-run setup](#first-run-setup)
-- [Using the application](#using-the-application)
-- [Scanner setup and operation](#scanner-setup-and-operation)
-- [Local data, backups, and offline use](#local-data-backups-and-offline-use)
-- [Configuration and security](#configuration-and-security)
-- [Architecture](#architecture)
-- [Development](#development)
-- [Troubleshooting](#troubleshooting)
-- [Documentation index](#documentation-index)
-- [License and legal notice](#license-and-legal-notice)
+- [✨ Highlights](#-highlights)
+- [🚀 Quick start](#-quick-start)
+- [🧭 First-run setup](#-first-run-setup)
+- [🖥️ Using the application](#️-using-the-application)
+- [📷 The card scanner](#-the-card-scanner)
+- [💾 Local data, backups, and offline use](#-local-data-backups-and-offline-use)
+- [🔒 Configuration and security](#-configuration-and-security)
+- [🏗️ Architecture](#️-architecture)
+- [🛠️ Development](#️-development)
+- [🩹 Troubleshooting](#-troubleshooting)
+- [📚 Documentation index](#-documentation-index)
+- [⚖️ License and legal notice](#️-license-and-legal-notice)
 
-## What OpenYuGi provides
+## ✨ Highlights
 
-### Collection and inventory management
+OpenYuGi is a full workshop, not a single tool. Here is what lives inside — each area has a dedicated guide in [`docs/`](docs/Home.md) when you want to go deeper.
 
-- Create separate collections for personal cards, trades, sealed products, or any other workflow.
-- Track printings by set code, rarity, and artwork rather than collapsing every copy into a single record.
+### 🗃️ Collection & inventory management
+
+- Create separate collections for personal cards, trades, sealed products, or any workflow you like.
+- Track printings by set code, rarity, and artwork rather than collapsing every copy into one record.
 - Track physical entries by condition, language, first-edition status, storage location, quantity, purchase price, purchase date, and market value.
 - Switch between **Consolidated / Player** mode and **Collector / Variant** mode.
 - Search, filter, sort, and paginate large collections by card and printing metadata.
 - Review total quantity, unique cards, unique variants, estimated value, rarity distribution, language distribution, and completion metrics on the dashboard.
-- Undo supported collection and batch operations through the local changelog system.
+- Undo supported collection and batch operations through the local changelog system. ↩️
 
-### Set browsing
+### 🔍 Set browsing
 
 - Browse the locally cached Yu-Gi-Oh! set database.
 - Inspect the cards and rarities in a set.
-- Compare a set checklist with a selected collection to see owned and missing printings.
+- Compare a set checklist against a selected collection to see owned and missing printings.
 - Download pack imagery or import set data from Yugipedia when the upstream database needs an addition.
 
-### Physical storage
+### 📦 Physical storage
 
 - Define binders, boxes, sealed products, and other storage locations inside a collection.
 - Attach a description, image, or set association to a storage definition.
@@ -51,17 +53,17 @@ It is designed for both players and collectors. Player-oriented views consolidat
 - Move exact card entries between locations, including batch and drag-and-drop workflows.
 - Rename a location while keeping its card assignments consistent.
 
-### Deck building
+### 🃏 Deck building
 
 - Build Main, Extra, and Side Decks from the full card database.
-- Compare deck requirements with a selected physical collection.
+- Compare deck requirements against a selected physical collection.
 - Resolve alternate artwork IDs back to the base card identity for ownership and restriction checks.
 - Import, save, organize, and export standard `.ydk` files.
 - Export full decks or missing-card lists as YDK, CSV, JSON, or Cardmarket wants-list text.
 - Download and enforce TCG, OCG, Goat, and Genesys restrictions; custom banlists can also be saved locally.
 - Automatically route Extra Deck monster types and report deck or banlist violations.
 
-### High-volume entry and import
+### ⚡ High-volume entry & import
 
 - Use the two-pane Bulk Add page to search the database and stage many collection changes quickly.
 - Apply condition, language, edition, quantity, and storage metadata to batches.
@@ -69,16 +71,16 @@ It is designed for both players and collectors. Player-oriented views consolidat
 - Preview and correct parsed rows before committing them.
 - Merge collections without requiring a server-side database.
 
-### Local database editing
+### 🧩 Local database editing
 
 - Correct local card metadata without waiting for an upstream data source.
 - Add individual cards or sets from Yugipedia.
 - Import Cardmarket information and maintain local pricing references.
 - Keep collection files focused on owned-card state while joining card metadata at runtime.
 
-### Webcam scanner (beta)
+### 📷 Webcam scanner (beta)
 
-- Capture a card in the browser and process it locally.
+- Capture a card in the browser and process it entirely locally.
 - Detect and flatten card boundaries using classic OpenCV or experimental YOLO preprocessing.
 - Run EasyOCR and/or DocTR against the warped card.
 - Detect likely set codes, names, edition text, rarity information, and card art.
@@ -86,19 +88,21 @@ It is designed for both players and collectors. Player-oriented views consolidat
 - Pause for manual resolution when competing matches are too close.
 - Inspect intermediate images, OCR output, confidence, and pipeline steps in the Debug Lab.
 
-The scanner is an assistive beta feature, not a guarantee of printing-level identification. Confirm ambiguous or valuable cards before committing them to a collection.
+> The scanner is an assistive **beta** feature, not a guarantee of printing-level identification. Confirm ambiguous or valuable cards before committing them to a collection.
 
-## Quick start
+## 🚀 Quick start
 
 ### Requirements
 
-- Python 3.10 or newer; Python 3.11 is the version used by the packaged-build workflow.
-- Git.
-- A modern browser.
-- An internet connection for the initial card database download, image downloads, banlist refreshes, pricing data, and Yugipedia imports.
-- Additional disk space if you download the full image cache, especially high-resolution images.
+- **Python 3.10 or newer** (Python 3.11 is the version used by the packaged-build workflow).
+- **Git.**
+- **A modern browser.**
+- **An internet connection** for the initial card database download, image downloads, banlist refreshes, pricing data, and Yugipedia imports.
+- **Additional disk space** if you download the full image cache, especially high-resolution images.
 
 The scanner dependencies are included in `requirements.txt`. A CUDA-capable GPU can improve some model workloads but is not required. OpenYuGi uses EasyOCR and DocTR; it does **not** use Tesseract.
+
+> 🐣 New to Python or the command line? The [Cross-Platform Beginner Tutorial](docs/Cross%E2%80%91Platform%20Beginner%20Tutorial%20to%20Run%20Yu%E2%80%91Gi%E2%80%91Oh%E2%80%91Card%E2%80%91Tracker%20on%20Windows%2C%20macOS%2C%20and%20Ubuntu%20Using%20Conda.md) walks through a full Conda setup on Windows, macOS, and Ubuntu step by step, and there is a printable [beginner guide](docs/openyugi_beginner_guide.pdf) too.
 
 ### 1. Clone the repository
 
@@ -127,7 +131,7 @@ Activate it in Windows PowerShell:
 .\venv\Scripts\Activate.ps1
 ```
 
-Conda is also supported:
+Prefer Conda? That works too:
 
 ```bash
 conda create -n openyugi python=3.11 -y
@@ -141,7 +145,7 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Torch, OCR, OpenCV, and Ultralytics make this a relatively large environment. Installation time and download size are normal.
+Torch, OCR, OpenCV, and Ultralytics make this a relatively large environment, so a longer install time and download size are normal. ☕
 
 ### 4. Run OpenYuGi
 
@@ -151,11 +155,9 @@ Run the application from the repository root so its relative data paths resolve 
 python main.py
 ```
 
-NiceGUI normally opens the browser automatically. Otherwise, visit <http://localhost:8080>, sign in with `admin` / `admin`, and change the credentials in Settings.
+NiceGUI normally opens the browser automatically. Otherwise, visit <http://localhost:8080>, sign in with `admin` / `admin`, and change the credentials in Settings. Stop the server with `Ctrl+C` in the terminal.
 
-Stop the server with `Ctrl+C` in the terminal.
-
-## First-run setup
+## 🧭 First-run setup
 
 Open **Settings** after signing in. The data-management actions let you prepare only the caches you need:
 
@@ -167,45 +169,51 @@ Open **Settings** after signing in. The data-management actions let you prepare 
 6. **Download high-res card images** uses substantially more time, bandwidth, and storage.
 7. **Generate sample collection** creates example data for exploring the interface.
 
-OpenYuGi also downloads individual card images lazily when they are requested, so a complete image download is optional. Once the required metadata and images are cached, routine collection and deck work can continue offline. Features that refresh external data still require a connection.
+OpenYuGi also downloads individual card images lazily when they are requested, so a complete image download is optional. Once the required metadata and images are cached, routine collection and deck work can continue **offline**. Features that refresh external data still require a connection.
 
-## Using the application
+📖 For the full walkthrough of every toggle, see the [Settings guide](docs/Settings.md).
 
-### Dashboard
+## 🖥️ Using the application
 
-The dashboard is the collection overview. Select a collection to display unique-card and variant completion, total quantity, estimated Cardmarket-based value, and rarity and language charts. Its shortcuts lead to the main workflows.
+Every page below has a dedicated deep-dive guide in [`docs/`](docs/Home.md). This section is the quick tour.
 
-### Collection
+### 📊 Dashboard
 
-The Collection page is the primary inventory editor.
+Your collection's overview. Select a collection to display unique-card and variant completion, total quantity, estimated Cardmarket-based value, and rarity and language charts. Its shortcuts lead straight into the main workflows. → [Dashboard guide](docs/Dashboard.md)
+
+### 🗃️ Collection
+
+The primary inventory editor.
 
 - **Consolidated / Player view** groups all printings under the base card identity and emphasizes total ownership.
 - **Collector / Variant view** separates exact printings and artwork variants for valuation and storage work.
 - The detail view exposes entries for different conditions, languages, editions, and locations.
 - Filters can be combined with ownership and sort controls.
-- Collection files may be JSON, YAML, or YML, although JSON is the normal format.
+- Collection files may be JSON, YAML, or YML, though JSON is the normal format.
 
-Yu-Gi-Oh! APIs sometimes assign separate IDs to alternate artwork. OpenYuGi retains the printing's image ID while resolving gameplay-oriented counts to the base card where necessary.
+Yu-Gi-Oh! APIs sometimes assign separate IDs to alternate artwork. OpenYuGi retains the printing's image ID while resolving gameplay-oriented counts to the base card where necessary. → [Collection guide](docs/Collection.md)
 
-### Browse Sets
+### 🔍 Browse Sets
 
-Use Browse Sets as a visual checklist. Select a collection, open a set, and compare its printings with what you own. The page can also import a missing set from Yugipedia.
+A visual checklist. Select a collection, open a set, and compare its printings against what you own. The page can also import a missing set from Yugipedia. → [Browse Sets guide](docs/BrowseSets.md)
 
-### Storage
+### 📦 Storage
 
-Storage definitions belong to a collection. Create locations that mirror your room—for example, `Trade Binder`, `Bulk Box A`, or `Deck Case`—then assign entries to them. Moving a card changes its location without losing printing, condition, language, or edition metadata.
+Storage definitions belong to a collection. Create locations that mirror your room — for example `Trade Binder`, `Bulk Box A`, or `Deck Case` — then assign entries to them. Moving a card changes its location without losing printing, condition, language, or edition metadata. → [Storage guide](docs/Storage.md)
 
-### Deck Builder
+### 🃏 Deck Builder
 
 Decks are saved as `.ydk` files under `data/decks/` and may be organized into groups. Select a collection to show ownership while building. Select a banlist to check classical copy limits or Genesys points. The export dialog can produce a complete deck or only the missing cards.
 
-Deck availability is advisory: always confirm the current official tournament policy and effective banlist before an event.
+> Deck availability is advisory: always confirm the current official tournament policy and effective banlist before an event.
 
-### Bulk Add
+→ [Deck Builder guide](docs/DeckBuilder.md)
 
-Bulk Add is intended for booster openings, purchased lots, and inventory corrections. Search the library on the left, stage or adjust collection entries on the right, and apply shared metadata in batches. The page records supported changes so the most recent action can be undone.
+### ⚡ Bulk Add
 
-### Import Tools
+Built for booster openings, purchased lots, and inventory corrections. Search the library on the left, stage or adjust collection entries on the right, and apply shared metadata in batches. The page records supported changes so the most recent action can be undone. → [Bulk Add guide](docs/BulkAdd.md)
+
+### 📥 Import Tools
 
 Import Tools accepts:
 
@@ -213,17 +221,19 @@ Import Tools accepts:
 - Cardmarket PDF or text exports; and
 - another local collection for merging.
 
-Review the preview before committing an import, particularly when a source lacks an exact image ID, rarity, or localized set code.
+Review the preview before committing an import, particularly when a source lacks an exact image ID, rarity, or localized set code. → [Import Tools guide](docs/ImportTools.md)
 
-### DB Editor
+### 🧩 DB Editor
 
-The DB Editor changes cached reference metadata, not the owned-card hierarchy embedded in a collection. It is useful for newly announced cards, missing promotional cards, incorrect set data, and Cardmarket references. Back up `data/` before large manual edits.
+The DB Editor changes cached reference metadata, not the owned-card hierarchy embedded in a collection. It is useful for newly announced cards, missing promotional cards, incorrect set data, and Cardmarket references. Back up `data/` before large manual edits. → [Database Editor guide](docs/DBEditor.md)
 
-## Scanner setup and operation
+## 📷 The card scanner
+
+Point a webcam at a card, capture it in the browser, and let a fully local computer-vision pipeline do the identification — no image ever leaves your machine. 🔒
 
 ### Physical setup
 
-Scanner accuracy depends more on the capture environment than on any single model setting:
+Scanner accuracy depends more on your capture environment than on any single model setting:
 
 1. Mount the camera so it is stable and approximately parallel to the card.
 2. Place the entire card on a plain, matte surface with strong border contrast.
@@ -233,7 +243,7 @@ Scanner accuracy depends more on the capture environment than on any single mode
 
 A light background can work well with the preprocessing mode optimized for light surfaces; a dark playmat can work better for light card borders. Use the Debug Lab to see which choice produces a clean contour on your hardware.
 
-### Processing flow
+### How it processes a card
 
 ```text
 Browser capture
@@ -251,20 +261,11 @@ Heuristic candidate scoring
 Automatic result or ambiguity dialog
 ```
 
-The `ScannerManager` performs processing on a dedicated worker thread. It places requests on a queue and emits lifecycle events; the NiceGUI page consumes those events with a timer instead of updating UI objects directly from the worker thread.
+Processing runs on a dedicated worker thread so the UI never blocks, and the **Debug Lab** lets you compare preprocessing modes, OCR engines, and matching thresholds while inspecting every intermediate image.
 
-### Debug Lab controls
+📖 The full walkthrough — hardware tips, the weighted matching algorithm, Debug Lab controls, and scanner-specific troubleshooting — lives in the [Card Scanning guide](docs/CardScanning.md).
 
-- **Classic preprocessing** uses thresholding, contours, and perspective correction. It is fast and works best with a controlled background.
-- **YOLO preprocessing** is experimental and can help when classic contour detection is unreliable.
-- **DocTR** is the default OCR track and is generally the stronger option for small or skewed text.
-- **EasyOCR** is available as an alternate track for comparison.
-- **Art Match** compares a cropped artwork feature against a local index. Use **Index Images** after adding or replacing images.
-- **Ambiguity threshold** controls how close candidate scores may be before manual selection is required. Keep the default until the rest of the pipeline is stable.
-
-For pipeline screenshots and more detailed diagnostics, see [Card Scanning](docs/CardScanning.md).
-
-## Local data, backups, and offline use
+## 💾 Local data, backups, and offline use
 
 There is no SQL or NoSQL database. Persistent application state is stored in ordinary files, primarily beneath `data/`.
 
@@ -286,7 +287,7 @@ There is no SQL or NoSQL database. Persistent application state is stored in ord
 
 The entire `data/` tree and `config.json` are ignored by Git because they are installation-specific and may contain private inventory or security state.
 
-### Backing up
+### 🛟 Backing up
 
 1. Stop OpenYuGi so no write is in progress.
 2. Copy `data/` and `config.json` to a versioned backup location.
@@ -294,9 +295,9 @@ The entire `data/` tree and `config.json` are ignored by Git because they are in
 
 If space is limited, `data/images/` and `data/sets/` can usually be excluded because they can be downloaded again. Keep `data/collections/`, `data/decks/`, and any custom database or banlist content you cannot recreate.
 
-Test important backups by restoring them into a separate OpenYuGi checkout. A backup that has never been restored is only an assumption.
+> Test important backups by restoring them into a separate OpenYuGi checkout. A backup that has never been restored is only an assumption. 😉
 
-### Collection data model
+### The collection data model
 
 The collection hierarchy separates card identity, printing identity, and physical copies:
 
@@ -307,66 +308,21 @@ Collection
         └── CollectionEntry        condition + language + edition + location
 ```
 
-- `CollectionCard` groups an abstract card identity by API card ID.
-- `CollectionVariant` identifies a printing. Its deterministic ID incorporates card ID, set code, rarity, and image ID so alternate artwork remains distinct.
-- `CollectionEntry` represents a physical stack. Entries with the same condition, language, first-edition flag, and storage location share one quantity.
-- `ApiCard` reference objects come from the local API cache and are joined at runtime. They are not serialized into a user's collection.
+This structure is what lets OpenYuGi keep alternate artworks distinct for collectors while still resolving gameplay counts back to the base card. The complete model — field-by-field notes and an annotated collection JSON example — is documented in **[Architecture & Data Model](docs/Architecture.md#collection-data-model)**.
 
-A shortened collection file looks like this:
+> ⚠️ Do not edit a collection file while OpenYuGi is running; the next application save may overwrite the external change.
 
-```json
-{
-  "name": "Main Collection",
-  "description": "Personal cards",
-  "storage_definitions": [
-    {
-      "name": "Binder 1",
-      "type": "Binder",
-      "description": "Main trade binder"
-    }
-  ],
-  "cards": [
-    {
-      "card_id": 46986414,
-      "name": "Dark Magician",
-      "variants": [
-        {
-          "variant_id": "deterministically-generated-id",
-          "set_code": "LOB-EN005",
-          "rarity": "Ultra Rare",
-          "image_id": 46986414,
-          "entries": [
-            {
-              "condition": "Near Mint",
-              "language": "EN",
-              "first_edition": true,
-              "quantity": 2,
-              "storage_location": "Binder 1",
-              "purchase_price": 0.0,
-              "market_value": 0.0,
-              "purchase_date": null
-            }
-          ]
-        }
-      ]
-    }
-  ]
-}
-```
+## 🔒 Configuration and security
 
-Collection files are loaded into Pydantic models and saved by replacing the full file through the persistence layer. Do not edit a collection while OpenYuGi is running; the next application save may overwrite the external change.
+OpenYuGi uses a single local account and session-based authentication. UI pages, API routes, debug routes, and application data routes are all protected by the authentication middleware.
 
-## Configuration and security
-
-OpenYuGi uses a single local account and session-based authentication. UI pages, API routes, debug routes, and application data routes are protected by the authentication middleware.
-
-- Default credentials are `admin` / `admin`.
-- Passwords are stored as salted scrypt hashes in `config.json`, not as plaintext.
+- Default credentials are `admin` / `admin` — **change them first thing.**
+- Passwords are stored as salted scrypt hashes in `config.json`, never as plaintext.
 - Changing credentials invalidates existing authenticated sessions.
 - `data/.storage_secret` signs sessions and is created with restrictive file permissions where the platform supports them.
 - OpenYuGi does not configure TLS. If you expose it beyond localhost, place it behind a correctly configured HTTPS reverse proxy and restrict network access.
 
-Supported environment overrides include:
+### Environment overrides
 
 | Variable | Purpose |
 | --- | --- |
@@ -376,13 +332,11 @@ Supported environment overrides include:
 | `OPENYUGI_SECURE_COOKIES` | Set to `1`, `true`, or `yes` when serving exclusively through HTTPS |
 | `OPENYUGI_ENABLE_DEBUG_STATIC` | Expose the local `debug/` directory at `/debug`; use only for controlled debugging |
 
-The local-first model keeps collection data on your machine, but some actions intentionally contact external services, including YGOPRODeck, Yugipedia, Cardmarket pages, and banlist sources. OpenYuGi does not make those refresh features offline by pretending stale data is current.
+The local-first model keeps collection data on your machine, but some actions intentionally contact external services, including YGOPRODeck, Yugipedia, Cardmarket pages, and banlist sources. OpenYuGi does not pretend stale data is current just to stay offline.
 
-## Architecture
+## 🏗️ Architecture
 
-OpenYuGi is a server-rendered Python application built with NiceGUI, FastAPI, Pydantic, and local filesystem persistence.
-
-### Repository layout
+OpenYuGi is a server-rendered Python application built with **NiceGUI**, **FastAPI**, **Pydantic**, and local filesystem persistence.
 
 | Directory | Responsibility |
 | --- | --- |
@@ -396,42 +350,13 @@ OpenYuGi is a server-rendered Python application built with NiceGUI, FastAPI, Py
 | `docs/` | Feature guides and screenshots |
 | `data/` | Runtime user data and caches; ignored by Git |
 
-### Important implementation rules
+At a high level, every inventory change loads a `Collection` Pydantic model, goes through `CollectionEditor`, records a changelog operation, and is written back as a full replacement file before the UI refreshes. Background work — network calls, heavy computation, the scanner pipeline — is kept off the NiceGUI event loop.
 
-1. **Use `CollectionEditor` for card inventory mutations.** It creates and removes parent nodes, merges equivalent entries, generates variant IDs, and performs storage transfers consistently. UI code must not mutate `Collection.cards` directly.
-2. **Keep the UI event loop non-blocking.** Filesystem operations, network calls, and heavy computation must run through `await run.io_bound(...)`, an asynchronous client, or a dedicated worker thread.
-3. **Deep-copy mutable Pydantic state for snapshots.** Use `model.model_copy(deep=True)` when an undo snapshot or isolated working copy is needed.
-4. **Preserve card identity semantics.** Alternate-art IDs need to resolve to their base ID for gameplay ownership and banlist calculations while remaining distinct for collector inventory.
-5. **Keep API metadata transient.** A collection stores ownership state, not a duplicate of the full `ApiCard` database.
-6. **Update NiceGUI only from its UI context.** Background scanner threads emit queued events; they do not call `ui.notify` or mutate components directly.
+📐 The full technical deep dive — the six core implementation rules, the collection transaction flow, drag-and-drop internals, the authenticated `/api/v1` surface, the scanner threading model, and the complete on-disk data model — lives in **[Architecture & Data Model](docs/Architecture.md)**.
 
-`AGENTS.md` is the authoritative architectural manual for contributors and coding assistants. Read it before changing implementation code.
+> [`AGENTS.md`](AGENTS.md) is the authoritative architectural manual for contributors and coding assistants. Read it before changing implementation code.
 
-### Collection transaction flow
-
-```text
-UI or API request
-    ↓
-Load Collection Pydantic model
-    ↓
-CollectionEditor.apply_change(...) / move_card(...)
-    ↓
-Record supported changelog operation
-    ↓
-PersistenceManager saves a full replacement file
-    ↓
-Refresh the affected UI state
-```
-
-### Drag and drop
-
-Bulk Add and Storage use SortableJS in the browser. A frontend `onAdd` handler dispatches a `card_drop` event containing the card and source/target identifiers. The Python handler validates the event, performs the backend mutation, saves the collection, and refreshes the rendered content.
-
-### Authenticated API
-
-The application includes authenticated `/api/v1` endpoints for collection listing and mutation, card and set reference data, imports, and changelog access. The browser session authentication also protects these routes; unauthenticated API requests receive HTTP 401. Inspect `src/api/routes.py` and its Pydantic request models before integrating an external client.
-
-## Development
+## 🛠️ Development
 
 ### Run from source
 
@@ -450,7 +375,7 @@ python -m pip install pytest
 python -m pytest tests/
 ```
 
-Tests must isolate user data in temporary directories. Mock NiceGUI, OpenCV, network requests, and other optional or heavyweight integrations where the test does not specifically exercise them. Do not write test fixtures into the real `data/` directory.
+Tests must isolate user data in temporary directories. Mock NiceGUI, OpenCV, network requests, and other optional or heavyweight integrations where the test does not specifically exercise them. Never write test fixtures into the real `data/` directory.
 
 ### Build a distributable application
 
@@ -466,66 +391,87 @@ Build output is written beneath `dist/OpenYuGi/`. Platform-specific binaries sho
 ### Contribution workflow
 
 1. Fork the repository and create a focused branch from `main`.
-2. Read `AGENTS.md` and the guide for the subsystem you intend to change.
+2. Read [`AGENTS.md`](AGENTS.md) and the [`docs/`](docs/Home.md) guide for the subsystem you intend to change.
 3. Keep domain logic in `src/core/` or `src/services/`; keep presentation in `src/ui/`.
 4. Add or update isolated tests for behavioral changes.
 5. Run `python -m pytest tests/` from the repository root.
 6. Check `git diff` for generated images, logs, caches, local data, and credentials before committing.
 7. Open a pull request that explains the problem, solution, verification, and any new dependencies or migration concerns.
 
-## Troubleshooting
+## 🩹 Troubleshooting
 
-### The application does not start
+Quick fixes for the most common snags are below. For scanner-specific issues and more operating help, see the [FAQ & Troubleshooting guide](docs/FAQ_Troubleshooting.md).
+
+<details>
+<summary><strong>The application does not start</strong></summary>
 
 - Confirm the virtual environment is active and rerun `python -m pip install -r requirements.txt`.
 - Run `python main.py` from the repository root.
 - Read the terminal output and `logs/app.log` for the first exception.
 - If port 8080 is already occupied, stop the other process before restarting OpenYuGi.
 - If `config.json` is invalid, move it aside while OpenYuGi is stopped and restart to generate defaults. Keep the old file until any needed settings are recovered.
+</details>
 
-### `ModuleNotFoundError`
+<details>
+<summary><strong><code>ModuleNotFoundError</code></strong></summary>
 
 The usual causes are an inactive virtual environment, an incomplete dependency installation, or launching from another working directory. Activate the environment, install `requirements.txt`, and run from the checkout root.
+</details>
 
-### Images are missing
+<details>
+<summary><strong>Images are missing</strong></summary>
 
 - Check the network connection for an image that has not been cached.
 - Confirm the process can write to `data/images/` and `data/sets/`.
 - Use the corresponding download action in Settings to prefetch images.
 - Rebuild the scanner art index after replacing art-match images.
+</details>
 
-### Saving reports `PermissionError` or `Access denied`
+<details>
+<summary><strong>Saving reports <code>PermissionError</code> or <code>Access denied</code></strong></summary>
 
 Close editors that have the collection file open and temporarily pause software that locks files, such as aggressive antivirus scanning or cloud-sync clients. OpenYuGi retries short-lived Windows replacement failures, but it cannot save through a persistent external lock.
+</details>
 
-### The UI freezes during a development change
+<details>
+<summary><strong>The UI freezes during a development change</strong></summary>
 
 A synchronous file operation, network request, or CPU-heavy task is probably running in the NiceGUI event loop. Move it to `await run.io_bound(...)`, use an async client, or use the scanner-style worker and event queue.
+</details>
 
-### The camera is black or unavailable
+<details>
+<summary><strong>The camera is black or unavailable</strong></summary>
 
 - Grant camera permission in the browser and operating system.
 - Close Zoom, Discord, OBS, or other applications using the camera.
 - Refresh the Scan page after permissions change.
 - Use localhost or HTTPS; browsers may restrict cameras in insecure non-local contexts.
+</details>
 
-### The scanner cannot find the card
+<details>
+<summary><strong>The scanner cannot find the card</strong></summary>
 
 - Make the full card visible with a contrasting, uncluttered background.
 - Reduce sleeve and foil glare with diffuse side lighting.
 - Check the contour and warped-card output in Debug Lab.
 - Compare classic and YOLO preprocessing.
 - Confirm OCR/model dependencies imported successfully.
+</details>
 
-### A database or banlist refresh fails
+<details>
+<summary><strong>A database or banlist refresh fails</strong></summary>
 
 These operations depend on external services and their current response formats. Preserve the existing local cache, check the network and logs, and retry later rather than deleting usable data immediately.
+</details>
 
-## Documentation index
+## 📚 Documentation index
+
+The README is the front door; these guides are the rooms. 🚪
 
 | Guide | Scope |
 | --- | --- |
 | [Documentation home](docs/Home.md) | Short index of feature documentation |
+| [Architecture & Data Model](docs/Architecture.md) | Stack, implementation rules, transaction flow, API, and the on-disk data model |
 | [Dashboard](docs/Dashboard.md) | Metrics, charts, collection selection, and navigation |
 | [Collection](docs/Collection.md) | Inventory views, filtering, values, and entry editing |
 | [Storage](docs/Storage.md) | Boxes, binders, location details, and card movement |
@@ -539,12 +485,12 @@ These operations depend on external services and their current response formats.
 | [FAQ and troubleshooting](docs/FAQ_Troubleshooting.md) | Additional operating and scanner help |
 | [Cross-platform beginner tutorial](docs/Cross%E2%80%91Platform%20Beginner%20Tutorial%20to%20Run%20Yu%E2%80%91Gi%E2%80%91Oh%E2%80%91Card%E2%80%91Tracker%20on%20Windows%2C%20macOS%2C%20and%20Ubuntu%20Using%20Conda.md) | Detailed Conda setup on Windows, macOS, and Ubuntu |
 
-A printable [beginner guide](docs/openyugi_beginner_guide.pdf) is also included.
+A printable [beginner guide](docs/openyugi_beginner_guide.pdf) is also included. 📄
 
-## License and legal notice
+## ⚖️ License and legal notice
 
 OpenYuGi is released under the [MIT License](LICENSE).
 
-This is a fan-made, open-source project. It is not affiliated with, endorsed, sponsored, or approved by Studio Dice, Shueisha, TV Tokyo, Konami, or their affiliates.
+This is a fan-made, open-source project. It is **not** affiliated with, endorsed, sponsored, or approved by Studio Dice, Shueisha, TV Tokyo, Konami, or their affiliates.
 
 Yu-Gi-Oh! and related names and indicia are trademarks or copyrighted material of their respective owners. Card images and text retrieved from external services remain the property of their respective rights holders. OpenYuGi uses that material to support personal collection management and deck-building workflows; the MIT license applies to this project's software, not to third-party card assets or data.
