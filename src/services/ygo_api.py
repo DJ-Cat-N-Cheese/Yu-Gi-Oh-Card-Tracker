@@ -172,22 +172,8 @@ class YugiohService:
     def _merge_database_data(self, local_cards: List[ApiCard], api_cards: List[ApiCard]) -> List[ApiCard]:
         """Merges API data into local data, preserving custom variants and IDs."""
 
-        # PRE-CLEANUP: Ensure all local sets have valid IDs before merging.
-        # This prevents duplicate/missing/empty IDs from causing drops during deduplication.
-        for l_card in local_cards:
-            # Fallback default image id
-            l_default_img = l_card.card_images[0].id if l_card.card_images else None
-
-            for s in l_card.card_sets:
-                # 1. Ensure image_id is present
-                if s.image_id is None:
-                    s.image_id = l_default_img
-
-                # 2. Ensure variant_id is present and valid (not None or empty string)
-                if not s.variant_id:
-                    s.variant_id = generate_variant_id(
-                        l_card.id, s.set_code, s.set_rarity, s.image_id
-                    )
+        # PRE-CLEANUP loop removed to optimize O(N*M) checks.
+        # Generation of missing image_id and variant_id is deferred to local_sets_map generation and custom card loops.
 
         local_map = {c.id: c for c in local_cards}
         merged_list = []
@@ -210,7 +196,14 @@ class YugiohService:
                 # Map local sets by (code, rarity) for matching
                 # Note: We group by key because there might be multiple (e.g. alt arts)
                 local_sets_map = {}
+                l_default_img = local_card.card_images[0].id if local_card.card_images else None
                 for s in local_card.card_sets:
+                    if s.image_id is None:
+                        s.image_id = l_default_img
+                    if not s.variant_id:
+                        s.variant_id = generate_variant_id(
+                            local_card.id, s.set_code, s.set_rarity, s.image_id
+                        )
                     key = (s.set_code, s.set_rarity)
                     if key not in local_sets_map:
                         local_sets_map[key] = []
@@ -232,13 +225,7 @@ class YugiohService:
                             # Update mutable fields from API
                             local_s.set_price = api_set.set_price
 
-                            # (Redundant safety check, already handled in pre-cleanup but harmless to keep if logic changes)
-                            if local_s.image_id is None:
-                                local_s.image_id = default_image_id
-                            if not local_s.variant_id:
-                                local_s.variant_id = generate_variant_id(
-                                    api_card.id, local_s.set_code, local_s.set_rarity, local_s.image_id
-                                )
+                            # Safety check removed. variant_id and image_id already handled during local_sets_map creation.
 
                             # Keep local_s in merged list
                             merged_sets.append(local_s)
@@ -258,13 +245,6 @@ class YugiohService:
                 for sets in local_sets_map.values():
                     for s in sets:
                         if s.variant_id not in processed_local_sets:
-                            # Ensure IDs for local orphans too
-                            if s.image_id is None:
-                                s.image_id = default_image_id
-                            if s.variant_id is None:
-                                s.variant_id = generate_variant_id(
-                                    api_card.id, s.set_code, s.set_rarity, s.image_id
-                                )
                             merged_sets.append(s)
 
                 merged_card.card_sets = merged_sets
@@ -284,6 +264,14 @@ class YugiohService:
         # We previously dropped them, but now we keep them to prevent data loss.
         for l_card in local_cards:
             if l_card.id not in processed_card_ids:
+                l_default_img = l_card.card_images[0].id if l_card.card_images else None
+                for s in l_card.card_sets:
+                    if s.image_id is None:
+                        s.image_id = l_default_img
+                    if not s.variant_id:
+                        s.variant_id = generate_variant_id(
+                            l_card.id, s.set_code, s.set_rarity, s.image_id
+                        )
                 merged_list.append(l_card)
 
         return merged_list
